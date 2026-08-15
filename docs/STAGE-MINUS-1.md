@@ -42,31 +42,70 @@ A stream is a deterministic, seeded sequence of typed events.
 Event kinds:
 
 - `Observe`. Input the subject may learn from.
-- `Probe`. A question with a known answer, scored, and isolated from learning.
-- `Idle`. A block of wall time or step budget with no input. Stage -1 subjects
-  ignore it. Stage 3 subjects consolidate during it. It is in the schema from day
-  one so no stream needs rewriting later.
+- `Probe`. A question with a known answer, scored, and isolated from learning. It
+  carries a self-contained `query` naming what it asks, and, when a token counter
+  is named, a measured `token_distance` back to what taught the answer.
+- `Idle`. A block of wall time or step budget with no input. It renders to no
+  text at all. It reaches the subject through `idle(budget)` instead. Rendering
+  it would make it input, against the "no input" in its own definition.
+  Stage -1 subjects ignore it. Stage 3 subjects consolidate during it. It is in
+  the schema from day one so no stream needs rewriting later.
 - `Boundary`. A marker for a fake session end, a task switch, or a distribution
   shift. Visible to the harness, optionally hidden from the subject.
 
 A stream generator takes a config and a seed and yields events. It also yields the
 ground truth needed to score each probe, on a side channel the subject never sees.
+A separate rendering step turns one event into the text block a subject reads.
+It never lets a truth answer, a probe id, a task id, a teaching position, or the
+hostile flag reach that text. So two subjects reading the same stream see
+identical wording.
+
+An `Observe` renders by the shape of its payload, not by its event class. Payload
+shapes vary per generator while the class does not. One branch per class would
+therefore print whatever a payload happened to be. A taught fact reads
+as `[fact] key = value`, a labeled example reads as `[example] features=(...)
+label=...`, and a prose span reads as bare text with no marker around it. A
+payload matching no known shape raises rather than falling back to a repr. The
+same feature formatter writes a `split-classify` probe query, so a probe and the
+examples it is compared against never differ in wording or precision.
+
+`scripts/show_stream.py` prints this text for every generator, beside the truth
+each probe is scored against. Read it before changing a payload or a rendering.
 
 Stage -1 ships these generators:
 
-- `assoc`. Synthetic fact learning. Teach `key -> value` pairs at known positions,
-  probe recall at controlled distances up to 100k tokens back. This is the direct
-  test of "do you recall a fact from 100k tokens back" and it is the one generator
-  where the correct answer is known by construction rather than by a dataset.
-- `split-classify`. A classification stream split into tasks presented in sequence,
-  with probes on every task seen so far. This is the generator that hosts the
-  reproduction gate.
-- `difficulty-mix`. Items with a known difficulty label interleaved at random, used
-  only to measure whether compute per input tracks difficulty.
+- `assoc`. Fact learning over a closed vocabulary. Teach `key -> value` pairs,
+  drawn from a fixed word list, at known positions, with prose filler between
+  them and a probe query built from the key. Filler comes off one forward walk
+  through the corpus per stream. Consecutive spans therefore continue one
+  document instead of jumping between unrelated parts of the snapshot. Probes are
+  placed at controlled event distances, because the scheduler places probes by
+  event. Each probe
+  also carries a token distance, measured from the rendered text between
+  teaching and probe once rendering is done. This is the direct test of "do
+  you recall a fact from far back". It is the one generator where the correct
+  answer is known by construction rather than by a dataset.
+- `split-classify`. A classification stream split into tasks presented in
+  sequence, with probes on every task seen so far and a `Boundary(TASK_SWITCH)`
+  between tasks. The `Observe` payload holds `features`, a `label`, and an
+  optional `source` naming a dataset item. `source` stays empty for now. Real
+  digit data can bind through it later, as a config change. That data is
+  Split-MNIST (the Modified National Institute of Standards and Technology set
+  of written digits, split into tasks of two digits each). This is the
+  generator that hosts the reproduction gate.
+- `difficulty-mix`. Arithmetic chains whose length is the difficulty label,
+  kept on the truth channel only so a subject cannot read it off the query.
+  Answers run mod 1000, so the answer space stays bounded regardless of chain
+  length.
 
-Streams are addressed by a content hash of their config plus seed plus generator
-version. A run record stores that hash, so a later run can prove it saw the same
-stream.
+Every generator reports a chance rate for its probe class, computable on
+paper. That rate is 1 in the vocabulary size for `assoc`, 1 over
+`classes_per_task` for `split-classify`, and 1 in 1000 for `difficulty-mix`.
+
+A stream is addressed by a content hash. That hash covers the config, the seed,
+the generator version, the render version, and the corpus id. A run record
+stores that hash, so a later run can prove it saw the same stream, the same
+wording, and the same filler source.
 
 ## Component 2: the subject protocol
 

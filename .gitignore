@@ -1,0 +1,29 @@
+# .step-session/: scratch state written by the step-by-step orchestrator skill
+.step-session/
+
+# __pycache__/: bytecode cache written by the Python interpreter
+__pycache__/
+
+# .pytest_cache/: cache written by pytest between runs
+.pytest_cache/
+
+# *.egg-info/: metadata written by setuptools when the project installs
+*.egg-info/
+
+# .venv/: the local virtual environment created by python -m venv
+.venv/
+
+# **/data/corpus/: prose snapshot written by scripts/fetch_corpus.py
+**/data/corpus/
+
+# .spec-extract/: scratch output written by the spec-extract skill
+.spec-extract/
+
+# .coverage: coverage data written by pytest-cov / coverage.py
+.coverage
+
+# .idea/: project config written by PyCharm / IntelliJ
+.idea/
+
+# .claude/settings.local.json: local Claude Code settings (per-machine)
+.claude/settings.local.json
