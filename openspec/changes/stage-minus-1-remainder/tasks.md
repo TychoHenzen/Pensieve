@@ -34,15 +34,24 @@
 
 ## 4. Persistence (phase 6)
 
-- [ ] 4.1 Create `eval/run/__init__.py` with the `RunRecord` class: config, code revision, stream hash, environment, probe log path, metric summary path, checkpoint paths.
-- [ ] 4.2 Create `eval/run/config.py`: typed config resolution from a file plus overrides, config hash for the run id.
-- [ ] 4.3 Create `eval/run/checkpoint.py`: atomic checkpoint writes (write-to-temp, rename), checkpoint loading, RNG state save/restore.
-- [ ] 4.4 Create `eval/run/runner.py`: the main run loop that processes a stream through a subject, writes probe log entries, and manages checkpoints on both position and wall-clock schedules.
-- [ ] 4.5 Create `eval/run/retention_policy.py`: checkpoint retention policy (keep last plus every Nth), cleanup of old checkpoints.
-- [ ] 4.6 Write `tests/run/test_config.py`: same config produces same run id, overrides work, env-var paths accepted.
-- [ ] 4.7 Write `tests/run/test_checkpoint.py`: atomic write survives simulated interruption, round-trip save/load, RNG state preserved.
-- [ ] 4.8 Write `tests/run/test_resume.py`: a killed-and-resumed run produces the same probe log as an unbroken run (on a short stream with an oracle subject).
-- [ ] 4.9 Write `tests/run/test_retention_policy.py`: policy keeps last plus every Nth, deletes others.
+- [x] 4.1 Create `eval/run/__init__.py` with the `RunRecord` class: config, code revision, stream hash, environment, probe log path, metric summary path, checkpoint paths.
+<!-- status: completed -->
+- [x] 4.2 Create `eval/run/config.py`: typed config resolution from a file plus overrides, config hash for the run id.
+<!-- status: completed -->
+- [x] 4.3 Create `eval/run/checkpoint.py`: atomic checkpoint writes (write-to-temp, rename), checkpoint loading, RNG state save/restore.
+<!-- status: completed -->
+- [x] 4.4 Create `eval/run/runner.py`: the main run loop that processes a stream through a subject, writes probe log entries, and manages checkpoints on both position and wall-clock schedules.
+<!-- status: completed -->
+- [x] 4.5 Create `eval/run/retention_policy.py`: checkpoint retention policy (keep last plus every Nth), cleanup of old checkpoints.
+<!-- status: completed -->
+- [x] 4.6 Write `tests/run/test_config.py`: same config produces same run id, overrides work, env-var paths accepted.
+<!-- status: completed -->
+- [x] 4.7 Write `tests/run/test_checkpoint.py`: atomic write survives simulated interruption, round-trip save/load, RNG state preserved.
+<!-- status: completed -->
+- [x] 4.8 Write `tests/run/test_resume.py`: a killed-and-resumed run produces the same probe log as an unbroken run (on a short stream with an oracle subject).
+<!-- status: completed -->
+- [x] 4.9 Write `tests/run/test_retention_policy.py`: policy keeps last plus every Nth, deletes others.
+<!-- status: completed -->
 
 ## 5. Baselines and MNIST binding (phase 7) - refinement
 
