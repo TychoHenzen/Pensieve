@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+METRICS_VERSION = "1"
+
 from dataclasses import dataclass
 
 from eval.subject import CostCounters
