@@ -14,17 +14,17 @@
 
 ## 2. Metrics (phase 4)
 
-- [ ] 2.1 Create `eval/metrics/__init__.py` with the `ProbeLogEntry` dataclass (position, probe_id, task_id, teaching_position, correct, cost_counters).
-- [ ] 2.2 Create `eval/metrics/accuracy.py`: `task_accuracy(log)` returning per-task, per-probe-class, and pooled accuracy.
-- [ ] 2.3 Create `eval/metrics/retention.py`: `retention_matrix(log)` returning `R[i][j]`.
-- [ ] 2.4 Create `eval/metrics/transfer.py`: `backward_transfer(R)` and `forward_transfer(log, chance_rates)`.
-- [ ] 2.5 Create `eval/metrics/compute.py`: `compute_per_input(log)` returning steps, flops, wall_seconds derived from CostCounters differences.
-- [ ] 2.6 Create `eval/metrics/first_use.py`: `time_to_first_use(log, cutoff)` returning median and cutoff share.
-- [ ] 2.7 Write `tests/metrics/test_accuracy.py`: hand-crafted probe logs with known correct accuracy values.
-- [ ] 2.8 Write `tests/metrics/test_retention.py`: perfect-memory log (all 1.0), task-wiper log (diagonal 1.0, off-diagonal chance).
-- [ ] 2.9 Write `tests/metrics/test_transfer.py`: backward transfer strongly negative for task-wiper, zero for perfect-memory. Forward transfer zero for chance oracle.
-- [ ] 2.10 Write `tests/metrics/test_first_use.py`: perfect-memory first use equals distance to next probe.
-- [ ] 2.11 Oracle metric integration tests: run each oracle on a short stream through the full pipeline (subject -> probe log -> all metrics) and check every value against paper-derived expectations.
+- [x] 2.1 Create `eval/metrics/__init__.py` with the `ProbeLogEntry` dataclass (position, probe_id, task_id, teaching_position, correct, cost_counters).
+- [x] 2.2 Create `eval/metrics/accuracy.py`: `task_accuracy(log)` returning per-task, per-probe-class, and pooled accuracy.
+- [x] 2.3 Create `eval/metrics/retention.py`: `retention_matrix(phases, task_order)` returning `R[i][j]`.
+- [x] 2.4 Create `eval/metrics/transfer.py`: `backward_transfer(R)` and `forward_transfer(log, chance_rates)`.
+- [x] 2.5 Create `eval/metrics/compute.py`: `compute_per_input(log)` returning steps, flops, wall_seconds derived from CostCounters differences.
+- [x] 2.6 Create `eval/metrics/first_use.py`: `time_to_first_use(log, cutoff)` returning median and cutoff share.
+- [x] 2.7 Write `tests/metrics/test_accuracy.py`: hand-crafted probe logs with known correct accuracy values.
+- [x] 2.8 Write `tests/metrics/test_retention.py`: perfect-memory log (all 1.0), task-wiper log (diagonal 1.0, off-diagonal chance).
+- [x] 2.9 Write `tests/metrics/test_transfer.py`: backward transfer strongly negative for task-wiper, zero for perfect-memory. Forward transfer zero for chance oracle.
+- [x] 2.10 Write `tests/metrics/test_first_use.py`: perfect-memory first use equals distance to next probe.
+- [x] 2.11 Oracle metric integration tests: run each oracle on a short stream through the full pipeline (subject -> probe log -> all metrics) and check every value against paper-derived expectations.
 
 ## 3. Instrumentation (phase 5)
 
