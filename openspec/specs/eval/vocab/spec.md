@@ -14,6 +14,42 @@ Provides a fixed pool of common English words for generating unambiguous key-val
 - **WHEN** it is inspected
 - **THEN** it has at least 256 entries, no duplicates, sorted order, and every word is lowercase alphabetic
 
+#### Scenario: vocabulary has at least 256 entries
+
+- **GIVEN** the `VOCAB` tuple
+- **WHEN** its length is checked
+- **THEN** it is at least 256
+
+#### Scenario: vocabulary has no duplicates
+
+- **GIVEN** the `VOCAB` tuple
+- **WHEN** it is converted to a set
+- **THEN** the set has the same length as the tuple
+
+#### Scenario: vocabulary is sorted
+
+- **GIVEN** the `VOCAB` tuple
+- **WHEN** it is compared to `tuple(sorted(VOCAB))`
+- **THEN** they are equal
+
+#### Scenario: every entry is lowercase alphabetic
+
+- **GIVEN** the `VOCAB` tuple
+- **WHEN** every entry is checked against `str.isalpha()` and `str.islower()`
+- **THEN** all return `True`
+
+#### Scenario: VOCAB is a tuple
+
+- **GIVEN** the `VOCAB` object
+- **WHEN** its type is checked
+- **THEN** it is `tuple`
+
+#### Scenario: no entry is an empty string
+
+- **GIVEN** the `VOCAB` tuple
+- **WHEN** every entry is checked
+- **THEN** none is empty
+
 ### Requirement: sample determinism, distinctness, and bounds checking
 
 `sample(source, n)` MUST be reproducible for a fixed `random.Random` state, MUST diverge across different seeds, MUST return `n` pairwise-distinct words, and MUST raise `ValueError` when `n` exceeds `len(VOCAB)` or is negative. [REQUIRED]
@@ -23,6 +59,18 @@ Provides a fixed pool of common English words for generating unambiguous key-val
 - **GIVEN** two `random.Random(0)` sources
 - **WHEN** `sample` is called on each with the same `n`
 - **THEN** the two results are equal
+
+#### Scenario: different seeds diverge
+
+- **GIVEN** `random.Random(0)` and `random.Random(1)`
+- **WHEN** `sample` is called with the same `n`
+- **THEN** the two results differ
+
+#### Scenario: n distinct words returned
+
+- **GIVEN** `random.Random(0)` and `n=10`
+- **WHEN** `sample` is called
+- **THEN** the result has 10 pairwise-distinct entries
 
 #### Scenario: oversized draw rejected
 
@@ -49,6 +97,12 @@ Provides a fixed pool of common English words for generating unambiguous key-val
 #### Scenario: non-positive input rejected
 
 - **GIVEN** `n_choices = 0`
+- **WHEN** `chance_rate` is called
+- **THEN** `ValueError` is raised
+
+#### Scenario: negative input rejected
+
+- **GIVEN** `n_choices = -1`
 - **WHEN** `chance_rate` is called
 - **THEN** `ValueError` is raised
 
