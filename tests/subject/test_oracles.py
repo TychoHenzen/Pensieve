@@ -27,7 +27,7 @@ def _assoc_stream():
     return events, probes, {k: v for k, v in pairs}
 
 
-# covers: eval/subject/oracles::PerfectMemoryOracle recalls all observations::recalls everything
+# covers: eval/subject::PerfectMemoryOracle recalls all observations::recalls everything
 def test_perfect_memory_recalls_everything():
     events, probes, truth = _assoc_stream()
     oracle = PerfectMemoryOracle()
@@ -37,13 +37,25 @@ def test_perfect_memory_recalls_everything():
         assert oracle.answer(p) == truth[p.query]
 
 
-# covers: eval/subject/oracles::PerfectMemoryOracle recalls all observations::unknown key returns empty
+# covers: eval/subject::PerfectMemoryOracle recalls all observations::unknown key returns empty
 def test_perfect_memory_unknown_returns_empty():
     oracle = PerfectMemoryOracle()
     probe = Probe(position=0, probe_id="p", task_id="t", query="never_taught")
     assert oracle.answer(probe) == ""
 
 
+# covers: eval/subject::PerfectMemoryOracle recalls all observations::retains across many observations
+def test_perfect_memory_retains_across_many_observations():
+    oracle = PerfectMemoryOracle()
+    pairs = [(f"key{i}", f"value{i}") for i in range(100)]
+    for pos, (key, value) in enumerate(pairs):
+        oracle.observe(Observe(position=pos, payload={"key": key, "value": value}))
+    first_key, first_value = pairs[0]
+    probe = Probe(position=100, probe_id="p", task_id="t", query=first_key)
+    assert oracle.answer(probe) == first_value
+
+
+# covers: eval/subject::ForgetfulOracle retains only the most recent observation::most recent key always answerable
 def test_forgetful_recalls_only_last():
     events, probes, truth = _assoc_stream()
     oracle = ForgetfulOracle()
@@ -59,7 +71,7 @@ def test_forgetful_recalls_only_last():
             assert answer == ""
 
 
-# covers: eval/subject/oracles::ForgetfulOracle retains only the most recent observation::immediate recall correct
+# covers: eval/subject::ForgetfulOracle retains only the most recent observation::immediate recall correct
 def test_forgetful_correct_on_immediate_recall():
     oracle = ForgetfulOracle()
     oracle.observe(Observe(position=0, payload={"key": "x", "value": "y"}))
@@ -67,17 +79,17 @@ def test_forgetful_correct_on_immediate_recall():
     assert oracle.answer(probe) == "y"
 
 
-# covers: eval/subject/oracles::ForgetfulOracle retains only the most recent observation::earlier keys forgotten after intervening observation
+# covers: eval/subject::ForgetfulOracle retains only the most recent observation::earlier keys forgotten after intervening observation
 def test_forgetful_wrong_after_intervening():
     oracle = ForgetfulOracle()
     oracle.observe(Observe(position=0, payload={"key": "a", "value": "1"}))
     oracle.observe(Observe(position=1, payload={"key": "b", "value": "2"}))
     oracle.observe(Observe(position=2, payload={"key": "c", "value": "3"}))
     probe = Probe(position=3, probe_id="p", task_id="t", query="a")
-    assert oracle.answer(probe) != "1"
+    assert oracle.answer(probe) == ""
 
 
-# covers: eval/subject/oracles::ChanceOracle answers randomly from VOCAB::accuracy near chance rate
+# covers: eval/subject::ChanceOracle answers randomly from VOCAB::accuracy near chance rate
 def test_chance_near_chance_rate():
     n_probes = 2000
     oracle = ChanceOracle(seed=42)
@@ -102,7 +114,25 @@ def test_chance_near_chance_rate():
     )
 
 
-# covers: eval/subject/oracles::TaskWiperOracle forgets on task boundaries::current task correct
+# covers: eval/subject::ChanceOracle answers randomly from VOCAB::answers are from VOCAB
+def test_chance_answers_are_from_vocab():
+    oracle = ChanceOracle(seed=1)
+    for i in range(100):
+        probe = Probe(position=i, probe_id=f"p{i}", task_id="t", query="x")
+        assert oracle.answer(probe) in VOCAB
+
+
+# covers: eval/subject::ChanceOracle answers randomly from VOCAB::answers vary across probes
+def test_chance_answers_vary_across_probes():
+    oracle = ChanceOracle(seed=1)
+    answers = {
+        oracle.answer(Probe(position=i, probe_id=f"p{i}", task_id="t", query="x"))
+        for i in range(100)
+    }
+    assert len(answers) >= 2
+
+
+# covers: eval/subject::TaskWiperOracle forgets on task boundaries::current task correct
 def test_task_wiper_current_task_correct():
     oracle = TaskWiperOracle(seed=0)
     oracle.observe(Observe(position=0, payload={"key": "a", "value": "1"}))
@@ -111,7 +141,7 @@ def test_task_wiper_current_task_correct():
     assert oracle.answer(Probe(position=3, probe_id="pb", task_id="t0", query="b")) == "2"
 
 
-# covers: eval/subject/oracles::TaskWiperOracle forgets on task boundaries::drops on boundary
+# covers: eval/subject::TaskWiperOracle forgets on task boundaries::drops on boundary
 def test_task_wiper_drops_on_boundary():
     oracle = TaskWiperOracle(seed=0)
     oracle.observe(Observe(position=0, payload={"key": "a", "value": "1"}))
@@ -120,10 +150,24 @@ def test_task_wiper_drops_on_boundary():
 
     assert oracle.answer(Probe(position=3, probe_id="pb", task_id="t1", query="b")) == "2"
     answer_a = oracle.answer(Probe(position=4, probe_id="pa", task_id="t0", query="a"))
+    # ASSUMPTION: spec says answer is "" after forgetting, but TaskWiperOracle
+    # returns a random VOCAB guess instead of "" for unrecalled keys (see
+    # eval/subject/oracles/task_wiper.py answer()). Asserting the weaker,
+    # observed contract (not the stale value) rather than "" until that
+    # implementation/spec mismatch is resolved outside this test-only step.
     assert answer_a != "1", "the task wiper should have forgotten task 0 after the switch"
 
 
-# covers: eval/subject/oracles::CheaterOracle exploits probe truth map::learns from probes
+# covers: eval/subject::TaskWiperOracle forgets on task boundaries::new observations after boundary are retained
+def test_task_wiper_retains_after_boundary():
+    oracle = TaskWiperOracle(seed=0)
+    oracle.observe(Observe(position=0, payload={"key": "a", "value": "1"}))
+    oracle.observe(Boundary(position=1, kind=BoundaryKind.TASK_SWITCH))
+    oracle.observe(Observe(position=2, payload={"key": "b", "value": "2"}))
+    assert oracle.answer(Probe(position=3, probe_id="pb", task_id="t1", query="b")) == "2"
+
+
+# covers: eval/subject::CheaterOracle exploits probe truth map::learns from probes
 def test_cheater_learns_from_probes():
     truth_map = {"x": "correct"}
     oracle = CheaterOracle(truth_map)
@@ -135,8 +179,15 @@ def test_cheater_learns_from_probes():
     assert second == "correct", "second probe returns the truth learned from the first"
 
 
-# covers: eval/subject/oracles::CheaterOracle exploits probe truth map::unknown without truth map
+# covers: eval/subject::CheaterOracle exploits probe truth map::unknown without truth map
 def test_cheater_unknown_without_truth_map():
     oracle = CheaterOracle({})
+    probe = Probe(position=0, probe_id="p", task_id="t", query="x")
+    assert oracle.answer(probe) == ""
+
+
+# covers: eval/subject::CheaterOracle exploits probe truth map::no truth map entry returns empty
+def test_cheater_no_truth_map_entry_returns_empty():
+    oracle = CheaterOracle({"y": "known"})
     probe = Probe(position=0, probe_id="p", task_id="t", query="x")
     assert oracle.answer(probe) == ""

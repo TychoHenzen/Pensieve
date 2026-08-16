@@ -21,7 +21,7 @@ def _run_clean(oracle, signal_events, probes):
     return [oracle.answer(p) for p in probes]
 
 
-# covers: eval/subject/snapshot::Snapshot captures full state::restore erases intermediate observations on PerfectMemoryOracle
+# covers: eval/subject::Snapshot captures full state::restore erases intermediate observations on PerfectMemoryOracle
 def test_perfect_memory_restore_erases_noise():
     signal = [
         Observe(position=0, payload={"key": "a", "value": "1"}),
@@ -44,7 +44,7 @@ def test_perfect_memory_restore_erases_noise():
     assert restored == clean
 
 
-# covers: eval/subject/snapshot::Snapshot captures full state::restore erases intermediate observations on ForgetfulOracle
+# covers: eval/subject::Snapshot captures full state::restore erases intermediate observations on ForgetfulOracle
 def test_forgetful_restore_erases_noise():
     signal = [
         Observe(position=0, payload={"key": "a", "value": "1"}),

@@ -16,7 +16,7 @@ def _make_stream():
     ]
 
 
-# covers: eval/subject/isolation::isolated_answer prevents probe-based learning::cheater detected by isolation
+# covers: eval/subject::isolated_answer prevents probe-based learning::cheater detected by isolation
 def test_cheater_detected_by_isolation():
     truth_map = {"cat": "meow", "dog": "bark"}
 
@@ -43,7 +43,7 @@ def test_cheater_detected_by_isolation():
     )
 
 
-# covers: eval/subject/isolation::isolated_answer prevents probe-based learning::honest subject unaffected
+# covers: eval/subject::isolated_answer prevents probe-based learning::honest subject unaffected
 def test_honest_subject_identical_with_and_without_isolation():
     stream = _make_stream()
 
@@ -64,7 +64,7 @@ def test_honest_subject_identical_with_and_without_isolation():
     assert isolated_answers == non_isolated_answers
 
 
-# covers: eval/subject/isolation::CheaterOracle learns from probes when unprotected::learns on second probe
+# covers: eval/subject::CheaterOracle learns from probes when unprotected::learns on second probe
 def test_cheater_learns_from_probes_when_unprotected():
     truth_map = {"cat": "meow"}
     oracle = CheaterOracle(truth_map)
@@ -76,7 +76,7 @@ def test_cheater_learns_from_probes_when_unprotected():
     assert second == "meow", "second probe should return the truth learned from the first"
 
 
-# covers: eval/subject/isolation::CheaterOracle learns from probes when unprotected::cannot learn when isolated
+# covers: eval/subject::CheaterOracle learns from probes when unprotected::cannot learn when isolated
 def test_cheater_cannot_learn_from_probes_when_isolated():
     truth_map = {"cat": "meow"}
     oracle = CheaterOracle(truth_map)
