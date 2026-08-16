@@ -83,3 +83,55 @@ def test_chance_rate_for_smaller_choice_set():
 def test_chance_rate_rejects_non_positive_choices():
     with pytest.raises(ValueError):
         chance_rate(0)
+
+
+# covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::vocabulary has at least 256 entries
+def test_vocab_has_at_least_256_entries():
+    assert len(VOCAB) >= 256
+
+
+# covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::vocabulary has no duplicates
+def test_vocab_no_duplicates():
+    assert len(set(VOCAB)) == len(VOCAB)
+
+
+# covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::vocabulary is sorted
+def test_vocab_sorted_order():
+    assert VOCAB == tuple(sorted(VOCAB))
+
+
+# covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::every entry is lowercase alphabetic
+def test_vocab_every_entry_is_lowercase_alphabetic():
+    for word in VOCAB:
+        assert word.isalpha(), f"{word!r} is not alphabetic"
+        assert word.islower(), f"{word!r} is not lowercase"
+
+
+# covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::VOCAB is a tuple
+def test_vocab_type_is_tuple():
+    assert type(VOCAB) is tuple
+
+
+# covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::no entry is an empty string
+def test_vocab_no_empty_strings():
+    assert all(len(word) > 0 for word in VOCAB)
+
+
+# covers: eval/vocab::sample determinism, distinctness, and bounds checking::different seeds diverge
+def test_sample_different_seeds_diverge():
+    a = sample(random.Random(0), 10)
+    b = sample(random.Random(1), 10)
+    assert a != b
+
+
+# covers: eval/vocab::sample determinism, distinctness, and bounds checking::n distinct words returned
+def test_sample_n_distinct_words():
+    result = sample(random.Random(0), 10)
+    assert len(result) == 10
+    assert len(set(result)) == 10
+
+
+# covers: eval/vocab::chance_rate formula and validation::negative input rejected
+def test_chance_rate_rejects_negative_input():
+    with pytest.raises(ValueError):
+        chance_rate(-1)
