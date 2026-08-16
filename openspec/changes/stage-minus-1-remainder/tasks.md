@@ -88,16 +88,26 @@ This phase has open questions that must be resolved before implementation starts
 
 This phase depends on the exact numbers from 5.1 and a working set of baselines. The first task locks the pass condition.
 
-- [ ] 6.1 **Investigation**: using the numbers from 5.1, write the pass condition file (`openspec/changes/stage-minus-1-remainder/pass_condition.md`): tolerance per method, ordering requirement, reproducibility requirement, seed count. Lock these before any gate run.
-- [ ] 6.2 Create `scripts/run_gate.py`: run naive, EWC, and replay on class-incremental Split-MNIST across five seeds, compute metrics, check pass condition, write report.
-- [ ] 6.3 Write `tests/gate/test_gate_smoke.py`: the gate machinery runs on a tiny 2-task synthetic stream in seconds, produces a report, and checks the pass condition format.
+- [x] 6.1 **Investigation**: using the numbers from 5.1, write the pass condition file (`openspec/changes/stage-minus-1-remainder/pass_condition.md`): tolerance per method, ordering requirement, reproducibility requirement, seed count. Lock these before any gate run.
+<!-- status: completed -->
+- [x] 6.2 Create `scripts/run_gate.py`: run naive, EWC, and replay on class-incremental Split-MNIST across five seeds, compute metrics, check pass condition, write report.
+<!-- status: completed -->
+- [x] 6.3 Write `tests/gate/test_gate_smoke.py`: the gate machinery runs on a tiny 2-task synthetic stream in seconds, produces a report, and checks the pass condition format.
+<!-- status: completed -->
 - [ ] 6.4 If the gate fails, wrap the paper's released code as a subject (if feasible per 5.1) and run it through the harness to split instrument bugs from method bugs.
+<!-- status: skipped -->
 - [ ] 6.5 Run the gate for real: five seeds, deterministic kernels, full Split-MNIST. Record the report.
+<!-- status: pending -->
 
 ## 7. Freeze (phase 9)
 
-- [ ] 7.1 Version the subject interface as v1: add `SUBJECT_PROTOCOL_VERSION = "1"` to `eval/subject/__init__.py`.
-- [ ] 7.2 Version the stream schema as v1: add `STREAM_SCHEMA_VERSION = "1"` to `eval/stream/__init__.py`.
-- [ ] 7.3 Version the metric definitions as v1: add `METRICS_VERSION = "1"` to `eval/metrics/__init__.py`.
-- [ ] 7.4 Write the one-page contract document (`docs/STAGE-MINUS-1-CONTRACT.md`) that Stage 0 reads: what the subject interface is, what the stream schema is, what the metrics are. Contracts only, not code.
-- [ ] 7.5 Update `docs/STAGE-MINUS-1.md` to reflect any changes this work made to what was originally promised.
+- [x] 7.1 Version the subject interface as v1: add `SUBJECT_PROTOCOL_VERSION = "1"` to `eval/subject/__init__.py`.
+<!-- status: completed -->
+- [x] 7.2 Version the stream schema as v1: add `STREAM_SCHEMA_VERSION = "1"` to `eval/stream/__init__.py`.
+<!-- status: completed -->
+- [x] 7.3 Version the metric definitions as v1: add `METRICS_VERSION = "1"` to `eval/metrics/__init__.py`.
+<!-- status: completed -->
+- [x] 7.4 Write the one-page contract document (`docs/STAGE-MINUS-1-CONTRACT.md`) that Stage 0 reads: what the subject interface is, what the stream schema is, what the metrics are. Contracts only, not code.
+<!-- status: completed -->
+- [x] 7.5 Update `docs/STAGE-MINUS-1.md` to reflect any changes this work made to what was originally promised.
+<!-- status: completed -->
