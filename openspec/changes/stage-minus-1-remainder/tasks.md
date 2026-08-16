@@ -28,9 +28,9 @@
 
 ## 3. Instrumentation (phase 5)
 
-- [ ] 3.1 Add the four optional instrumentation fields (`halting_steps`, `memory_write_magnitude`, `channel_bandwidth`, `consolidation_gain`) to the run record schema. All default to None.
-- [ ] 3.2 Create a `VariableComputeOracle` that spends more inner-loop steps on longer arithmetic chains (for use with difficulty-mix).
-- [ ] 3.3 Write `tests/instrumentation/test_difficulty_correlation.py`: run the variable-compute oracle on a difficulty-mix stream, verify Spearman correlation between steps and difficulty is positive and significant.
+- [x] 3.1 Add the four optional instrumentation fields (`halting_steps`, `memory_write_magnitude`, `channel_bandwidth`, `consolidation_gain`) to the run record schema. All default to None.
+- [x] 3.2 Create a `VariableComputeOracle` that spends more inner-loop steps on longer arithmetic chains (for use with difficulty-mix).
+- [x] 3.3 Write `tests/instrumentation/test_difficulty_correlation.py`: run the variable-compute oracle on a difficulty-mix stream, verify Spearman correlation between steps and difficulty is positive and significant.
 
 ## 4. Persistence (phase 6)
 
