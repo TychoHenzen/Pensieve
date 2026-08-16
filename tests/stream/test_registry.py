@@ -99,6 +99,63 @@ def test_chance_rate_callable_on_every_registered_generator(name):
     assert 0.0 < rate <= 1.0
 
 
+# covers: eval/generator::Every generator exposes chance_rate::chance_rate callable on every registered generator
+def test_chance_rate_callable_on_all_generators():
+    for name, cls in REGISTRY.items():
+        config = StreamConfig(generator=name, params=_MINIMAL_CONFIGS[name])
+        generator = cls()
+        rate = generator.chance_rate(config)
+        assert isinstance(rate, float)
+        assert 0.0 < rate <= 1.0
+
+
+# covers: eval/generator::Every generator exposes chance_rate::chance_rate returns a float
+def test_chance_rate_returns_float():
+    config = StreamConfig(generator="assoc", params=_MINIMAL_CONFIGS["assoc"])
+    generator = REGISTRY["assoc"]()
+    result = generator.chance_rate(config)
+    assert type(result) is float
+
+
+# covers: eval/generator::Registry resolves a config's generator name::error message names all registered generators
+def test_unknown_generator_error_names_all_registered():
+    config = StreamConfig(generator="bogus", params={})
+    with pytest.raises(ValueError) as excinfo:
+        build(config, seed=0)
+    message = str(excinfo.value)
+    assert "assoc" in message
+    assert "split-classify" in message
+    assert "difficulty-mix" in message
+
+
+# covers: eval/generator::Three generators are registered under fixed names::assoc is registered
+def test_assoc_is_registered():
+    assert "assoc" in REGISTRY
+
+
+# covers: eval/generator::Three generators are registered under fixed names::split-classify is registered
+def test_split_classify_is_registered():
+    assert "split-classify" in REGISTRY
+
+
+# covers: eval/generator::Three generators are registered under fixed names::difficulty-mix is registered
+def test_difficulty_mix_is_registered():
+    assert "difficulty-mix" in REGISTRY
+
+
+# covers: eval/generator::Cross-process and cross-hash-seed replay determinism::same-process replay matches
+def test_same_process_replay_matches():
+    config = _assoc_config()
+    first = list(build(config, seed=0))
+    second = list(build(config, seed=0))
+    assert [dataclasses.asdict(i.event) for i in first] == [
+        dataclasses.asdict(i.event) for i in second
+    ]
+    assert [
+        dataclasses.asdict(i.truth) if i.truth else None for i in first
+    ] == [dataclasses.asdict(i.truth) if i.truth else None for i in second]
+
+
 # covers: eval/generator::Cross-process and cross-hash-seed replay determinism::subprocess replay matches
 def test_subprocess_replay_matches():
     config = _assoc_config()

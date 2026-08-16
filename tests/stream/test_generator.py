@@ -62,6 +62,21 @@ def test_fake_generator_satisfies_protocol_statically():
     assert generator.name == "fake"
 
 
+# covers: eval/generator::StreamGenerator protocol shape::protocol is runtime-checkable
+def test_protocol_is_runtime_checkable():
+    assert isinstance(_FakeGenerator(), StreamGenerator)
+    assert not isinstance("not a generator", StreamGenerator)
+
+
+# covers: eval/generator::StreamGenerator protocol shape::protocol requires generate method
+def test_protocol_requires_generate_method():
+    class _NoGenerate:
+        name = "ng"
+        version = "1"
+
+    assert not isinstance(_NoGenerate(), StreamGenerator)
+
+
 def test_fake_generator_yields_stream_items():
     generator = _FakeGenerator()
     items = list(generator.generate(config=None, seed=0))
