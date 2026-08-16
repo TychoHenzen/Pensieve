@@ -10,9 +10,10 @@ requires-python = ">=3.13"
 [project.optional-dependencies]
 dev = ["pytest", "numpy", "scipy"]
 corpus = ["zstandard"]
+baselines = ["torch", "torchvision"]
 
 [tool.setuptools.packages.find]
-include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles", "eval.metrics"]
+include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles", "eval.metrics", "eval.run", "eval.baselines"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
