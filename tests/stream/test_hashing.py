@@ -82,6 +82,12 @@ def test_hash_is_lowercase_hex_of_fixed_length():
     assert all(char in "0123456789abcdef" for char in digest)
 
 
+# covers: eval/serialize::canonical_json handles frozen mapping proxies and tuples::tuple encoded as array
+def test_canonical_json_encodes_tuple_as_array():
+    result = canonical_json((1, 2, 3))
+    assert result == "[1,2,3]"
+
+
 # covers: eval/serialize::canonical_json handles frozen mapping proxies and tuples::nested frozen structure encodes
 def test_hashing_a_nested_config_structure_works():
     config = StreamConfig(
@@ -95,12 +101,18 @@ def test_hashing_a_nested_config_structure_works():
 
 # covers: eval/serialize::stream_hash reproduces a pinned digest::golden value reproduces
 def test_known_hash_value_for_a_fixed_config_seed_version_render_and_corpus():
-    # A known value: fails loudly if the canonical encoding ever drifts.
     config = StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})
     assert (
         stream_hash(config, 0, "1.0", "1", "corpus-a")
         == "e60856050c6024f1fdb90d15563c7102393b80c47ff549892f06cdaf41c03f3b"
     )
+
+
+# covers: eval/serialize::stream_hash reproduces a pinned digest::pinned digest is 64 hex characters
+def test_pinned_digest_is_64_hex_characters():
+    digest = "e60856050c6024f1fdb90d15563c7102393b80c47ff549892f06cdaf41c03f3b"
+    assert len(digest) == 64
+    assert all(c in "0123456789abcdef" for c in digest)
 
 
 # covers: eval/config::StreamConfig is frozen::frozen attribute
@@ -131,10 +143,24 @@ def test_canonical_json_uses_compact_separators():
     assert ":" in result
 
 
+# covers: eval/serialize::canonical_json sorts keys and uses compact separators::compact separators used
+def test_canonical_json_compact_separators_no_spaces():
+    result = canonical_json({"a": 1, "b": 2})
+    parsed = json.loads(result)
+    assert parsed == {"a": 1, "b": 2}
+    assert result == '{"a":1,"b":2}'
+
+
 # covers: eval/serialize::canonical_json raises TypeError on sets::a set cannot be canonicalized
 def test_canonical_json_raises_on_a_value_it_cannot_encode_canonically():
     with pytest.raises(TypeError):
         canonical_json({1, 2, 3})
+
+
+# covers: eval/serialize::canonical_json raises TypeError on sets::nested set also rejected
+def test_canonical_json_raises_on_nested_set():
+    with pytest.raises(TypeError):
+        canonical_json({"a": {1, 2}})
 
 
 # covers: eval/config::StreamConfig immutable params::top-level params assignment rejected
@@ -216,6 +242,13 @@ def _run_canonical_json_subprocess(
         check=True,
     )
     return completed.stdout.strip()
+
+
+# covers: eval/serialize::items_to_canonical_json is process-stable and hash-seed-independent::same seed in same process repeats
+def test_items_to_canonical_json_same_seed_repeats_in_process():
+    first = _run_canonical_json_subprocess(seed=0, pythonhashseed="0")
+    second = _run_canonical_json_subprocess(seed=0, pythonhashseed="0")
+    assert first == second
 
 
 # covers: eval/serialize::items_to_canonical_json is process-stable and hash-seed-independent::same seed, same output across processes
