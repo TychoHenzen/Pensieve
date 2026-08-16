@@ -57,19 +57,32 @@
 
 This phase has open questions that must be resolved before implementation starts. The first task investigates and resolves them.
 
-- [ ] 5.1 **Investigation**: read van de Ven et al. 2020 (the paper and any released code) to extract the exact architecture, hyperparameters, optimizer, and EWC/replay details. Record the exact reported accuracy numbers for class-incremental Split-MNIST (naive, EWC, replay). Determine whether the paper's code can be wrapped as a subject. Write findings to a short note in the change directory.
-- [ ] 5.2 Add `torch` and `torchvision` to `pyproject.toml` dependencies.
-- [ ] 5.3 Create the shared MLP in `eval/baselines/model.py` with configurable depth, width, activation.
-- [ ] 5.4 Implement the naive sequential baseline in `eval/baselines/naive.py`.
-- [ ] 5.5 Implement the joint training baseline in `eval/baselines/joint.py`.
-- [ ] 5.6 Implement the frozen baseline in `eval/baselines/frozen.py`.
-- [ ] 5.7 Implement the EWC baseline in `eval/baselines/ewc.py`.
-- [ ] 5.8 Implement the generative replay baseline in `eval/baselines/replay.py`. Architecture decision (VAE vs simpler) follows from the investigation in 5.1.
-- [ ] 5.9 Create `eval/baselines/param_match.py`: parameter counting, tolerance check, architecture metadata in report.
-- [ ] 5.10 Add MNIST data binding to `eval/stream/generators/split_classify.py`: `data_source="mnist"` config option, 784-element feature vectors, source naming, hash incorporation.
-- [ ] 5.11 Write `tests/baselines/test_baselines_smoke.py`: each baseline runs on a tiny 2-task synthetic stream without crashing, implements the subject protocol, and produces a valid probe log.
-- [ ] 5.12 Write `tests/baselines/test_param_match.py`: matching passes, mismatched rejects, report includes metadata.
-- [ ] 5.13 Write `tests/stream/test_mnist_binding.py`: MNIST features have 784 elements, source is set, hash changes with data source.
+- [x] 5.1 **Investigation**: read van de Ven et al. 2020 (the paper and any released code) to extract the exact architecture, hyperparameters, optimizer, and EWC/replay details. Record the exact reported accuracy numbers for class-incremental Split-MNIST (naive, EWC, replay). Determine whether the paper's code can be wrapped as a subject. Write findings to a short note in the change directory.
+<!-- status: completed -->
+- [x] 5.2 Add `torch` and `torchvision` to `pyproject.toml` dependencies.
+<!-- status: completed -->
+- [x] 5.3 Create the shared MLP in `eval/baselines/model.py` with configurable depth, width, activation.
+<!-- status: completed -->
+- [x] 5.4 Implement the naive sequential baseline in `eval/baselines/naive.py`.
+<!-- status: completed -->
+- [x] 5.5 Implement the joint training baseline in `eval/baselines/joint.py`.
+<!-- status: completed -->
+- [x] 5.6 Implement the frozen baseline in `eval/baselines/frozen.py`.
+<!-- status: completed -->
+- [x] 5.7 Implement the EWC baseline in `eval/baselines/ewc.py`.
+<!-- status: completed -->
+- [x] 5.8 Implement the generative replay baseline in `eval/baselines/replay.py`. Architecture decision (VAE vs simpler) follows from the investigation in 5.1.
+<!-- status: completed -->
+- [x] 5.9 Create `eval/baselines/param_match.py`: parameter counting, tolerance check, architecture metadata in report.
+<!-- status: completed -->
+- [x] 5.10 Add MNIST data binding to `eval/stream/generators/split_classify.py`: `data_source="mnist"` config option, 784-element feature vectors, source naming, hash incorporation.
+<!-- status: completed -->
+- [x] 5.11 Write `tests/baselines/test_baselines_smoke.py`: each baseline runs on a tiny 2-task synthetic stream without crashing, implements the subject protocol, and produces a valid probe log.
+<!-- status: completed -->
+- [x] 5.12 Write `tests/baselines/test_param_match.py`: matching passes, mismatched rejects, report includes metadata.
+<!-- status: completed -->
+- [x] 5.13 Write `tests/stream/test_mnist_binding.py`: MNIST features have 784 elements, source is set, hash changes with data source.
+<!-- status: completed -->
 
 ## 6. Reproduction gate (phase 8) - refinement
 
