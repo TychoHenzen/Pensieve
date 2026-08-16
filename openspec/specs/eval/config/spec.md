@@ -26,6 +26,12 @@ Holds stream generation parameters as a frozen, hashable configuration object.
 - **WHEN** the caller mutates that original dict afterward
 - **THEN** `config.params` and any hash computed from it are unaffected
 
+#### Scenario: caller's nested dict independence
+
+- **GIVEN** a `StreamConfig` built from a dict containing a nested dict
+- **WHEN** the caller mutates that nested dict afterward
+- **THEN** `config.params` nested values are unaffected
+
 ### Requirement: StreamConfig params are canonically hashable
 
 Everything reachable from `config.params` MUST remain encodable by `canonical_json` to a value stable under key-insertion-order changes. A fixed config/seed/version/corpus combination MUST reproduce the pinned digest `e60856050c6024f1fdb90d15563c7102393b80c47ff549892f06cdaf41c03f3b`. [REQUIRED]
@@ -36,6 +42,18 @@ Everything reachable from `config.params` MUST remain encodable by `canonical_js
 - **WHEN** each is hashed via `stream_hash`
 - **THEN** the resulting digests are equal
 
+#### Scenario: encodable by canonical_json
+
+- **GIVEN** a `StreamConfig` with nested params
+- **WHEN** `canonical_json` is called on `config.params`
+- **THEN** it succeeds without error
+
+#### Scenario: pinned digest reproduces
+
+- **GIVEN** `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `seed=0`, `generator_version="1.0"`, `render_version="1"`, `corpus_id="corpus-a"`
+- **WHEN** `stream_hash` is called
+- **THEN** it returns `e60856050c6024f1fdb90d15563c7102393b80c47ff549892f06cdaf41c03f3b`
+
 ### Requirement: StreamConfig is frozen
 
 `StreamConfig` MUST be a frozen dataclass: attribute assignment after construction MUST raise `dataclasses.FrozenInstanceError`. [REQUIRED]
@@ -45,6 +63,24 @@ Everything reachable from `config.params` MUST remain encodable by `canonical_js
 - **GIVEN** a constructed `StreamConfig`
 - **WHEN** `.generator` is assigned a new value
 - **THEN** `dataclasses.FrozenInstanceError` is raised
+
+#### Scenario: frozen generator attribute
+
+- **GIVEN** a constructed `StreamConfig`
+- **WHEN** `.generator` is assigned a new value
+- **THEN** `dataclasses.FrozenInstanceError` is raised
+
+#### Scenario: frozen params attribute
+
+- **GIVEN** a constructed `StreamConfig`
+- **WHEN** `.params` is assigned a new value
+- **THEN** `dataclasses.FrozenInstanceError` is raised
+
+#### Scenario: StreamConfig is a dataclass
+
+- **GIVEN** a constructed `StreamConfig`
+- **WHEN** `dataclasses.is_dataclass` is called
+- **THEN** it returns `True`
 
 ## Usage census
 
