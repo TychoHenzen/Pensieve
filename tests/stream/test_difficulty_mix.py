@@ -62,7 +62,33 @@ def _evaluate_chain_independently(query: str) -> int:
     return total
 
 
-# covers: eval/generators/difficulty-mix::Generator identity and version::name and version present
+def _evaluate_chain_raw(query: str) -> int:
+    """Re-derive the chain total before modulo reduction, from the query text alone.
+
+    Mirrors `_evaluate_chain_independently` but skips the modulo step, so a
+    caller can compare a probe's un-modded total against `CHAIN_MODULUS`
+    without reading the generator's own arithmetic helper.
+    """
+    suffix = f" What is the result modulo {CHAIN_MODULUS}?"
+    assert query.endswith(suffix), f"query has an unexpected tail: {query!r}"
+    body = query[: -len(suffix)]
+
+    start_match = re.match(r"^Start at (\d+)\.", body)
+    assert start_match, f"query has no parseable start: {query!r}"
+    total = int(start_match.group(1))
+
+    rest = body[start_match.end():].strip()
+    step_texts = [segment.strip() for segment in rest.split(".") if segment.strip()]
+    for step_text in step_texts:
+        match = _STEP_PATTERN.match(step_text + ".")
+        assert match, f"unparseable step: {step_text!r} in query {query!r}"
+        verb, operand_text = match.groups()
+        operand = int(operand_text)
+        total = total + operand if verb == "Add" else total - operand
+    return total
+
+
+# covers: eval/generators::Generator identity and version::name and version present
 def test_generator_satisfies_stream_generator_protocol():
     generator = DifficultyMixGenerator()
     assert isinstance(generator, StreamGenerator)
@@ -70,7 +96,7 @@ def test_generator_satisfies_stream_generator_protocol():
     assert generator.version
 
 
-# covers: eval/generators/difficulty-mix::Every configured difficulty level appears at least once::all levels represented
+# covers: eval/generators::Every configured difficulty level appears at least once::all levels represented
 def test_every_configured_difficulty_level_appears():
     items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
     probes = _probes(items)
@@ -78,7 +104,7 @@ def test_every_configured_difficulty_level_appears():
     assert seen_difficulties == {1, 2, 3, 5, 8}
 
 
-# covers: eval/generators/difficulty-mix::Truth answer matches independently evaluated chain::chain replay agrees
+# covers: eval/generators::Truth answer matches independently evaluated chain::chain replay agrees
 def test_truth_answer_matches_the_chain_evaluated_independently():
     items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
     probes = _probes(items)
@@ -88,7 +114,7 @@ def test_truth_answer_matches_the_chain_evaluated_independently():
         assert item.truth.answer == independent_answer
 
 
-# covers: eval/generators/difficulty-mix::Difficulty equals the number of arithmetic steps::difficulty matches step count
+# covers: eval/generators::Difficulty equals the number of arithmetic steps::difficulty matches step count
 def test_difficulty_matches_the_number_of_steps_in_the_rendered_chain():
     items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
     probes = _probes(items)
@@ -98,7 +124,7 @@ def test_difficulty_matches_the_number_of_steps_in_the_rendered_chain():
         assert step_count == item.truth.difficulty
 
 
-# covers: eval/generators/difficulty-mix::Answer space is bounded by CHAIN_MODULUS::answer is bounded
+# covers: eval/generators::Answer space is bounded by CHAIN_MODULUS::answer is bounded
 def test_answer_space_is_bounded_and_explicit():
     assert isinstance(CHAIN_MODULUS, int)
     assert CHAIN_MODULUS > 0
@@ -107,7 +133,7 @@ def test_answer_space_is_bounded_and_explicit():
         assert 0 <= item.truth.answer < CHAIN_MODULUS
 
 
-# covers: eval/generators/difficulty-mix::Rendered query never leaks difficulty or level labels::no difficulty leak
+# covers: eval/generators::Rendered query never leaks difficulty or level labels::no difficulty leak
 def test_no_rendered_text_carries_the_difficulty_label():
     items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
     for item in items:
@@ -118,7 +144,7 @@ def test_no_rendered_text_carries_the_difficulty_label():
         assert "level" not in rendered.lower()
 
 
-# covers: eval/generators/difficulty-mix::Rendered query follows a parseable grammar::query grammar
+# covers: eval/generators::Rendered query follows a parseable grammar::query grammar
 def test_rendered_query_follows_the_parseable_grammar():
     items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
     probes = _probes(items)
@@ -145,6 +171,7 @@ def test_rendered_query_follows_the_parseable_grammar():
             )
 
 
+# covers: eval/generators::Rendered query never leaks difficulty or level labels::no level leak
 def test_rendered_query_never_leaks_the_step_count_as_a_label():
     items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
     for item in _probes(items):
@@ -152,7 +179,7 @@ def test_rendered_query_never_leaks_the_step_count_as_a_label():
         assert "difficulty" not in item.event.query.lower()
 
 
-# covers: eval/generators/difficulty-mix::Non-probe positions are Idle events with no truth::idle filler
+# covers: eval/generators::Non-probe positions are Idle events with no truth::idle filler
 def test_non_probe_positions_are_idle_events():
     items = _items()
     for item in items:
@@ -161,27 +188,27 @@ def test_non_probe_positions_are_idle_events():
             assert item.truth is None
 
 
-# covers: eval/generators/difficulty-mix::Positions are contiguous from zero::contiguous positions
+# covers: eval/generators::Positions are contiguous from zero::contiguous positions
 def test_positions_are_consecutive_from_zero_with_no_gaps_or_repeats():
     items = _items()
     positions = [item.event.position for item in items]
     assert positions == list(range(len(positions)))
 
 
-# covers: eval/generators/difficulty-mix::Probe count equals num_items exactly::exact probe count
+# covers: eval/generators::Probe count equals num_items exactly::exact probe count
 def test_probe_count_matches_num_items():
     items = _items(_config(num_items=9, difficulty_levels=[1, 2, 3], probe_rate=0.3))
     assert len(_probes(items)) == 9
 
 
-# covers: eval/generators/difficulty-mix::chance_rate equals 1/CHAIN_MODULUS::chance rate
+# covers: eval/generators::chance_rate equals 1/CHAIN_MODULUS::chance rate
 def test_chance_rate_equals_inverse_of_chain_modulus():
     generator = DifficultyMixGenerator()
     assert generator.chance_rate(_config()) == 1.0 / CHAIN_MODULUS
     assert generator.chance_rate(_config()) == 0.001
 
 
-# covers: eval/generators/difficulty-mix::Deterministic in (config, seed) and diverges on different seeds::replay determinism
+# covers: eval/generators::Deterministic in (config, seed) and diverges on different seeds::replay determinism
 def test_same_config_and_seed_give_identical_sequence():
     first = _items()
     second = _items()
@@ -189,38 +216,185 @@ def test_same_config_and_seed_give_identical_sequence():
     assert [item.truth for item in first] == [item.truth for item in second]
 
 
+# covers: eval/generators::Deterministic in (config, seed) and diverges on different seeds::different seeds diverge
 def test_different_seed_gives_a_different_interleaving_or_chains():
     first = _items(seed=0)
     second = _items(seed=1)
     assert [item.event for item in first] != [item.event for item in second]
 
 
+# covers: eval/generators::Validates num_items, difficulty_levels, and probe_rate::num_items less than difficulty_levels length rejected
 def test_num_items_below_difficulty_level_count_raises():
     with pytest.raises(ValueError):
         _items(_config(num_items=2, difficulty_levels=[1, 2, 3, 5]))
 
 
-# covers: eval/generators/difficulty-mix::Validates num_items, difficulty_levels, and probe_rate::empty difficulty_levels rejected
+# covers: eval/generators::Validates num_items, difficulty_levels, and probe_rate::empty difficulty_levels rejected
 def test_empty_difficulty_levels_raises():
     with pytest.raises(ValueError):
         _items(_config(difficulty_levels=[]))
 
 
-# covers: eval/generators/difficulty-mix::Validates num_items, difficulty_levels, and probe_rate::empty difficulty_levels rejected
+# covers: eval/generators::Validates num_items, difficulty_levels, and probe_rate::num_items zero rejected
 def test_num_items_zero_raises():
     with pytest.raises(ValueError):
         _items(_config(num_items=0))
 
 
-# covers: eval/generators/difficulty-mix::Validates num_items, difficulty_levels, and probe_rate::empty difficulty_levels rejected
+# covers: eval/generators::Validates num_items, difficulty_levels, and probe_rate::difficulty level below 1 rejected
 def test_difficulty_level_below_one_raises():
     with pytest.raises(ValueError):
         _items(_config(difficulty_levels=[0, 1, 2]))
 
 
-# covers: eval/generators/difficulty-mix::Validates num_items, difficulty_levels, and probe_rate::probe_rate out of range
+# covers: eval/generators::Validates num_items, difficulty_levels, and probe_rate::probe_rate out of range
 def test_probe_rate_out_of_range_raises():
     with pytest.raises(ValueError):
         _items(_config(probe_rate=0))
     with pytest.raises(ValueError):
         _items(_config(probe_rate=1.5))
+
+
+# covers: eval/generators::Generator identity and version::name is difficulty-mix
+def test_generator_name_is_difficulty_mix():
+    generator = DifficultyMixGenerator()
+    assert generator.name == "difficulty-mix"
+
+
+# covers: eval/generators::Generator identity and version::version is a non-empty string
+def test_generator_version_is_a_non_empty_string():
+    generator = DifficultyMixGenerator()
+    assert isinstance(generator.version, str)
+    assert len(generator.version) > 0
+
+
+# covers: eval/generators::Generator identity and version::version is a str type
+def test_generator_version_type_is_str():
+    generator = DifficultyMixGenerator()
+    assert type(generator.version) is str
+
+
+# covers: eval/generators::Every configured difficulty level appears at least once::single level appears
+def test_single_configured_difficulty_level_appears_at_least_once():
+    items = _items(_config(num_items=6, difficulty_levels=[5]))
+    probes = _probes(items)
+    assert any(item.truth.difficulty == 5 for item in probes)
+
+
+# covers: eval/generators::Truth answer matches independently evaluated chain::modulo applied to large results
+def test_modulo_is_applied_when_the_chain_total_reaches_or_exceeds_the_modulus():
+    large_total_probes = []
+    for seed in range(20):
+        items = _items(
+            _config(num_items=30, difficulty_levels=[10, 15, 20], probe_rate=1.0),
+            seed=seed,
+        )
+        for item in _probes(items):
+            raw_total = _evaluate_chain_raw(item.event.query)
+            if raw_total >= CHAIN_MODULUS:
+                large_total_probes.append((item, raw_total))
+    assert large_total_probes, (
+        "no probe reached a chain total >= CHAIN_MODULUS across sampled seeds"
+    )
+    for item, raw_total in large_total_probes:
+        assert item.truth.answer == raw_total % CHAIN_MODULUS
+
+
+# covers: eval/generators::Difficulty equals the number of arithmetic steps::single-step difficulty is 1
+def test_single_step_query_has_difficulty_one():
+    items = _items(_config(num_items=8, difficulty_levels=[1]))
+    probes = _probes(items)
+    assert probes
+    for item in probes:
+        assert item.truth.difficulty == 1
+
+
+# covers: eval/generators::Answer space is bounded by CHAIN_MODULUS::answer is non-negative
+def test_answer_is_never_negative():
+    items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
+    for item in _probes(items):
+        assert item.truth.answer >= 0
+
+
+# covers: eval/generators::Answer space is bounded by CHAIN_MODULUS::answer is below CHAIN_MODULUS
+def test_answer_is_strictly_below_chain_modulus():
+    items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
+    for item in _probes(items):
+        assert item.truth.answer < CHAIN_MODULUS
+
+
+# covers: eval/generators::Rendered query follows a parseable grammar::query starts with Start at
+def test_query_starts_with_start_at():
+    items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
+    probes = _probes(items)
+    assert probes
+    for item in probes:
+        assert item.event.query.startswith("Start at ")
+
+
+# covers: eval/generators::Rendered query follows a parseable grammar::query ends with modulo question
+def test_query_ends_with_modulo_question():
+    items = _items(_config(num_items=20, difficulty_levels=[1, 2, 3, 5, 8]))
+    probes = _probes(items)
+    assert probes
+    for item in probes:
+        assert item.event.query.endswith(f" What is the result modulo {CHAIN_MODULUS}?")
+
+
+# covers: eval/generators::Non-probe positions are Idle events with no truth::non-probe events are Idle
+def test_non_probe_events_are_instances_of_idle():
+    items = _items()
+    non_probes = [item for item in items if not isinstance(item.event, Probe)]
+    assert non_probes
+    for item in non_probes:
+        assert isinstance(item.event, Idle)
+
+
+# covers: eval/generators::Non-probe positions are Idle events with no truth::non-probe events have no truth
+def test_non_probe_stream_items_have_no_truth():
+    items = _items()
+    non_probes = [item for item in items if not isinstance(item.event, Probe)]
+    assert non_probes
+    for item in non_probes:
+        assert item.truth is None
+
+
+# covers: eval/generators::Probe count equals num_items exactly::probe count with different num_items
+def test_probe_count_tracks_a_different_num_items_value():
+    items = _items(_config(num_items=5, difficulty_levels=[1, 2], probe_rate=0.4))
+    assert len(_probes(items)) == 5
+
+
+# covers: eval/generators::Positions are contiguous from zero::no gaps or repeats
+def test_positions_have_no_gaps_or_repeats_when_collected_into_a_set():
+    items = _items()
+    positions = [item.event.position for item in items]
+    assert len(set(positions)) == len(items)
+
+
+# covers: eval/generators::Validates num_items, difficulty_levels, and probe_rate::probe_rate zero rejected
+def test_probe_rate_of_zero_is_rejected():
+    with pytest.raises(ValueError):
+        _items(_config(probe_rate=0))
+
+
+# covers: eval/generators::chance_rate equals 1/CHAIN_MODULUS::chance rate independent of config
+def test_chance_rate_is_the_same_across_differing_num_items():
+    generator = DifficultyMixGenerator()
+    rate_a = generator.chance_rate(_config(num_items=12))
+    rate_b = generator.chance_rate(_config(num_items=40))
+    assert rate_a == rate_b == 0.001
+
+
+# covers: eval/generators::Deterministic in (config, seed) and diverges on different seeds::determinism extends to truth values
+def test_determinism_extends_to_truth_answer_and_difficulty_values():
+    config = _config()
+    first_probes = _probes(_items(config, seed=42))
+    second_probes = _probes(_items(config, seed=42))
+    assert first_probes
+    assert [item.truth.answer for item in first_probes] == [
+        item.truth.answer for item in second_probes
+    ]
+    assert [item.truth.difficulty for item in first_probes] == [
+        item.truth.difficulty for item in second_probes
+    ]
