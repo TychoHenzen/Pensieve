@@ -20,6 +20,12 @@ Converts stream items to plain dicts and canonical JSON, and computes a content-
 - **WHEN** `items_to_canonical_json` is called for each
 - **THEN** the two strings differ
 
+#### Scenario: same seed in same process repeats
+
+- **GIVEN** a config and seed
+- **WHEN** `items_to_canonical_json` is called twice in the same process
+- **THEN** both produce identical output
+
 ### Requirement: stream_hash is a reproducible function of exactly five inputs
 
 `stream_hash(config, seed, generator_version, render_version, corpus_id)` MUST return a 64-character lowercase hex string that is identical for identical inputs (insensitive to params key insertion order) and different when any one of the five inputs changes. [REQUIRED]
@@ -52,6 +58,12 @@ For `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `s
 - **WHEN** `stream_hash` is called
 - **THEN** it returns `e60856050c6024f1fdb90d15563c7102393b80c47ff549892f06cdaf41c03f3b`
 
+#### Scenario: pinned digest is 64 hex characters
+
+- **GIVEN** the pinned digest
+- **WHEN** its format is checked
+- **THEN** it is 64 characters of lowercase hex
+
 ### Requirement: canonical_json sorts keys and uses compact separators
 
 `canonical_json` MUST serialize with sorted object keys and separators `(",", ":")` (no extra whitespace). [REQUIRED]
@@ -61,6 +73,12 @@ For `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `s
 - **GIVEN** two dicts with the same key-value pairs in different insertion order
 - **WHEN** `canonical_json` is called on each
 - **THEN** the outputs are identical
+
+#### Scenario: compact separators used
+
+- **GIVEN** `{"a": 1, "b": 2}`
+- **WHEN** `canonical_json` is called
+- **THEN** the output contains `","` and `":"` with no spaces around them
 
 ### Requirement: canonical_json handles frozen mapping proxies and tuples
 
@@ -72,6 +90,12 @@ For `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `s
 - **WHEN** `canonical_json` is called via `stream_hash`
 - **THEN** both calls succeed and return equal digests
 
+#### Scenario: tuple encoded as array
+
+- **GIVEN** a value containing a tuple `(1, 2, 3)`
+- **WHEN** `canonical_json` is called
+- **THEN** it succeeds and the tuple is encoded as a JSON array
+
 ### Requirement: canonical_json raises TypeError on sets
 
 `canonical_json` MUST raise `TypeError` when given a `set`, because sets have no stable iteration order. [REQUIRED]
@@ -79,6 +103,12 @@ For `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `s
 #### Scenario: a set cannot be canonicalized
 
 - **GIVEN** the value `{1, 2, 3}`
+- **WHEN** `canonical_json` is called on it
+- **THEN** `TypeError` is raised
+
+#### Scenario: nested set also rejected
+
+- **GIVEN** the value `{"a": {1, 2}}`
 - **WHEN** `canonical_json` is called on it
 - **THEN** `TypeError` is raised
 
