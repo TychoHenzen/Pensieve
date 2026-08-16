@@ -192,6 +192,57 @@ def test_mutating_the_callers_original_dict_does_not_affect_the_config():
     assert stream_hash(config, 0, "1.0", "1", "corpus-a") == before
 
 
+# covers: eval/config::StreamConfig immutable params::caller's nested dict independence
+def test_mutating_callers_nested_dict_does_not_affect_config():
+    nested = {"name": "a", "weight": 0.5}
+    original = {"task": nested}
+    config = StreamConfig(generator="split-classify", params=original)
+    nested["weight"] = 9.9
+    nested["extra"] = True
+    assert config.params["task"]["weight"] == 0.5
+    assert "extra" not in config.params["task"]
+
+
+# covers: eval/config::StreamConfig params are canonically hashable::encodable by canonical_json
+def test_config_params_encodable_by_canonical_json():
+    config = StreamConfig(
+        generator="split-classify",
+        params={"tasks": [{"name": "a", "weight": 0.5}]},
+    )
+    result = canonical_json(config.params)
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+# covers: eval/config::StreamConfig params are canonically hashable::pinned digest reproduces
+def test_config_pinned_digest_reproduces():
+    config = StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})
+    assert (
+        stream_hash(config, 0, "1.0", "1", "corpus-a")
+        == "e60856050c6024f1fdb90d15563c7102393b80c47ff549892f06cdaf41c03f3b"
+    )
+
+
+# covers: eval/config::StreamConfig is frozen::frozen generator attribute
+def test_config_frozen_generator_attribute():
+    config = _config(pairs=10)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        config.generator = "other"
+
+
+# covers: eval/config::StreamConfig is frozen::frozen params attribute
+def test_config_frozen_params_attribute():
+    config = _config(pairs=10)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        config.params = {}
+
+
+# covers: eval/config::StreamConfig is frozen::StreamConfig is a dataclass
+def test_config_is_a_dataclass():
+    config = _config(pairs=10)
+    assert dataclasses.is_dataclass(config)
+
+
 # ---------------------------------------------------------------------------
 # Subprocess and items_to_canonical_json / items_to_plain tests
 # ---------------------------------------------------------------------------
