@@ -44,7 +44,7 @@ def _observes_by_position(items):
     }
 
 
-# covers: eval/generators/assoc::Probes at exactly the requested distances::probe truth matches the taught value
+# covers: eval/generators::Probes at exactly the requested distances::probe truth matches the taught value
 def test_probe_truth_matches_the_taught_value():
     items = _items()
     observes = _observes_by_position(items)
@@ -67,7 +67,7 @@ def test_probe_teaching_position_points_at_an_earlier_observe_that_taught_it():
         assert teach.payload["key"] is not None
 
 
-# covers: eval/generators/assoc::Probes at exactly the requested distances::probe distance matches configuration
+# covers: eval/generators::Probes at exactly the requested distances::probe distance matches configuration
 def test_gap_between_teaching_and_probe_matches_requested_distances_exactly():
     items = _items()
     gaps = set()
@@ -79,7 +79,14 @@ def test_gap_between_teaching_and_probe_matches_requested_distances_exactly():
     assert gaps == {1, 2, 5}
 
 
-# covers: eval/generators/assoc::Each pair is taught exactly once::teaching count matches pair count
+# covers: eval/generators::Probes at exactly the requested distances::one probe per pair per distance
+def test_one_probe_per_pair_per_distance():
+    items = _items(_config(num_pairs=5, recall_distances=[1, 10], max_distance=15))
+    probes = [item for item in items if isinstance(item.event, Probe)]
+    assert len(probes) == 10
+
+
+# covers: eval/generators::Each pair is taught exactly once::teaching count matches pair count
 def test_each_pair_is_taught_exactly_once():
     items = _items()
     taught_keys = [
@@ -95,11 +102,18 @@ def test_each_pair_is_taught_exactly_once():
     assert len(taught_keys) == len(set(taught_keys)) == 3
 
 
-# covers: eval/generators/assoc::Positions are contiguous from zero::no gaps in positions
+# covers: eval/generators::Positions are contiguous from zero::no gaps in positions
 def test_positions_are_consecutive_from_zero_with_no_gaps_or_repeats():
     items = _items()
     positions = [item.event.position for item in items]
     assert positions == list(range(len(positions)))
+
+
+# covers: eval/generators::Positions are contiguous from zero::no repeated positions
+def test_no_repeated_positions():
+    items = _items()
+    positions = [item.event.position for item in items]
+    assert len(positions) == len(set(positions))
 
 
 def test_no_probe_exceeds_the_configured_max_distance():
@@ -111,7 +125,7 @@ def test_no_probe_exceeds_the_configured_max_distance():
         assert gap <= 3
 
 
-# covers: eval/generators/assoc::Deterministic in (config, seed) and diverges on different seeds::replay determinism
+# covers: eval/generators::Deterministic in (config, seed) and diverges on different seeds::replay determinism
 def test_same_config_and_seed_give_identical_sequence():
     first = _items()
     second = _items()
@@ -119,7 +133,20 @@ def test_same_config_and_seed_give_identical_sequence():
     assert [item.truth for item in first] == [item.truth for item in second]
 
 
-# covers: eval/generators/assoc::Deterministic in (config, seed) and diverges on different seeds::replay determinism
+# covers: eval/generators::Deterministic in (config, seed) and diverges on different seeds::determinism covers event fields
+def test_replay_determinism_covers_every_event_field():
+    first = _items()
+    second = _items()
+    for first_item, second_item in zip(first, second):
+        if isinstance(first_item.event, Observe):
+            assert first_item.event.payload == second_item.event.payload
+        if isinstance(first_item.event, Probe):
+            assert first_item.event.query == second_item.event.query
+        assert first_item.event.position == second_item.event.position
+        assert first_item.truth == second_item.truth
+
+
+# covers: eval/generators::Deterministic in (config, seed) and diverges on different seeds::different seeds diverge
 def test_different_seed_gives_different_sequence():
     first = _items(seed=0)
     second = _items(seed=1)
@@ -135,17 +162,35 @@ def test_different_filler_density_gives_different_streams():
     assert len(low_events) != len(high_events)
 
 
-# covers: eval/generators/assoc::Unschedulable configurations raise ValueError::impossible schedule rejected
+# covers: eval/generators::Unschedulable configurations raise ValueError::impossible schedule rejected
 def test_unschedulable_config_raises_rather_than_clamping():
     with pytest.raises(ValueError):
         _items(_config(num_pairs=10, recall_distances=[1], filler_density=0.0, max_distance=10))
 
 
-# covers: eval/generators/assoc::Generator identity and version::version is pinned
+# covers: eval/generators::Unschedulable configurations raise ValueError::error message explains the conflict
+def test_unschedulable_config_error_message_explains_the_conflict():
+    with pytest.raises(ValueError, match="could not schedule"):
+        _items(_config(num_pairs=10, recall_distances=[1], filler_density=0.0, max_distance=10))
+
+
+# covers: eval/generators::Generator identity and version::version is pinned
 def test_generator_satisfies_stream_generator_protocol():
     generator = AssocGenerator()
     assert isinstance(generator, StreamGenerator)
     assert generator.name == "assoc"
+    assert generator.version == "6"
+
+
+# covers: eval/generators::Generator identity and version::name is assoc
+def test_generator_name_is_assoc():
+    generator = AssocGenerator()
+    assert generator.name == "assoc"
+
+
+# covers: eval/generators::Generator identity and version::version is 6
+def test_generator_version_is_6():
+    generator = AssocGenerator()
     assert generator.version == "6"
 
 
@@ -160,7 +205,7 @@ def test_every_probe_query_names_the_taught_key():
         assert item.event.query == teach.payload["key"]
 
 
-# covers: eval/generators/assoc::Interleaving puts other pairs' events between a teaching and its probe::interleaving occurs
+# covers: eval/generators::Interleaving puts other pairs' events between a teaching and its probe::interleaving occurs
 def test_interleaving_puts_another_pairs_teaching_between_a_teaching_and_its_probe():
     items = _items(_config(num_pairs=5, recall_distances=[2], filler_density=1.0, max_distance=10))
     probes = [item for item in items if isinstance(item.event, Probe)]
@@ -182,25 +227,62 @@ def test_interleaving_puts_another_pairs_teaching_between_a_teaching_and_its_pro
     assert found_interleaved
 
 
-# covers: eval/generators/assoc::No payload or query text carries a role prefix::no role prefix leak
+def _rendered_texts(items):
+    texts = []
+    for item in items:
+        if isinstance(item.event, Observe) and "key" in item.event.payload:
+            texts.extend([item.event.payload["key"], item.event.payload["value"]])
+        elif isinstance(item.event, Observe):
+            texts.append(item.event.payload["text"])
+        elif isinstance(item.event, Probe):
+            texts.append(item.event.query)
+    return texts
+
+
+# covers: eval/generators::No payload or query text carries a role prefix::no role prefix leak
+def test_no_role_prefix_leak():
+    items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
+    for text in _rendered_texts(items):
+        assert not text.startswith("key-")
+        assert not text.startswith("value-")
+        assert not text.startswith("filler-")
+
+
+# covers: eval/generators::No payload or query text carries a role prefix::no key- prefix
+def test_no_key_prefix():
+    items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
+    for text in _rendered_texts(items):
+        assert not text.startswith("key-")
+
+
+# covers: eval/generators::No payload or query text carries a role prefix::no value- prefix
 def test_no_payload_or_query_text_carries_a_role_prefix():
+    items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
+    for text in _rendered_texts(items):
+        assert not text.startswith("value-")
+
+
+# covers: eval/generators::Keys are distinct vocabulary words::unique keys from vocabulary
+def test_taught_keys_are_pairwise_distinct_and_in_vocab():
+    items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
+    keys = [
+        item.event.payload["key"]
+        for item in items
+        if isinstance(item.event, Observe) and "key" in item.event.payload
+    ]
+    assert len(keys) == len(set(keys))
+    assert all(key in vocab.VOCAB for key in keys)
+
+
+# covers: eval/generators::Keys are distinct vocabulary words::keys are in VOCAB
+def test_every_key_is_a_vocabulary_word():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     for item in items:
         if isinstance(item.event, Observe) and "key" in item.event.payload:
-            texts = [item.event.payload["key"], item.event.payload["value"]]
-        elif isinstance(item.event, Observe):
-            texts = [item.event.payload["text"]]
-        elif isinstance(item.event, Probe):
-            texts = [item.event.query]
-        else:
-            texts = []
-        for text in texts:
-            assert not text.startswith("key-")
-            assert not text.startswith("value-")
-            assert not text.startswith("filler-")
+            assert item.event.payload["key"] in vocab.VOCAB
 
 
-# covers: eval/generators/assoc::Keys are distinct vocabulary words::unique keys from vocabulary
+# covers: eval/generators::Keys are distinct vocabulary words::values are in VOCAB
 def test_every_key_and_value_is_a_vocabulary_word():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     for item in items:
@@ -212,7 +294,7 @@ def test_every_key_and_value_is_a_vocabulary_word():
             assert item.truth.answer in vocab.VOCAB
 
 
-# covers: eval/generators/assoc::Keys are distinct vocabulary words::unique keys from vocabulary
+# covers: eval/generators::Keys are distinct vocabulary words::keys are pairwise distinct
 def test_keys_are_pairwise_distinct_across_the_whole_stream():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     keys = [
@@ -243,7 +325,7 @@ def test_each_probe_query_matches_exactly_one_taught_key():
         assert len(matches) == 1
 
 
-# covers: eval/generators/assoc::Filler occupies non-teaching, non-probe positions with continuous corpus prose::filler continues one document
+# covers: eval/generators::Filler occupies non-teaching, non-probe positions with continuous corpus prose::filler continues one document
 def test_filler_spans_continue_one_document_across_the_stream():
     """Consecutive filler must read as one document, not as unrelated fragments.
 
@@ -264,6 +346,36 @@ def test_filler_spans_continue_one_document_across_the_stream():
     assert " ".join(filler_texts) in " ".join(corpus.words)
 
 
+# covers: eval/generators::Filler occupies non-teaching, non-probe positions with continuous corpus prose::filler drawn from configured corpus
+def test_filler_drawn_from_configured_corpus(tmp_path, monkeypatch):
+    fixture_text = (FIXTURE_DIR / "corpus_fixture.jsonl").read_text(encoding="utf-8")
+    (tmp_path / "corpus_fixture.jsonl").write_text(fixture_text, encoding="utf-8")
+    second_lines = [
+        '{"text": "Every gear in the old clock tower turned in step with the one beside it, '
+        'a chain of brass teeth carrying the hour forward one click at a time."}',
+        '{"text": "The orchard on the hill had been planted before the war, and the trees '
+        'still bore fruit every autumn without anyone tending them closely."}',
+    ]
+    (tmp_path / "second_corpus.jsonl").write_text("\n".join(second_lines), encoding="utf-8")
+    monkeypatch.setenv("PENSIVE_CORPUS_DIR", str(tmp_path))
+
+    fixture_items = _items(
+        _config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, corpus="corpus_fixture")
+    )
+    second_items = _items(
+        _config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, corpus="second_corpus")
+    )
+
+    def _filler_texts(items):
+        return {
+            item.event.payload["text"]
+            for item in items
+            if isinstance(item.event, Observe) and "text" in item.event.payload
+        }
+
+    assert _filler_texts(fixture_items) != _filler_texts(second_items)
+
+
 def test_filler_payloads_are_prose_and_differ_from_each_other():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     filler_texts = [
@@ -277,6 +389,20 @@ def test_filler_payloads_are_prose_and_differ_from_each_other():
     assert len(set(filler_texts)) > 1
 
 
+# covers: eval/generators::Each pair is taught exactly once::teaching payload has exactly key and value
+def test_teaching_payload_has_exactly_key_and_value():
+    items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
+    taught_positions = {
+        item.event.teaching_position for item in items if isinstance(item.event, Probe)
+    }
+    for item in items:
+        if not isinstance(item.event, Observe):
+            continue
+        if item.event.position in taught_positions:
+            assert set(item.event.payload.keys()) == {"key", "value"}
+
+
+# covers: eval/generators::Filler occupies non-teaching, non-probe positions with continuous corpus prose::filler payload has text key
 def test_taught_observe_payload_holds_only_key_and_value():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     taught_positions = {
@@ -293,7 +419,7 @@ def test_taught_observe_payload_holds_only_key_and_value():
             assert set(item.event.payload.keys()) == {"text"}
 
 
-# covers: eval/generators/assoc::token_distance absent without counter, computed with counter::no counter configured
+# covers: eval/generators::token_distance absent without counter, computed with counter::no counter configured
 def test_token_distance_is_none_when_no_counter_is_configured():
     items = _items()
     probes = [item.event for item in items if isinstance(item.event, Probe)]
@@ -302,7 +428,7 @@ def test_token_distance_is_none_when_no_counter_is_configured():
         assert probe.token_distance is None
 
 
-# covers: eval/generators/assoc::token_distance absent without counter, computed with counter::counter configured, adjacent probe
+# covers: eval/generators::token_distance absent without counter, computed with counter::counter configured, adjacent probe
 def test_token_distance_is_zero_for_no_intervening_events():
     items = _items(
         _config(
@@ -317,6 +443,7 @@ def test_token_distance_is_zero_for_no_intervening_events():
         assert probe.token_distance == 0
 
 
+# covers: eval/generators::token_distance absent without counter, computed with counter::counter configured, token distance rises with event distance
 def test_token_distance_rises_with_the_event_distance():
     items = _items(
         _config(
@@ -335,6 +462,21 @@ def test_token_distance_rises_with_the_event_distance():
         token_distances = [probe.token_distance for probe in ordered]
         assert token_distances == sorted(token_distances)
         assert token_distances[0] < token_distances[-1]
+
+
+# covers: eval/generators::token_distance absent without counter, computed with counter::counter configured, all probes have integer token_distance
+def test_all_probes_have_integer_token_distance_when_counter_configured():
+    items = _items(
+        _config(
+            recall_distances=[1, 2, 5],
+            token_counter=default_token_counter.name,
+        )
+    )
+    probes = [item.event for item in items if isinstance(item.event, Probe)]
+    assert probes
+    for probe in probes:
+        assert isinstance(probe.token_distance, int)
+        assert not isinstance(probe.token_distance, bool)
 
 
 def test_config_naming_a_token_counter_hashes_without_raising():
@@ -366,31 +508,50 @@ def test_configs_naming_different_counters_are_both_hashable():
     assert first_digest != second_digest
 
 
-# covers: eval/generators/assoc::Unknown token_counter name raises ValueError::bad counter name
+# covers: eval/generators::Unknown token_counter name raises ValueError::bad counter name
+def test_unknown_token_counter_name_raises():
+    with pytest.raises(ValueError):
+        _items(_config(recall_distances=[1], token_counter="not-a-real-counter"))
+
+
+# covers: eval/generators::Unknown token_counter name raises ValueError::error lists known counters
 def test_unknown_token_counter_name_raises_naming_the_known_counters():
     with pytest.raises(ValueError, match="regex-whitespace-v1"):
         _items(_config(recall_distances=[1], token_counter="not-a-real-counter"))
 
 
-# covers: eval/generators/assoc::Config validation::distance below 1
+# covers: eval/generators::Config validation::distance below 1
 def test_recall_distance_zero_raises():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="recall distance must be at least 1, got 0"):
         _items(_config(recall_distances=[0], max_distance=10))
 
 
-# covers: eval/generators/assoc::Config validation::distance below 1
+# covers: eval/generators::Config validation::distance exceeding max_distance
 def test_distance_exceeding_max_raises():
     with pytest.raises(ValueError):
         _items(_config(recall_distances=[20], max_distance=10))
 
 
-# covers: eval/generators/assoc::Config validation::distance below 1
+# covers: eval/generators::Config validation::negative filler_density
 def test_negative_filler_density_raises():
     with pytest.raises(ValueError):
         _items(_config(filler_density=-1.0))
 
 
-# covers: eval/generators/assoc::Total stream length is a fixed function of config::pinned stream length
+# covers: eval/generators::Config validation::missing corpus param
+def test_missing_corpus_param_raises():
+    params = {
+        "num_pairs": 3,
+        "recall_distances": [1, 2, 5],
+        "filler_density": 1.0,
+        "max_distance": 10,
+    }
+    config = StreamConfig(generator="assoc", params=params)
+    with pytest.raises((ValueError, KeyError)):
+        _items(config)
+
+
+# covers: eval/generators::Total stream length is a fixed function of config::pinned stream length
 def test_pinned_stream_length():
     items = _items(
         _config(
@@ -403,11 +564,32 @@ def test_pinned_stream_length():
     assert len(items) == 240
 
 
-# covers: eval/generators/assoc::chance_rate equals 1/len(VOCAB)::chance rate
+# covers: eval/generators::Total stream length is a fixed function of config::length formula holds for different configs
+def test_length_formula_holds_for_a_different_config():
+    items = _items(
+        _config(
+            num_pairs=5,
+            recall_distances=[1],
+            filler_density=1.0,
+            max_distance=10,
+        )
+    )
+    assert len(items) == 20
+
+
+# covers: eval/generators::chance_rate equals 1/len(VOCAB)::chance rate
 def test_chance_rate_equals_one_over_vocab_size():
     generator = AssocGenerator()
     rate = generator.chance_rate(_config())
     assert rate == 1 / len(vocab.VOCAB)
+
+
+# covers: eval/generators::chance_rate equals 1/len(VOCAB)::chance rate independent of config params
+def test_chance_rate_is_independent_of_config_params():
+    generator = AssocGenerator()
+    first = generator.chance_rate(_config(num_pairs=3))
+    second = generator.chance_rate(_config(num_pairs=20))
+    assert first == second
 
 
 def test_a_120100_position_stream_builds_without_raising():
