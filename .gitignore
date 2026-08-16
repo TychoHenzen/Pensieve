@@ -25,5 +25,8 @@ __pycache__/
 # .idea/: project config written by PyCharm / IntelliJ
 .idea/
 
+# data/MNIST/: MNIST dataset downloaded by torchvision when data_source="mnist"
+data/MNIST/
+
 # .claude/settings.local.json: local Claude Code settings (per-machine)
 .claude/settings.local.json

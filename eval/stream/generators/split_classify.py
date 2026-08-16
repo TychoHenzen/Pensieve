@@ -10,12 +10,14 @@ just finished. `Boundary(TASK_SWITCH)` marks the seam between one task's
 block and the next. A config sets `hidden_from_subject` on that boundary.
 
 The `Observe` payload holds `features`, `label`, and an optional
-`source`. `source` stays `None` here, because this generator fills the
-payload with synthetic clusters. The real data would be Split-MNIST (the
+`source`. By default this generator fills the payload with synthetic
+clusters and `source` stays `None`. Setting `data_source="mnist"` in
+the config switches the feature draw to real Split-MNIST data (the
 Modified National Institute of Standards and Technology set of written
-digits, split into tasks of two classes each). Binding it later needs a
-different
-`source` and a different feature draw. It needs no schema change.
+digits, split into tasks of `classes_per_task` digits each): `features`
+becomes 784 pixel intensities normalized to `[0, 1]`, `label` becomes
+the digit string, and `source` names the dataset item (for example
+`"mnist-train-12345"`). The schema does not change either way.
 
 Every random draw comes from `eval.stream.generator.derive(seed, name)`,
 so two runs at the same seed produce the identical stream.
@@ -56,6 +58,58 @@ def _draw_features(source: random.Random, classes_per_task: int, class_index: in
     return [value + source.gauss(0.0, FEATURE_NOISE_STD) for value in center]
 
 
+class _MnistData:
+    """MNIST pixel data, indexed by digit, for both the train and test splits.
+
+    Loading `torchvision.datasets.MNIST` is what makes `data_source="mnist"`
+    an opt-in path: importing `torchvision` and touching disk only happens
+    when a config actually asks for real data, so the synthetic default
+    stays free of that dependency.
+    """
+
+    def __init__(self, data_dir: str) -> None:
+        from torchvision.datasets import MNIST
+
+        self.train = MNIST(root=data_dir, train=True, download=True)
+        self.test = MNIST(root=data_dir, train=False, download=True)
+        self._train_by_digit = self._index_by_digit(self.train.targets.tolist())
+        self._test_by_digit = self._index_by_digit(self.test.targets.tolist())
+
+    @staticmethod
+    def _index_by_digit(targets: list[int]) -> dict[int, list[int]]:
+        by_digit: dict[int, list[int]] = {}
+        for index, digit in enumerate(targets):
+            by_digit.setdefault(digit, []).append(index)
+        return by_digit
+
+    @staticmethod
+    def _pixels(dataset: object, index: int) -> list[float]:
+        return (dataset.data[index].flatten().float() / 255.0).tolist()  # type: ignore[attr-defined]
+
+    def sample_train(self, source: random.Random, digit: int) -> tuple[list[float], str]:
+        index = source.choice(self._train_by_digit[digit])
+        return self._pixels(self.train, index), f"mnist-train-{index}"
+
+    def sample_test(self, source: random.Random, digit: int) -> tuple[list[float], str]:
+        index = source.choice(self._test_by_digit[digit])
+        return self._pixels(self.test, index), f"mnist-test-{index}"
+
+
+# Loading MNIST touches disk and, on first use, downloads the dataset. This
+# cache keeps a `generate()` call from redoing that work on every task and
+# every probe, keyed by the data directory so two configs pointing at two
+# directories do not share a cache entry.
+_mnist_cache: dict[str, _MnistData] = {}
+
+
+def _get_mnist_data(data_dir: str) -> _MnistData:
+    data = _mnist_cache.get(data_dir)
+    if data is None:
+        data = _MnistData(data_dir)
+        _mnist_cache[data_dir] = data
+    return data
+
+
 class SplitClassifyGenerator:
     """Teach classification tasks in sequence, probing every task seen so far."""
 
@@ -78,6 +132,7 @@ class SplitClassifyGenerator:
         examples_per_task = params["examples_per_task"]
         probes_per_task = params["probes_per_task"]
         hidden_from_subject = bool(params.get("hidden_from_subject", False))
+        data_source = params.get("data_source")
 
         if num_tasks < 1:
             raise ValueError(f"num_tasks must be at least 1, got {num_tasks}")
@@ -88,6 +143,16 @@ class SplitClassifyGenerator:
         if probes_per_task < 1:
             raise ValueError(f"probes_per_task must be at least 1, got {probes_per_task}")
 
+        mnist: _MnistData | None = None
+        if data_source == "mnist":
+            if num_tasks * classes_per_task > 10:
+                raise ValueError(
+                    "num_tasks * classes_per_task must be at most 10 for MNIST, "
+                    f"got {num_tasks} * {classes_per_task} = {num_tasks * classes_per_task}"
+                )
+            data_dir = params.get("data_dir", "./data")
+            mnist = _get_mnist_data(data_dir)
+
         example_source = derive(seed, "examples")
         probe_source = derive(seed, "probes")
 
@@ -95,14 +160,21 @@ class SplitClassifyGenerator:
         for task_index in range(num_tasks):
             for _ in range(examples_per_task):
                 class_index = example_source.randrange(classes_per_task)
-                features = _draw_features(example_source, classes_per_task, class_index)
+                if mnist is not None:
+                    digit = task_index * classes_per_task + class_index
+                    features, source = mnist.sample_train(example_source, digit)
+                    label = str(digit)
+                else:
+                    features = _draw_features(example_source, classes_per_task, class_index)
+                    label = _class_label(task_index, class_index)
+                    source = None
                 yield StreamItem(
                     event=Observe(
                         position=position,
                         payload={
                             "features": features,
-                            "label": _class_label(task_index, class_index),
-                            "source": None,
+                            "label": label,
+                            "source": source,
                         },
                     ),
                     truth=None,
@@ -112,7 +184,13 @@ class SplitClassifyGenerator:
             for probed_task in range(task_index + 1):
                 for _ in range(probes_per_task):
                     class_index = probe_source.randrange(classes_per_task)
-                    features = _draw_features(probe_source, classes_per_task, class_index)
+                    if mnist is not None:
+                        digit = probed_task * classes_per_task + class_index
+                        features, _source = mnist.sample_test(probe_source, digit)
+                        answer: object = str(digit)
+                    else:
+                        features = _draw_features(probe_source, classes_per_task, class_index)
+                        answer = _class_label(probed_task, class_index)
                     yield StreamItem(
                         event=Probe(
                             position=position,
@@ -120,7 +198,7 @@ class SplitClassifyGenerator:
                             task_id=f"task{probed_task}",
                             query=format_features(features),
                         ),
-                        truth=ProbeTruth(answer=_class_label(probed_task, class_index)),
+                        truth=ProbeTruth(answer=answer),
                     )
                     position += 1
 
