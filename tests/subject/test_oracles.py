@@ -9,6 +9,7 @@ from eval.subject.oracles.cheater import CheaterOracle
 from eval.subject.oracles.forgetful import ForgetfulOracle
 from eval.subject.oracles.perfect_memory import PerfectMemoryOracle
 from eval.subject.oracles.task_wiper import TaskWiperOracle
+from eval.subject.oracles.variable_compute import VariableComputeOracle
 
 
 def _assoc_stream():
@@ -191,3 +192,31 @@ def test_cheater_no_truth_map_entry_returns_empty():
     oracle = CheaterOracle({"y": "known"})
     probe = Probe(position=0, probe_id="p", task_id="t", query="x")
     assert oracle.answer(probe) == ""
+
+
+def test_variable_compute_answers_chains_correctly():
+    oracle = VariableComputeOracle()
+    probe = Probe(
+        position=0,
+        probe_id="p",
+        task_id="t",
+        query="Start at 42. Add 3. Subtract 7. What is the result modulo 1000?",
+    )
+    assert oracle.answer(probe) == str((42 + 3 - 7) % 1000)
+    assert oracle.cost().steps == 2
+
+
+def test_variable_compute_snapshot_restore_round_trips_steps():
+    oracle = VariableComputeOracle()
+    probe = Probe(
+        position=0,
+        probe_id="p",
+        task_id="t",
+        query="Start at 5. Add 1. Add 1. What is the result modulo 1000?",
+    )
+    oracle.answer(probe)
+    state = oracle.snapshot()
+
+    other = VariableComputeOracle()
+    other.restore(state)
+    assert other.cost().steps == oracle.cost().steps == 2
