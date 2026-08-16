@@ -1,5 +1,15 @@
 # Stage -1 Implementation Plan: Harness Before Model
 
+> **Status.** Phases 1 through 7 are complete. The subject protocol, stream
+> schema, and metric definitions are frozen at v1 (`SUBJECT_PROTOCOL_VERSION`,
+> `STREAM_SCHEMA_VERSION`, `METRICS_VERSION`, each `"1"`). The contract
+> Stage 0 reads is `docs/STAGE-MINUS-1-CONTRACT.md`. The reproduction gate
+> (phase 8) has its pass condition locked and its runner built
+> (`scripts/run_gate.py`); the full five-seed Split-MNIST run itself is the
+> one remaining step before this stage closes. See the `stage-minus-1-remainder`
+> change under `openspec/changes/` for the tasks that extended this plan and
+> the investigation note behind the numbers below.
+
 Scope: everything in `PLAN.md` Stage -1, start to finish. No model research happens
 here. The deliverable is a measurement instrument plus the proof that the
 instrument works.
@@ -88,11 +98,12 @@ Stage -1 ships these generators:
 - `split-classify`. A classification stream split into tasks presented in
   sequence, with probes on every task seen so far and a `Boundary(TASK_SWITCH)`
   between tasks. The `Observe` payload holds `features`, a `label`, and an
-  optional `source` naming a dataset item. `source` stays empty for now. Real
-  digit data can bind through it later, as a config change. That data is
-  Split-MNIST (the Modified National Institute of Standards and Technology set
-  of written digits, split into tasks of two digits each). This is the
-  generator that hosts the reproduction gate.
+  optional `source` naming a dataset item. Real digit data binds through it as
+  a config change: `data_source="mnist"` yields 784-element feature vectors
+  with `source` set to the dataset item and the stream hash incorporating the
+  data source. That data is Split-MNIST (the Modified National Institute of
+  Standards and Technology set of written digits, split into tasks of two
+  digits each). This is the generator that hosts the reproduction gate.
 - `difficulty-mix`. Arithmetic chains whose length is the difficulty label,
   kept on the truth channel only so a subject cannot read it off the query.
   Answers run mod 1000, so the answer space stays bounded regardless of chain
@@ -166,7 +177,10 @@ Baselines for Stage -1:
 - **Frozen.** No learning at all. The no-adaptation floor.
 - **EWC.** A published continual-learning method.
 - **Generative replay.** The second published method, and the one whose published
-  numbers the gate reproduces.
+  numbers the gate reproduces. Built as a symmetric VAE (variational
+  autoencoder) matching the solver's hidden-layer sizes, latent dimension
+  100, trained jointly with the solver, per the released code the paper
+  is built on.
 
 The runner enforces parameter matching. It counts the parameters of the subject and
 of the baseline. It then refuses to report a comparison outside a stated tolerance.
@@ -227,18 +241,20 @@ The gate is: the harness reproduces a known continual-learning result on a toy m
 
 Target: class-incremental `Split-MNIST`, the written digit set cut into tasks of two
 digits each. Compare naive sequential, EWC, and generative replay. Score them against
-the numbers reported in van de Ven, Siegelmann and Tolias, "Brain-inspired replay for
-continual learning with artificial neural networks", Nature Communications 11:4069,
-2020. The shape of the result matters most. In the class-incremental setting, naive
-and EWC sit near chance while replay stays high. Pull the exact percentages from the
-paper before locking the tolerance. Do not take them from memory.
+the numbers reported in van de Ven, G.M. and Tolias, A.S., "Three scenarios for
+continual learning", arXiv:1904.07734, 2019, Table 4. The shape of the result matters
+most. In the class-incremental setting, naive and EWC sit near chance (both around
+20%, chance is 10%) while replay stays high (around 91%). The exact numbers used and
+the architecture that reproduces them (2x400 ReLU MLP, Adam lr=0.001, 2000
+iterations/task) are recorded in `investigation-phase7.md` and locked into
+`pass_condition.md`, both under `openspec/changes/stage-minus-1-remainder/`.
 
 Why this target. It is cheap enough to run many times on one consumer GPU. The paper
 spells the protocol out in full. It exercises the same machinery Stage 3 depends on.
 It also has a well-known failure mode: EWC collapses in the class-incremental setting.
 So a harness that reports EWC doing fine is plainly broken.
 
-Pass condition, to be written down before the first run:
+Pass condition, locked before the first run in `pass_condition.md`:
 
 - Each method lands within a stated tolerance of the paper's reported accuracy. Fix
   the tolerance in advance. Run at least five seeds and report the spread.
@@ -258,30 +274,36 @@ guards against tuning the harness to one task.
 
 Each phase ends in something runnable. Nothing is built two phases ahead of its test.
 
-1. **Skeleton.** Repository layout from `PLAN.md`. Packaging and the test runner.
-   Lint, typed config, run record, logging. Ends when a null subject runs a two-event
-   stream and writes a valid run directory.
-2. **Stream core.** Event types, generator protocol, seeding, hashing. Adds the
-   `assoc` generator. Ends with a stream that replays the same way twice.
-3. **Subject protocol and isolation.** The interface, snapshot and restore, the
-   isolation test, and the cheater oracle. Ends when a test proves isolation works by
-   failing once isolation is removed.
-4. **Metrics.** The probe log, the metric set, and every oracle subject. Ends when all
-   oracle expectations match the values worked out on paper.
-5. **Instrumentation.** Cost counters and the event schema for later signals. Ends
-   with `difficulty-mix` showing that a deliberately variable-compute oracle produces
-   the expected correlation.
-6. **Persistence.** Checkpoint, resume, and the crash test. Ends when a killed and
-   resumed run matches an unbroken one.
-7. **Baselines.** The five baselines, the `split-classify` generator, and parameter
-   matching. Ends with all five running on one stream and producing a comparison
-   table.
-8. **Gate.** The reproduction, the seed sweep, and the written pass condition. Ends
-   with a report.
-9. **Freeze.** Version the subject interface, the stream schema, and the metric
-   definitions as v1. Write the short document that Stage 0 reads. A later stage may
-   extend these. Any breaking change bumps the version, which voids old run
-   comparisons on purpose.
+1. **Skeleton.** [Done] Repository layout from `PLAN.md`. Packaging and the test
+   runner. Lint, typed config, run record, logging. Ends when a null subject runs a
+   two-event stream and writes a valid run directory.
+2. **Stream core.** [Done] Event types, generator protocol, seeding, hashing. Adds
+   the `assoc` generator. Ends with a stream that replays the same way twice.
+3. **Subject protocol and isolation.** [Done] The interface, snapshot and restore,
+   the isolation test, and the cheater oracle. Ends when a test proves isolation
+   works by failing once isolation is removed.
+4. **Metrics.** [Done] The probe log, the metric set, and every oracle subject. Ends
+   when all oracle expectations match the values worked out on paper.
+5. **Instrumentation.** [Done] Cost counters and the event schema for later signals.
+   Ends with `difficulty-mix` showing that a deliberately variable-compute oracle
+   produces the expected correlation.
+6. **Persistence.** [Done] Checkpoint, resume, and the crash test. Ends when a killed
+   and resumed run matches an unbroken one.
+7. **Baselines.** [Done] The five baselines, the `split-classify` generator, and
+   parameter matching. Ends with all five running on one stream and producing a
+   comparison table.
+8. **Gate.** [In progress] The reproduction, the seed sweep, and the written pass
+   condition. The pass condition is locked
+   (`openspec/changes/stage-minus-1-remainder/pass_condition.md`) and the gate runner
+   is built (`scripts/run_gate.py`, `tests/gate/test_gate_smoke.py`). The full
+   five-seed Split-MNIST run and its report are the remaining step.
+9. **Freeze.** [In progress] Version the subject interface, the stream schema, and
+   the metric definitions as v1. Done: `SUBJECT_PROTOCOL_VERSION`,
+   `STREAM_SCHEMA_VERSION`, and `METRICS_VERSION` are all set to `"1"`, and the short
+   document Stage 0 reads is written (`docs/STAGE-MINUS-1-CONTRACT.md`). This
+   document's own update is the last item in this phase. A later stage may extend
+   these. Any breaking change bumps the version, which voids old run comparisons on
+   purpose.
 
 Phases 2 through 5 are the risky ones, because that is where a wrong definition
 becomes load-bearing. Phases 6 and 7 are ordinary engineering.
