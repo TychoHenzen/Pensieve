@@ -12,7 +12,7 @@ dev = ["pytest", "numpy", "scipy"]
 corpus = ["zstandard"]
 
 [tool.setuptools.packages.find]
-include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles"]
+include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles", "eval.metrics"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
