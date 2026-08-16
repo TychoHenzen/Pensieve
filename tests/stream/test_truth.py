@@ -130,6 +130,89 @@ def test_views_agree_on_ordering_and_positions():
     assert harness_positions == [1, 2, 3]
 
 
+# covers: eval/events::StreamItem truth pairing invariant::Idle with truth rejected
+def test_idle_with_truth_is_rejected():
+    with pytest.raises(ValueError, match="may carry a ProbeTruth"):
+        StreamItem(event=Idle(position=1, budget=5), truth=ProbeTruth(answer="42"))
+
+
+# covers: eval/events::StreamItem truth pairing invariant::Boundary with truth rejected
+def test_boundary_with_truth_is_rejected():
+    with pytest.raises(ValueError, match="may carry a ProbeTruth"):
+        StreamItem(
+            event=Boundary(position=1, kind=BoundaryKind.SESSION_END),
+            truth=ProbeTruth(answer="42"),
+        )
+
+
+# covers: eval/events::StreamItem truth pairing invariant::Probe with truth accepted
+def test_probe_with_truth_is_accepted():
+    truth = ProbeTruth(answer="42")
+    item = StreamItem(event=_probe(), truth=truth)
+    assert item.truth == truth
+
+
+# covers: eval/events::ProbeTruth immutability and optional difficulty::ProbeTruth is frozen
+def test_probe_truth_frozen_raises_on_assignment():
+    truth = ProbeTruth(answer="42")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        truth.answer = "changed"
+
+
+# covers: eval/events::ProbeTruth immutability and optional difficulty::difficulty defaults to None
+def test_probe_truth_difficulty_default_is_none():
+    truth = ProbeTruth(answer="x")
+    assert truth.difficulty is None
+
+
+# covers: eval/events::ProbeTruth immutability and optional difficulty::difficulty can be set explicitly
+def test_probe_truth_difficulty_can_be_set():
+    truth = ProbeTruth(answer="x", difficulty=3)
+    assert truth.difficulty == 3
+
+
+# covers: eval/events::subject_view hides truth and hidden boundaries::yields bare Events not StreamItems
+def test_subject_view_yields_bare_events():
+    items = [
+        StreamItem(event=Observe(position=1, payload="hi"), truth=None),
+        StreamItem(event=_probe(position=2), truth=ProbeTruth(answer="42")),
+    ]
+    result = list(subject_view(items))
+    assert all(isinstance(entry, (Observe, Probe, Idle, Boundary)) for entry in result)
+    assert all(not isinstance(entry, StreamItem) for entry in result)
+
+
+# covers: eval/events::subject_view hides truth and hidden boundaries::preserves position order
+def test_subject_view_preserves_position_order():
+    items = [
+        StreamItem(event=Observe(position=0, payload="a"), truth=None),
+        StreamItem(event=Observe(position=1, payload="b"), truth=None),
+        StreamItem(event=Observe(position=2, payload="c"), truth=None),
+        StreamItem(event=Observe(position=3, payload="d"), truth=None),
+    ]
+    result = list(subject_view(items))
+    positions = [entry.position for entry in result]
+    assert all(a < b for a, b in zip(positions, positions[1:]))
+
+
+# covers: eval/events::subject_view hides truth and hidden boundaries::visible boundary included
+def test_subject_view_includes_visible_boundary():
+    visible = Boundary(
+        position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=False
+    )
+    items = [StreamItem(event=visible, truth=None)]
+    result = list(subject_view(items))
+    assert visible in result
+
+
+# covers: eval/events::harness_view yields everything unfiltered::truth preserved in harness view
+def test_harness_view_preserves_truth():
+    truth = ProbeTruth(answer="42")
+    items = [StreamItem(event=_probe(), truth=truth)]
+    result = list(harness_view(items))
+    assert result[0].truth == truth
+
+
 # covers: eval/events::narration and hostile flags exist for future stages::no current consumer
 def test_no_generator_sets_narration_or_hostile(monkeypatch):
     from pathlib import Path

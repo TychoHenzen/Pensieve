@@ -144,3 +144,132 @@ def test_rendered_boundary_contains_kind_string():
     event = Boundary(position=1, kind=BoundaryKind.TASK_SWITCH)
     rendered = render_event(event)
     assert "task_switch" in rendered
+
+
+# covers: eval/events::Event immutability::attribute assignment on a constructed Observe
+def test_observe_is_immutable():
+    event = Observe(position=1, payload="hello")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        event.payload = "changed"
+
+
+# covers: eval/events::Event immutability::attribute assignment on a constructed Probe
+def test_probe_is_immutable():
+    event = Probe(position=1, probe_id="p1", task_id="t1", query="q")
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        event.query = "changed"
+
+
+# covers: eval/events::Event immutability::attribute assignment on a constructed Idle
+def test_idle_is_immutable():
+    event = Idle(position=1, budget=10)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        event.budget = 20
+
+
+# covers: eval/events::Event immutability::attribute assignment on a constructed Boundary
+def test_boundary_is_immutable():
+    event = Boundary(position=1, kind=BoundaryKind.SESSION_END)
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        event.kind = BoundaryKind.TASK_SWITCH
+
+
+# covers: eval/events::Event required fields::Probe without probe_id
+def test_probe_without_probe_id_raises_type_error():
+    with pytest.raises(TypeError):
+        Probe(position=1, task_id="t1", query="q")
+
+
+# covers: eval/events::Event required fields::Probe without task_id
+def test_probe_without_task_id_raises_type_error():
+    with pytest.raises(TypeError):
+        Probe(position=1, probe_id="p1", query="q")
+
+
+# covers: eval/events::Event required fields::Probe without query
+def test_probe_without_query_raises_type_error():
+    with pytest.raises(TypeError):
+        Probe(position=1, probe_id="p1", task_id="t1")
+
+
+# covers: eval/events::Event required fields::Idle without budget
+def test_idle_without_budget_raises_type_error():
+    with pytest.raises(TypeError):
+        Idle(position=1)
+
+
+# covers: eval/events::Event required fields::Observe without payload
+def test_observe_without_payload_raises_type_error():
+    with pytest.raises(TypeError):
+        Observe(position=1)
+
+
+# covers: eval/events::Event required fields::Boundary without kind
+def test_boundary_without_kind_raises_type_error():
+    with pytest.raises(TypeError):
+        Boundary(position=1)
+
+
+# covers: eval/events::Event optional-field defaults::narration defaults to None
+def test_observe_narration_defaults_to_none():
+    event = Observe(position=1, payload="hello")
+    assert event.narration is None
+
+
+# covers: eval/events::Event optional-field defaults::hostile defaults to False
+def test_observe_hostile_defaults_to_false():
+    event = Observe(position=1, payload="hello")
+    assert event.hostile is False
+
+
+# covers: eval/events::Event optional-field defaults::hidden_from_subject defaults to False
+def test_boundary_hidden_from_subject_defaults_to_false():
+    event = Boundary(position=1, kind=BoundaryKind.SESSION_END)
+    assert event.hidden_from_subject is False
+
+
+# covers: eval/events::Event optional-field defaults::narration defaults to None on Probe
+def test_probe_narration_defaults_to_none():
+    event = Probe(position=1, probe_id="p1", task_id="t1", query="q")
+    assert event.narration is None
+
+
+# covers: eval/events::BoundaryKind string values::session_end string value
+def test_boundary_kind_session_end_value():
+    assert BoundaryKind.SESSION_END.value == "session_end"
+
+
+# covers: eval/events::BoundaryKind string values::task_switch string value
+def test_boundary_kind_task_switch_value():
+    assert BoundaryKind.TASK_SWITCH.value == "task_switch"
+
+
+# covers: eval/events::BoundaryKind string values::distribution_shift string value
+def test_boundary_kind_distribution_shift_value():
+    assert BoundaryKind.DISTRIBUTION_SHIFT.value == "distribution_shift"
+
+
+# covers: eval/events::Event type union::isinstance dispatch covers all four types
+def test_event_union_isinstance_dispatch_covers_all_four_types():
+    events: list[Event] = [
+        Observe(position=1, payload="hello"),
+        Probe(position=2, probe_id="p1", task_id="t1", query="q"),
+        Idle(position=3, budget=50),
+        Boundary(position=4, kind=BoundaryKind.DISTRIBUTION_SHIFT),
+    ]
+    types = (Observe, Probe, Idle, Boundary)
+    for event in events:
+        matches = [isinstance(event, t) for t in types]
+        assert sum(matches) == 1
+
+
+# covers: eval/events::Event type union::Event alias accepts all four types
+def test_event_alias_accepts_all_four_types():
+    instances: list[Event] = [
+        Observe(position=1, payload="hello"),
+        Probe(position=2, probe_id="p1", task_id="t1", query="q"),
+        Idle(position=3, budget=50),
+        Boundary(position=4, kind=BoundaryKind.DISTRIBUTION_SHIFT),
+    ]
+    for instance in instances:
+        assert isinstance(instance, (Observe, Probe, Idle, Boundary))
