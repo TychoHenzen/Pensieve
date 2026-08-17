@@ -23,6 +23,7 @@ import json
 import os
 import random
 import statistics
+import time
 from pathlib import Path
 from typing import Any
 
@@ -124,6 +125,7 @@ def _build_subject(method: str, device: str) -> Subject:
             LR,
             latent_dim=REPLAY_LATENT_DIM,
             device=device,
+            pixel_mode=True,
         )
     raise ValueError(f"unknown method: {method}")
 
@@ -264,7 +266,8 @@ def _print_summary(report: dict[str, Any]) -> None:
     for method, stats in report["methods"].items():
         print(
             f"{method:8s} mean={stats['mean']:.2f}%  std={stats['std']:.2f}%  "
-            f"seeds={stats['seeds']}  accuracies={['%.2f' % a for a in stats['accuracies']]}"
+            f"total={stats['total_seconds']:.1f}s  "
+            f"accuracies={['%.2f' % a for a in stats['accuracies']]}"
         )
     print()
     for name, passed in report["criteria"].items():
@@ -309,20 +312,28 @@ def main() -> None:
     print(f"device={device}")
 
     per_method_accuracy: dict[str, list[float]] = {method: [] for method in METHODS}
+    per_method_time: dict[str, list[float]] = {method: [] for method in METHODS}
 
     for method in METHODS:
+        method_start = time.monotonic()
         for seed in seeds:
             run_dir = output_dir / method / f"seed{seed}"
+            seed_start = time.monotonic()
             _execute_run(
                 method, seed, run_dir, args.data_dir, args.deterministic, device,
             )
+            seed_elapsed = time.monotonic() - seed_start
             accuracy = _seed_accuracy(run_dir)
             per_method_accuracy[method].append(accuracy)
-            print(f"[{method}] seed={seed} accuracy={accuracy:.2f}%")
+            per_method_time[method].append(seed_elapsed)
+            print(f"[{method}] seed={seed} accuracy={accuracy:.2f}% ({seed_elapsed:.1f}s)")
+        method_elapsed = time.monotonic() - method_start
+        print(f"[{method}] total={method_elapsed:.1f}s")
 
     summary: dict[str, Any] = {}
     for method in METHODS:
         accuracies = per_method_accuracy[method]
+        times = per_method_time[method]
         mean = statistics.mean(accuracies)
         std = statistics.stdev(accuracies) if len(accuracies) > 1 else 0.0
         summary[method] = {
@@ -330,6 +341,8 @@ def main() -> None:
             "accuracies": accuracies,
             "mean": mean,
             "std": std,
+            "times_seconds": times,
+            "total_seconds": sum(times),
         }
 
     reproducibility = {

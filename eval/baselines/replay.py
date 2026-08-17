@@ -64,6 +64,10 @@ class VAE(nn.Module):
     -> hidden trunk -> reconstructed input. Hidden-layer sizes match the
     solver's `MLP` by default (2 layers of 400 units), so the generator
     has comparable capacity to the classifier it is rehearsing.
+
+    When `pixel_mode` is True the decoder applies sigmoid so its output
+    stays in [0, 1], matching MNIST pixel intensities. The corresponding
+    loss uses BCE instead of MSE.
     """
 
     def __init__(
@@ -72,9 +76,11 @@ class VAE(nn.Module):
         hidden_layers: int = 2,
         hidden_units: int = 400,
         latent_dim: int = 100,
+        pixel_mode: bool = False,
     ) -> None:
         super().__init__()
         self.latent_dim = latent_dim
+        self.pixel_mode = pixel_mode
 
         encoder_trunk, enc_out = _hidden_stack(input_dim, hidden_layers, hidden_units)
         self.encoder_trunk = encoder_trunk
@@ -96,7 +102,10 @@ class VAE(nn.Module):
 
     def decode(self, z: torch.Tensor) -> torch.Tensor:
         h = self.decoder_trunk(z)
-        return self.fc_out(h)
+        out = self.fc_out(h)
+        if self.pixel_mode:
+            return torch.sigmoid(out)
+        return out
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         mu, logvar = self.encode(x)
@@ -105,16 +114,22 @@ class VAE(nn.Module):
         return recon, mu, logvar
 
 
-def _vae_loss(recon: torch.Tensor, x: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor) -> torch.Tensor:
-    """Reconstruction (MSE) plus KL divergence to a standard normal prior.
+def _vae_loss(
+    recon: torch.Tensor, x: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
+    pixel_mode: bool = False,
+) -> torch.Tensor:
+    """Reconstruction plus KL divergence to a standard normal prior.
 
-    MSE rather than BCE: `split-classify` feature vectors are arbitrary
-    floats, not pixel intensities in `[0, 1]`, so a BCE reconstruction
-    term would assume a range the data does not have. Both terms are
-    averaged over the batch so their relative weight does not drift with
+    In pixel mode (features in [0, 1]), uses BCE on the sigmoid-clamped
+    decoder output, matching van de Ven & Tolias 2019. Otherwise uses
+    MSE for arbitrary-range synthetic features. Both terms are averaged
+    over the batch so their relative weight does not drift with
     `batch_size`.
     """
-    recon_loss = F.mse_loss(recon, x, reduction="sum") / x.size(0)
+    if pixel_mode:
+        recon_loss = F.binary_cross_entropy(recon, x, reduction="sum") / x.size(0)
+    else:
+        recon_loss = F.mse_loss(recon, x, reduction="sum") / x.size(0)
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp()) / x.size(0)
     return recon_loss + kld
 
@@ -134,6 +149,7 @@ class ReplayBaseline(Subject):
         batch_size: int = 128,
         replay_ratio: float = 1.0,
         device: str = "cpu",
+        pixel_mode: bool = False,
     ) -> None:
         self._input_dim = input_dim
         self._output_dim = output_dim
@@ -144,13 +160,14 @@ class ReplayBaseline(Subject):
         self._batch_size = batch_size
         self._replay_ratio = replay_ratio
         self._device = torch.device(device)
+        self._pixel_mode = pixel_mode
 
         self._solver = MLP(input_dim, output_dim, hidden_layers, hidden_units).to(self._device)
         self._solver_optimizer = torch.optim.Adam(self._solver.parameters(), lr=lr)
         self._loss_fn = nn.CrossEntropyLoss()
         self._solver.eval()
 
-        self._generator = VAE(input_dim, hidden_layers, hidden_units, latent_dim).to(self._device)
+        self._generator = VAE(input_dim, hidden_layers, hidden_units, latent_dim, pixel_mode).to(self._device)
         self._generator_optimizer = torch.optim.Adam(self._generator.parameters(), lr=lr)
         self._generator.eval()
 
@@ -266,7 +283,7 @@ class ReplayBaseline(Subject):
 
             self._generator_optimizer.zero_grad()
             recon, mu, logvar = self._generator(x_train.detach())
-            generator_loss = _vae_loss(recon, x_train.detach(), mu, logvar)
+            generator_loss = _vae_loss(recon, x_train.detach(), mu, logvar, self._pixel_mode)
             generator_loss.backward()
             self._generator_optimizer.step()
 
