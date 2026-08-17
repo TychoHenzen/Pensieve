@@ -233,19 +233,23 @@ class ReplayBaseline(Subject):
         return CostCounters(steps=self._steps)
 
     def _retrain(self) -> None:
-        """Jointly retrain the solver and the generator on the finished task.
+        """Retrain the solver and generator on the finished task plus replay.
 
-        Each iteration draws a real batch from the just-finished task's
-        buffer and, once the generator has seen at least one prior task,
-        a same-sized (times `replay_ratio`) replay batch sampled from the
-        generator and pseudo-labelled by the solver's current
-        predictions. The solver trains on the combined batch as ordinary
-        classification; the generator trains on the same combined batch
-        so it keeps rehearsing its own past output alongside the new
-        task, rather than only ever learning the newest task's data.
+        Replay samples come from frozen copies of the previous task's
+        generator and solver. Using the models being trained for replay
+        causes a feedback loop: as the solver drifts toward the new
+        task, it relabels replay as the new classes, and the generator
+        follows, collapsing replay into the latest task only.
         """
         if not self._buffer:
             return
+
+        prev_generator = copy.deepcopy(self._generator) if self._has_trained_generator else None
+        prev_solver = copy.deepcopy(self._solver) if self._has_trained_generator else None
+        if prev_generator is not None:
+            prev_generator.eval()
+        if prev_solver is not None:
+            prev_solver.eval()
 
         features = [f for f, _ in self._buffer]
         labels = [self._label_to_index[label] for _, label in self._buffer]
@@ -262,12 +266,12 @@ class ReplayBaseline(Subject):
             x_real = x_real_all[real_idx]
             y_real = y_real_all[real_idx]
 
-            if self._has_trained_generator:
+            if prev_generator is not None and prev_solver is not None:
                 replay_size = max(1, round(real_batch_size * self._replay_ratio))
                 with torch.no_grad():
                     z = torch.randn(replay_size, self._latent_dim).to(self._device)
-                    x_replay = self._generator.decode(z)
-                    replay_logits = self._solver(x_replay)
+                    x_replay = prev_generator.decode(z)
+                    replay_logits = prev_solver(x_replay)
                     y_replay = torch.argmax(replay_logits, dim=1)
                 x_train = torch.cat([x_real, x_replay], dim=0)
                 y_train = torch.cat([y_real, y_replay], dim=0)
