@@ -131,13 +131,13 @@ def main() -> None:
     print("A method that learns without forgetting keeps all columns high.")
     print("A method that forgets shows high accuracy only on the latest task.")
 
-    random.seed(0)
-    torch.manual_seed(0)
+    random.seed(time.time())
+    torch.manual_seed(random.getrandbits(32))
 
     subjects = _build_subjects(device)
     config = _stream_config()
     generator = SplitClassifyGenerator()
-    stream = list(generator.generate(config, seed=0))
+    stream = list(generator.generate(config, seed=random.getrandbits(32)))
 
     phase = 0
     phase_probes: dict[str, list[tuple[str, str, str]]] = {

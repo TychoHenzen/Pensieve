@@ -6,7 +6,7 @@ context: |
   Build: setuptools
   Domain: ML research - latent-reasoning architecture with fast-weight memory
          and idle consolidation (see docs/PLAN.md for staged roadmap)
-  Current stage: Stage -1 (streaming eval harness, metrics, baselines)
+  Current stage: Stage -1 complete, Stage 0 next (latent core)
   Scale: single GPU, 100M-1B parameter models, mechanism study
   Layout: eval/ (streaming benchmarks), with workspace/, codecs/, core/,
           memory/, consolidate/, runtime/, train/ planned for later stages
