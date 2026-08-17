@@ -49,6 +49,7 @@ class BoundaryKind(enum.Enum):
 
     SESSION_END = "session_end"
     TASK_SWITCH = "task_switch"
+    TASK_TRAINED = "task_trained"
     DISTRIBUTION_SHIFT = "distribution_shift"
 
 

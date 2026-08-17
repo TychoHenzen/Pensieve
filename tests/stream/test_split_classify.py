@@ -30,7 +30,7 @@ def test_generator_satisfies_stream_generator_protocol():
     generator = SplitClassifyGenerator()
     assert isinstance(generator, StreamGenerator)
     assert generator.name == "split-classify"
-    assert generator.version == "2"
+    assert generator.version == "3"
 
 
 # covers: eval/generators::Generator identity and version::name is split-classify
@@ -39,10 +39,10 @@ def test_generator_name_is_split_classify():
     assert generator.name == "split-classify"
 
 
-# covers: eval/generators::Generator identity and version::version is 2
-def test_generator_version_is_2():
+# covers: eval/generators::Generator identity and version::version is 3
+def test_generator_version_is_3():
     generator = SplitClassifyGenerator()
-    assert generator.version == "2"
+    assert generator.version == "3"
 
 
 # covers: eval/generators::Positions are contiguous from zero::contiguous positions
@@ -103,7 +103,7 @@ def test_probes_after_task_j_cover_every_task_up_to_j():
     for item in items:
         if isinstance(item.event, Probe):
             current_probe_task_ids.add(item.event.task_id)
-        elif isinstance(item.event, Boundary):
+        elif isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH:
             task_ids_by_block.append(current_probe_task_ids)
             current_probe_task_ids = set()
     task_ids_by_block.append(current_probe_task_ids)
@@ -124,7 +124,7 @@ def test_probes_per_task_count_matches_config_at_each_checkpoint():
     for item in items:
         if isinstance(item.event, Probe):
             current[item.event.task_id] = current.get(item.event.task_id, 0) + 1
-        elif isinstance(item.event, Boundary):
+        elif isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH:
             counts_by_block.append(current)
             current = {}
     counts_by_block.append(current)
@@ -144,7 +144,7 @@ def test_example_count_per_task():
     for item in items:
         if isinstance(item.event, Observe):
             current += 1
-        elif isinstance(item.event, Boundary):
+        elif isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH:
             example_counts_by_block.append(current)
             current = 0
     example_counts_by_block.append(current)
@@ -159,11 +159,13 @@ def test_boundaries_land_between_tasks():
     config = _config(num_tasks=4, classes_per_task=2, examples_per_task=3, probes_per_task=1)
     items = _items(config)
 
-    boundaries = [item for item in items if isinstance(item.event, Boundary)]
+    boundaries = [
+        item for item in items
+        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH
+    ]
     assert len(boundaries) == 3  # one fewer than num_tasks
 
     for boundary_item in boundaries:
-        assert boundary_item.event.kind == BoundaryKind.TASK_SWITCH
         boundary_position = boundary_item.event.position
 
         before = [
@@ -176,9 +178,6 @@ def test_boundaries_land_between_tasks():
         ]
         assert before
         assert after
-        # Immediately before a boundary sits a probe (the end of a
-        # task's checkpoint); immediately after sits a fresh task's
-        # first Observe.
         assert isinstance(before[-1], Probe)
         assert isinstance(after[0], Observe)
 
@@ -191,12 +190,39 @@ def test_no_boundary_after_the_final_task():
 
 
 # covers: eval/generators::Boundaries between tasks but not after the last::boundary kind is TASK_SWITCH
-def test_boundary_kind_is_task_switch():
-    items = _items(_config(num_tasks=2))
-    boundaries = [item.event for item in items if isinstance(item.event, Boundary)]
-    assert boundaries
-    for boundary in boundaries:
-        assert boundary.kind == BoundaryKind.TASK_SWITCH
+def test_task_switch_boundaries_land_between_tasks():
+    items = _items(_config(num_tasks=3))
+    switches = [
+        item.event for item in items
+        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH
+    ]
+    assert len(switches) == 2  # num_tasks - 1
+
+
+def test_task_trained_boundaries_one_per_task():
+    items = _items(_config(num_tasks=3))
+    trained = [
+        item.event for item in items
+        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_TRAINED
+    ]
+    assert len(trained) == 3  # one per task
+
+
+def test_task_trained_sits_between_examples_and_probes():
+    config = _config(num_tasks=3, examples_per_task=3, probes_per_task=2)
+    items = _items(config)
+    trained = [
+        item for item in items
+        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_TRAINED
+    ]
+    for trained_item in trained:
+        pos = trained_item.event.position
+        before = [i.event for i in items if i.event.position < pos]
+        after = [i.event for i in items if i.event.position > pos]
+        assert before
+        assert after
+        assert isinstance(before[-1], Observe)
+        assert isinstance(after[0], Probe)
 
 
 # covers: eval/generators::Boundary hidden_from_subject reflects config::hidden boundaries

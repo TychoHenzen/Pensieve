@@ -2,8 +2,8 @@
 
 Runs the three baselines from `eval.baselines` on identical
 class-incremental Split-MNIST streams across a set of seeds, computes
-pooled probe accuracy per method per seed, and checks the result against
-the pass condition locked in
+final-phase probe accuracy per method per seed, and checks the result
+against the pass condition locked in
 `openspec/changes/stage-minus-1-remainder/pass_condition.md`. Writes a
 JSON report (`gate_report.json`, in `--output-dir`) with every number the
 pass condition names, plus a pass/fail verdict, and prints a
@@ -55,15 +55,6 @@ REPLAY_LATENT_DIM = 100
 NUM_TASKS = 5
 CLASSES_PER_TASK = 2
 
-# ASSUMPTION: the paper trains each task for 2000 minibatch-128 iterations
-# (256,000 examples seen). naive/EWC here take one gradient step per
-# Observe event (batch size 1), so this script uses 2000 single-example
-# steps per task as the online-SGD equivalent of "2000 iterations" rather
-# than 2000*128 examples, to keep gate runtime tractable. The pass
-# condition's tolerance bands (see pass_condition.md Criterion 1) are wide
-# enough to accommodate this approximation; replay's own retraining still
-# runs the paper's 2000 iterations at batch 128 internally
-# (`ReplayBaseline.train_iterations`), independent of this value.
 EXAMPLES_PER_TASK = 2000
 PROBES_PER_TASK = 200
 
@@ -101,10 +92,18 @@ def _stream_config(data_dir: str) -> StreamConfig:
     )
 
 
-def _build_subject(method: str) -> Subject:
-    """Return a freshly initialized baseline for `method`."""
+def _detect_device() -> str:
+    if torch.cuda.is_available():
+        return "cuda"
+    return "cpu"
+
+
+def _build_subject(method: str, device: str) -> Subject:
+    """Return a freshly initialized baseline for `method` on `device`."""
     if method == "naive":
-        return NaiveBaseline(INPUT_DIM, OUTPUT_DIM, HIDDEN_LAYERS, HIDDEN_UNITS, LR)
+        return NaiveBaseline(
+            INPUT_DIM, OUTPUT_DIM, HIDDEN_LAYERS, HIDDEN_UNITS, LR, device=device,
+        )
     if method == "ewc":
         return EWCBaseline(
             INPUT_DIM,
@@ -114,6 +113,7 @@ def _build_subject(method: str) -> Subject:
             LR,
             ewc_lambda=EWC_LAMBDA,
             fisher_samples=FISHER_SAMPLES,
+            device=device,
         )
     if method == "replay":
         return ReplayBaseline(
@@ -123,6 +123,7 @@ def _build_subject(method: str) -> Subject:
             HIDDEN_UNITS,
             LR,
             latent_dim=REPLAY_LATENT_DIM,
+            device=device,
         )
     raise ValueError(f"unknown method: {method}")
 
@@ -178,25 +179,34 @@ def _read_probe_log(run_dir: Path) -> list[ProbeLogEntry]:
 
 
 def _execute_run(
-    method: str, seed: int, run_dir: Path, data_dir: str, deterministic: bool
+    method: str, seed: int, run_dir: Path, data_dir: str, deterministic: bool,
+    device: str = "cpu",
 ) -> Path:
     """Seed every RNG, build `method`'s subject, and drive it through the gate stream."""
     _seed_everything(seed, deterministic)
     config = _run_config(method, seed, run_dir, data_dir)
     generator = SplitClassifyGenerator()
     stream = generator.generate(config.stream, seed)
-    subject = _build_subject(method)
+    subject = _build_subject(method, device)
     return run(subject, stream, config, run_dir=run_dir)
 
 
 def _seed_accuracy(run_dir: Path) -> float:
-    """Return `run_dir`'s pooled probe accuracy as a percentage."""
+    """Return final-phase probe accuracy as a percentage.
+
+    The paper reports accuracy after all tasks have been trained. The
+    generator's probe_id format is `split-classify-{phase}-{task}-{pos}`,
+    so the final phase's probes start with `split-classify-{NUM_TASKS-1}-`.
+    """
     log = _read_probe_log(run_dir)
-    return task_accuracy(log).pooled * 100.0
+    final_prefix = f"split-classify-{NUM_TASKS - 1}-"
+    final_phase = [entry for entry in log if entry.probe_id.startswith(final_prefix)]
+    return task_accuracy(final_phase).pooled * 100.0
 
 
 def _check_reproducibility(
-    method: str, seed: int, base_dir: Path, data_dir: str, deterministic: bool
+    method: str, seed: int, base_dir: Path, data_dir: str, deterministic: bool,
+    device: str = "cpu",
 ) -> bool:
     """Run `method` at `seed` twice under deterministic mode and compare probe logs.
 
@@ -209,8 +219,8 @@ def _check_reproducibility(
         return False
     run_a = base_dir / f"repro-{method}-{seed}-a"
     run_b = base_dir / f"repro-{method}-{seed}-b"
-    _execute_run(method, seed, run_a, data_dir, deterministic=True)
-    _execute_run(method, seed, run_b, data_dir, deterministic=True)
+    _execute_run(method, seed, run_a, data_dir, deterministic=True, device=device)
+    _execute_run(method, seed, run_b, data_dir, deterministic=True, device=device)
     log_a = (run_a / PROBE_LOG_FILENAME).read_text(encoding="utf-8")
     log_b = (run_b / PROBE_LOG_FILENAME).read_text(encoding="utf-8")
     return log_a == log_b
@@ -295,12 +305,17 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    device = _detect_device()
+    print(f"device={device}")
+
     per_method_accuracy: dict[str, list[float]] = {method: [] for method in METHODS}
 
     for method in METHODS:
         for seed in seeds:
             run_dir = output_dir / method / f"seed{seed}"
-            _execute_run(method, seed, run_dir, args.data_dir, args.deterministic)
+            _execute_run(
+                method, seed, run_dir, args.data_dir, args.deterministic, device,
+            )
             accuracy = _seed_accuracy(run_dir)
             per_method_accuracy[method].append(accuracy)
             print(f"[{method}] seed={seed} accuracy={accuracy:.2f}%")
@@ -319,7 +334,7 @@ def main() -> None:
 
     reproducibility = {
         method: _check_reproducibility(
-            method, seeds[0], output_dir, args.data_dir, args.deterministic
+            method, seeds[0], output_dir, args.data_dir, args.deterministic, device,
         )
         for method in METHODS
     }

@@ -114,7 +114,7 @@ class SplitClassifyGenerator:
     """Teach classification tasks in sequence, probing every task seen so far."""
 
     name = "split-classify"
-    version = "2"
+    version = "3"
 
     def chance_rate(self, config: StreamConfig) -> float:
         """Return the accuracy a random answerer reaches on this generator's probes.
@@ -180,6 +180,16 @@ class SplitClassifyGenerator:
                     truth=None,
                 )
                 position += 1
+
+            yield StreamItem(
+                event=Boundary(
+                    position=position,
+                    kind=BoundaryKind.TASK_TRAINED,
+                    hidden_from_subject=hidden_from_subject,
+                ),
+                truth=None,
+            )
+            position += 1
 
             for probed_task in range(task_index + 1):
                 for _ in range(probes_per_task):

@@ -3,7 +3,7 @@
 `ReplayBaseline` follows van de Ven & Tolias (2019) / van de Ven et al.
 (2020) "brain-inspired replay": alongside the `eval.baselines.model.MLP`
 solver, it trains a variational autoencoder (the "generator") with the
-same hidden-layer sizes as the solver. At each `Boundary(TASK_SWITCH)`,
+same hidden-layer sizes as the solver. At each `Boundary(TASK_TRAINED)`,
 it retrains both networks on a mix of real examples from the
 just-finished task and pseudo-examples sampled from the generator and
 labelled by the solver's own predictions. Because the generator can
@@ -133,6 +133,7 @@ class ReplayBaseline(Subject):
         train_iterations: int = 2000,
         batch_size: int = 128,
         replay_ratio: float = 1.0,
+        device: str = "cpu",
     ) -> None:
         self._input_dim = input_dim
         self._output_dim = output_dim
@@ -142,13 +143,14 @@ class ReplayBaseline(Subject):
         self._train_iterations = train_iterations
         self._batch_size = batch_size
         self._replay_ratio = replay_ratio
+        self._device = torch.device(device)
 
-        self._solver = MLP(input_dim, output_dim, hidden_layers, hidden_units)
+        self._solver = MLP(input_dim, output_dim, hidden_layers, hidden_units).to(self._device)
         self._solver_optimizer = torch.optim.Adam(self._solver.parameters(), lr=lr)
         self._loss_fn = nn.CrossEntropyLoss()
         self._solver.eval()
 
-        self._generator = VAE(input_dim, hidden_layers, hidden_units, latent_dim)
+        self._generator = VAE(input_dim, hidden_layers, hidden_units, latent_dim).to(self._device)
         self._generator_optimizer = torch.optim.Adam(self._generator.parameters(), lr=lr)
         self._generator.eval()
 
@@ -167,7 +169,7 @@ class ReplayBaseline(Subject):
                 self._buffer.append((list(features), label))
                 if label not in self._label_to_index and len(self._label_to_index) < self._output_dim:
                     self._label_to_index[label] = len(self._label_to_index)
-        elif isinstance(event, Boundary) and event.kind == BoundaryKind.TASK_SWITCH:
+        elif isinstance(event, Boundary) and event.kind == BoundaryKind.TASK_TRAINED:
             self._retrain()
         return None
 
@@ -178,7 +180,7 @@ class ReplayBaseline(Subject):
         self._steps += 1
         self._solver.eval()
         with torch.no_grad():
-            x = torch.tensor([features], dtype=torch.float32)
+            x = torch.tensor([features], dtype=torch.float32).to(self._device)
             logits = self._solver(x)
             index = int(torch.argmax(logits, dim=1).item())
         index_to_label = {i: lbl for lbl, i in self._label_to_index.items()}
@@ -230,8 +232,8 @@ class ReplayBaseline(Subject):
 
         features = [f for f, _ in self._buffer]
         labels = [self._label_to_index[label] for _, label in self._buffer]
-        x_real_all = torch.tensor(features, dtype=torch.float32)
-        y_real_all = torch.tensor(labels, dtype=torch.long)
+        x_real_all = torch.tensor(features, dtype=torch.float32).to(self._device)
+        y_real_all = torch.tensor(labels, dtype=torch.long).to(self._device)
         n_real = len(self._buffer)
         real_batch_size = min(self._batch_size, n_real)
 
@@ -246,7 +248,7 @@ class ReplayBaseline(Subject):
             if self._has_trained_generator:
                 replay_size = max(1, round(real_batch_size * self._replay_ratio))
                 with torch.no_grad():
-                    z = torch.randn(replay_size, self._latent_dim)
+                    z = torch.randn(replay_size, self._latent_dim).to(self._device)
                     x_replay = self._generator.decode(z)
                     replay_logits = self._solver(x_replay)
                     y_replay = torch.argmax(replay_logits, dim=1)

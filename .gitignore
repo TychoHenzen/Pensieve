@@ -30,3 +30,6 @@ data/MNIST/
 
 # .claude/settings.local.json: local Claude Code settings (per-machine)
 .claude/settings.local.json
+
+# gate_results/: output written by scripts/run_gate.py
+gate_results/

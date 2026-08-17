@@ -60,14 +60,14 @@ def test_stream_hash_differs_between_synthetic_and_mnist():
     synthetic_hash = stream_hash(
         synthetic_config,
         seed=0,
-        generator_version="2",
+        generator_version="3",
         render_version="1",
         corpus_id="corpus",
     )
     mnist_hash = stream_hash(
         mnist_config,
         seed=0,
-        generator_version="2",
+        generator_version="3",
         render_version="1",
         corpus_id="corpus",
     )

@@ -75,10 +75,12 @@ class FrozenBaseline(Subject):
         output_dim: int,
         hidden_layers: int = 2,
         hidden_units: int = 400,
+        device: str = "cpu",
     ) -> None:
         self._input_dim = input_dim
         self._output_dim = output_dim
-        self._model = MLP(input_dim, output_dim, hidden_layers, hidden_units)
+        self._device = torch.device(device)
+        self._model = MLP(input_dim, output_dim, hidden_layers, hidden_units).to(self._device)
         self._model.eval()
         self._label_by_index: dict[int, str] = {}
         self._index_by_label: dict[str, int] = {}
@@ -97,7 +99,7 @@ class FrozenBaseline(Subject):
         if not self._label_by_index:
             return ""
         features = _parse_features(probe.query)
-        x = _to_input_tensor(features, self._input_dim)
+        x = _to_input_tensor(features, self._input_dim).to(self._device)
         with torch.no_grad():
             logits = self._model(x.unsqueeze(0))
         index = int(torch.argmax(logits, dim=-1).item())

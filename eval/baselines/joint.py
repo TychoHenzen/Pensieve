@@ -2,7 +2,7 @@
 
 `JointBaseline` accumulates every taught `split-classify` example into a
 buffer and retrains an `eval.baselines.model.MLP` from scratch on the
-whole buffer each time a `Boundary(TASK_SWITCH)` arrives. It is not an
+whole buffer each time a `Boundary(TASK_TRAINED)` arrives. It is not an
 online learner: nothing updates the model between task switches. Because
 it sees all data from all tasks in every retrain pass, its accuracy stays
 high on every task, unlike a baseline that only sees the current task's
@@ -49,6 +49,7 @@ class JointBaseline(Subject):
         lr: float = 0.001,
         train_iterations: int = 2000,
         batch_size: int = 128,
+        device: str = "cpu",
     ) -> None:
         self._input_dim = input_dim
         self._output_dim = output_dim
@@ -57,8 +58,9 @@ class JointBaseline(Subject):
         self._lr = lr
         self._train_iterations = train_iterations
         self._batch_size = batch_size
+        self._device = torch.device(device)
 
-        self._model = MLP(input_dim, output_dim, hidden_layers, hidden_units)
+        self._model = MLP(input_dim, output_dim, hidden_layers, hidden_units).to(self._device)
         self._optimizer = torch.optim.Adam(self._model.parameters(), lr=lr)
         self._loss_fn = nn.CrossEntropyLoss()
         self._model.eval()
@@ -77,7 +79,7 @@ class JointBaseline(Subject):
                 self._examples.append((list(features), label))
                 if label not in self._label_to_index and len(self._label_to_index) < self._output_dim:
                     self._label_to_index[label] = len(self._label_to_index)
-        elif isinstance(event, Boundary) and event.kind == BoundaryKind.TASK_SWITCH:
+        elif isinstance(event, Boundary) and event.kind == BoundaryKind.TASK_TRAINED:
             self._retrain()
         return None
 
@@ -88,7 +90,7 @@ class JointBaseline(Subject):
         self._steps += 1
         self._model.eval()
         with torch.no_grad():
-            x = torch.tensor([features], dtype=torch.float32)
+            x = torch.tensor([features], dtype=torch.float32).to(self._device)
             logits = self._model(x)
             index = int(torch.argmax(logits, dim=1).item())
         index_to_label = {i: lbl for lbl, i in self._label_to_index.items()}
@@ -123,8 +125,8 @@ class JointBaseline(Subject):
         self._model.train()
         features = [example[0] for example in self._examples]
         labels = [self._label_to_index[example[1]] for example in self._examples]
-        x_all = torch.tensor(features, dtype=torch.float32)
-        y_all = torch.tensor(labels, dtype=torch.long)
+        x_all = torch.tensor(features, dtype=torch.float32).to(self._device)
+        y_all = torch.tensor(labels, dtype=torch.long).to(self._device)
         n = len(self._examples)
         batch_size = min(self._batch_size, n)
 
