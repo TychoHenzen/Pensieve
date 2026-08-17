@@ -271,17 +271,22 @@ class ReplayBaseline(Subject):
                 with torch.no_grad():
                     z = torch.randn(replay_size, self._latent_dim).to(self._device)
                     x_replay = prev_generator.decode(z)
-                    replay_logits = prev_solver(x_replay)
-                    y_replay = torch.argmax(replay_logits, dim=1)
+                    replay_soft = F.softmax(prev_solver(x_replay), dim=1)
                 x_train = torch.cat([x_real, x_replay], dim=0)
-                y_train = torch.cat([y_real, y_replay], dim=0)
             else:
+                x_replay = None
+                replay_soft = None
                 x_train = x_real
-                y_train = y_real
 
             self._solver_optimizer.zero_grad()
             solver_logits = self._solver(x_train)
-            solver_loss = self._loss_fn(solver_logits, y_train)
+            real_loss = self._loss_fn(solver_logits[:real_batch_size], y_real)
+            if x_replay is not None and replay_soft is not None:
+                replay_log_probs = F.log_softmax(solver_logits[real_batch_size:], dim=1)
+                distill_loss = F.kl_div(replay_log_probs, replay_soft, reduction="batchmean")
+                solver_loss = real_loss + distill_loss
+            else:
+                solver_loss = real_loss
             solver_loss.backward()
             self._solver_optimizer.step()
 
