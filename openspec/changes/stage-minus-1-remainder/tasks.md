@@ -96,8 +96,8 @@ This phase depends on the exact numbers from 5.1 and a working set of baselines.
 <!-- status: completed -->
 - [ ] 6.4 If the gate fails, wrap the paper's released code as a subject (if feasible per 5.1) and run it through the harness to split instrument bugs from method bugs.
 <!-- status: skipped -->
-- [ ] 6.5 Run the gate for real: five seeds, deterministic kernels, full Split-MNIST. Record the report.
-<!-- status: pending -->
+- [x] 6.5 Run the gate for real: five seeds, deterministic kernels, full Split-MNIST. Record the report.
+<!-- status: completed -->
 
 ## 7. Freeze (phase 9)
 
