@@ -86,6 +86,10 @@ _MINIMAL_CONFIGS = {
         "difficulty_levels": [1],
         "probe_rate": 1.0,
     },
+    "gsm8k": {
+        "problem_count": 3,
+        "split": "test",
+    },
 }
 
 
@@ -96,7 +100,7 @@ def test_chance_rate_callable_on_every_registered_generator(name):
     generator = REGISTRY[name]()
     rate = generator.chance_rate(config)
     assert isinstance(rate, float)
-    assert 0.0 < rate <= 1.0
+    assert 0.0 <= rate <= 1.0
 
 
 # covers: eval/generator::Every generator exposes chance_rate::chance_rate callable on every registered generator
@@ -106,7 +110,7 @@ def test_chance_rate_callable_on_all_generators():
         generator = cls()
         rate = generator.chance_rate(config)
         assert isinstance(rate, float)
-        assert 0.0 < rate <= 1.0
+        assert 0.0 <= rate <= 1.0
 
 
 # covers: eval/generator::Every generator exposes chance_rate::chance_rate returns a float
@@ -123,9 +127,8 @@ def test_unknown_generator_error_names_all_registered():
     with pytest.raises(ValueError) as excinfo:
         build(config, seed=0)
     message = str(excinfo.value)
-    assert "assoc" in message
-    assert "split-classify" in message
-    assert "difficulty-mix" in message
+    for name in REGISTRY:
+        assert name in message
 
 
 # covers: eval/generator::Three generators are registered under fixed names::assoc is registered
