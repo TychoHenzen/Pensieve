@@ -14,7 +14,7 @@ baselines = ["torch", "torchvision"]
 stage0 = ["datasets", "transformers", "sentence-transformers", "torch"]
 
 [tool.setuptools.packages.find]
-include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles", "eval.subjects", "eval.metrics", "eval.run", "eval.baselines", "workspace", "core", "codecs_module", "train"]
+include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles", "eval.subjects", "eval.metrics", "eval.run", "eval.baselines", "eval.gate", "workspace", "core", "codecs_module", "train"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
