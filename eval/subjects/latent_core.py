@@ -15,6 +15,7 @@ from transformers import AutoTokenizer
 
 from codecs_module.decoder import SlotDecoder
 from codecs_module.encoder import SlotEncoder
+from codecs_module.narration import NarrationDecoder
 from core.latent_loop import LatentLoop
 from eval.stream.events import Event, Probe
 from eval.stream.render import render_event
@@ -33,6 +34,7 @@ class LatentCoreSubject(Subject):
         slot_count: int = DEFAULT_SLOT_COUNT,
         num_steps: int = DEFAULT_NUM_STEPS,
         device: str = "cpu",
+        narration: bool = False,
     ) -> None:
         self.workspace = Workspace(slot_count=slot_count)
         self.latent_loop = LatentLoop(num_steps=num_steps, device=device)
@@ -41,11 +43,20 @@ class LatentCoreSubject(Subject):
         self.decoder = SlotDecoder(
             model=self.latent_loop.model, tokenizer=self.tokenizer, device=device
         )
+        self.narration_decoder = (
+            NarrationDecoder(
+                model=self.latent_loop.model, tokenizer=self.tokenizer, device=device
+            )
+            if narration
+            else None
+        )
 
     def observe(self, event: Event) -> object | None:
         text = render_event(event)
         self.encoder.encode_to_workspace(text, self.workspace)
         self.latent_loop.run(self.workspace)
+        if self.narration_decoder is not None:
+            return self.narration_decoder.narrate(self.workspace)
         return None
 
     def answer(self, probe: Probe) -> str:
