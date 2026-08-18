@@ -1,9 +1,9 @@
-## Refinement pass: Stage 0 - Latent core
+## Stage 0: Latent core
 
-This change is a planning pass. It produces a concrete implementation plan
-for Stage 0, not the implementation itself. The deliverable is a
-`docs/STAGE-0.md` comparable to `docs/STAGE-MINUS-1.md`, plus a locked
-pass condition and a spec-delta list against the openspec tree.
+This change implements Stage 0 from PLAN.md. It builds a latent reasoning
+subject that operates vector-to-vector, with tokens only at the edges,
+and passes a gate comparing latent reasoning accuracy against token
+chain-of-thought on grade-school math word problems.
 
 ### Entry condition
 
@@ -13,19 +13,34 @@ tolerance (`gate_results/gate_report.json`). The subject protocol, stream
 schema, and metric definitions are frozen at v1
 (`docs/STAGE-MINUS-1-CONTRACT.md`).
 
-### What Stage 0 must produce
+### What this change delivers
 
-From `PLAN.md`:
-
-1. Wrap a small open model. Feed its last hidden state back as the next
-   input instead of decoding a token, COCONUT style.
-2. Move from a single vector to a set of 8-64 concept slots. Measure the
-   multi-slot version against the single-vector version directly.
-3. Build edge codecs: a sentence-embedding encoder into workspace slots,
-   and a decoder back out. Freeze them at first.
-
-Gate: latent reasoning matches token chain-of-thought accuracy on
-grade-school math word problems.
+1. A workspace built on configurable concept slots (1 to 64, default 16),
+   each a 768-dim vector holding all latent state. Snapshot and restore
+   are bitwise-identical.
+2. A latent loop that wraps Pythia-160M: each step reads the slot vectors
+   as input embeddings, runs a forward pass, and writes hidden states back
+   to the slots through a learned projection. No token decoding between
+   steps.
+3. An encoder that maps variable-length text into workspace slots via a
+   frozen pretrained sentence encoder (all-MiniLM-L6-v2) and a learned
+   cross-attention module.
+4. A decoder that feeds workspace slot vectors into Pythia-160M's language
+   modeling head and generates text autoregressively.
+5. A narration decoder (audit channel) that reads the workspace and
+   produces human-readable text on a side channel.
+6. VICReg-style latent collapse guards wired into the training objective.
+7. A GSM8K generator that wraps the GSM8K dataset as a deterministic
+   seeded stream of Observe and Probe events.
+8. A training pipeline: frozen Pythia-160M backbone, frozen sentence
+   encoder, training only the cross-attention mapping, the hidden-state
+   projection, and (if needed) an adaptation layer on the LM head.
+   Trained on GSM8K train split.
+9. A v1-compliant subject implementing all six protocol methods (observe,
+   answer, idle, snapshot, restore, cost).
+10. Gate evaluation: latent reasoning vs token chain-of-thought on
+    GSM8K test split, slot count ablation {1,4,8,16,32,64}, and a cycling
+    sweep on FashionMNIST alongside MNIST.
 
 ### Contract obligations inherited from Stage -1
 
@@ -36,141 +51,59 @@ Two constraints are load-bearing and non-obvious:
 
 - **`restore()` must be exact.** The workspace state, including all
   concept slots, must round-trip through `snapshot()`/`restore()` with
-  zero information loss. Probe isolation depends on this. Any workspace
-  representation that cannot be captured and restored exactly (floating
-  point state included) fails the isolation integrity test before its
-  numbers count.
+  zero information loss. Probe isolation depends on this.
 - **Parameter matching.** The baseline comparison requires the Stage 0
   subject to have a comparable parameter count to the baselines it is
   measured against. `eval/baselines/param_match.py` enforces this with a
   configurable tolerance.
 
-### Open decisions the refinement must close
+### Decisions closed by the design
 
-1. **Which base model to wrap.** PLAN.md says "a small open model."
-   Candidates include GPT-2 (124M), Pythia-160M, or a smaller Pythia
-   variant. The choice constrains the workspace dimension, the codec
-   design, and the compute budget per seed. The refinement must name the
-   model and justify the pick.
+All seven open decisions from PLAN.md are closed in `design.md`:
 
-2. **COCONUT integration path.** The COCONUT paper feeds the last hidden
-   state back as the next input embedding. The Stage 0 subject wraps this
-   inside the v1 protocol: `observe()` encodes input into workspace slots,
-   then runs N latent reasoning steps feeding hidden states back without
-   decoding. `answer()` decodes from the workspace state. The refinement
-   must specify how many latent steps run per `observe`/`answer`, whether
-   that count is fixed or adaptive, and how the latent loop maps onto the
-   `cost()` counters.
+1. Base model: Pythia-160M (D1)
+2. COCONUT integration: fixed latent steps, workspace as slot set (D2)
+3. Encoder: sentence-transformers with cross-attention slot mapping (D3)
+4. Decoder: Pythia-160M autoregressive from slot embeddings (D4)
+5. Training: frozen backbone on GSM8K train split (D5)
+6. Collapse guards: VICReg variance + covariance + EMA target (D6)
+7. Narration decoder: linear projection through Pythia LM head (D7)
+8. GSM8K generator: wraps Hugging Face GSM8K dataset (D8)
 
-3. **No generator hosts the gate.** The gate wants "grade-school math word
-   problems." The three v1 generators are:
-   - `assoc`: fact recall over a closed vocabulary.
-   - `split-classify`: classification with task switches (hosts the
-     reproduction gate).
-   - `difficulty-mix`: arithmetic chains answered mod 1000.
+### Risks / Trade-offs
 
-   `difficulty-mix` tests arithmetic, not word problems. Grade-school math
-   word problems require reading a natural-language problem statement and
-   producing a numerical answer. The refinement must choose one of:
-   - (a) Add a fourth generator that wraps a real dataset (GSM8K or a
-     subset).
-   - (b) Redefine the gate against `difficulty-mix`, accepting that
-     arithmetic chains are a weaker test of latent reasoning than word
-     problems.
-   - (c) Use an external evaluation harness for the gate and bind it into
-     the run infrastructure.
+See `design.md` for the full risk analysis. The three that most affect
+implementation order:
 
-   The choice must be locked before the first gate run.
-
-4. **Concept slot count and ablation.** PLAN.md says 8-64. The refinement
-   must specify the default count, the ablation sweep (which values,
-   how many seeds), and the comparison against a single-vector version.
-
-5. **Encoder architecture.** "Sentence-embedding encoder into workspace
-   slots" leaves open which embedding model, how a variable-length input
-   maps to a fixed number of slots, and whether the encoder is pretrained
-   and frozen or trained from scratch. The refinement must name the
-   encoder, the mapping strategy, and the training policy.
-
-6. **Decoder architecture.** The decoder turns workspace slots back into
-   text. The refinement must specify whether it is a separate model, a
-   projection head, or the base model's own decoder run once, and how
-   `answer()` invokes it.
-
-7. **Training procedure.** Stage -1 baselines train at task boundaries.
-   Stage 0 is the first subject that is not a baseline. The refinement
-   must specify what trains, on what data, for how long, and whether
-   training happens inside the stream or outside it.
-
-### Cross-cutting items this stage owns
-
-From PLAN.md's cross-cutting section, Stage 0 is responsible for:
-
-- **Audit channel.** Build the narration decoder that turns workspace
-  state into text for inspection. "Build it in Stage 0 while the mapping
-  is still simple." The harness already reserves an optional `narration`
-  field on each event in the run record. The refinement must specify the
-  decoder architecture and how narration is triggered.
-
-- **Latent collapse guards.** "Use stop-gradients, an EMA target encoder,
-  and variance and covariance regularization from the first latent
-  objective onward." The refinement must specify which guards apply to
-  which loss terms, and what the collapse detection metric reports (the
-  instrumentation schema in `eval/instrumentation.py` already defines the
-  fields).
-
-### Required outputs of this refinement pass
-
-1. `docs/STAGE-0.md` - phased implementation plan with the same level of
-   detail as `docs/STAGE-MINUS-1.md`. Every phase ends in something
-   runnable.
-2. A locked pass condition document under this change directory, written
-   before the first gate run. It must name the dataset, the tolerance, the
-   seed count, and the comparison target.
-3. A spec-delta list: which openspec specs this stage adds or modifies.
-4. A contract document for Stage 1, analogous to
-   `docs/STAGE-MINUS-1-CONTRACT.md`.
-
-### Prior results: curriculum cycling experiment
-
-The Stage -1 baselines were tested under curriculum cycling (presenting
-the 5-task sequence multiple times, total examples held constant). Full
-results and methodology:
-`openspec/changes/archive/2026-08-17-stage-minus-1-remainder/cycling-experiment-results.md`
-
-Key findings relevant to Stage 0:
-
-- Replay peaks at 10 cycles on both MNIST and FashionMNIST, closing
-  roughly half the gap to the joint oracle.
-- FashionMNIST is a harder and more discriminating test than MNIST.
-  It should be included in the Stage 0 evaluation alongside MNIST.
-- The split-classify generator already supports FashionMNIST via
-  `data_source: "fashion-mnist"`. No generator changes needed.
-- The Stage 0 gate evaluation should include a cycling sweep to measure
-  whether the latent-reasoning architecture handles re-exposure better
-  than replay does.
+- Frozen codecs may limit accuracy. Escape hatch: unfreeze and retrain.
+- Fixed latent step count wastes compute on easy problems. Accepted for
+  Stage 0; adaptive halting is Stage 1.
+- GSM8K may be too hard for 160M params. Run the token-CoT baseline
+  first. If it scores below 5%, substitute a simpler dataset.
 
 ### Retreat option
 
-PLAN.md: "If it loses badly, the premise of the whole design is weak.
-Stop and reconsider rather than continuing."
+None. The gate is go/no-go on the entire project.
 
-Stage 0 has no retreat. The gate is a go/no-go on the entire project.
+### Prior results: curriculum cycling experiment
 
-### Estimated effort
-
-The refinement pass itself (reading papers, choosing models, writing the
-plan): 1-2 sessions. The implementation that follows: weeks of GPU time
-across multiple sessions, because it includes pretraining.
+Replay peaks at 10 cycles on both MNIST and FashionMNIST, closing
+roughly half the gap to the joint oracle. FashionMNIST is harder and
+more discriminating. The gate evaluation includes a cycling sweep to
+measure whether latent reasoning handles re-exposure better than replay.
 
 ### Impact
 
-- New packages: `workspace/`, `codecs/`.
-- New or extended: `train/` (first training scripts).
-- New generator or gate evaluation path (depending on decision 3).
-- New dependency: a pretrained sentence-embedding model (e.g. from
-  Hugging Face `sentence-transformers`).
-- `pyproject.toml` gains dependencies for the base model, the encoder,
-  and any new dataset.
+- New packages: `workspace/`, `codecs/`, `train/`.
+- New generator: `eval/generators/gsm8k/`.
+- New subject: `eval/subjects/latent_core/`.
+- `pyproject.toml` gains: `transformers`, `sentence-transformers`,
+  `datasets`, `torch` (if not already present).
 - No changes to the existing `eval/` harness code. Stage 0 implements
   the v1 protocol; it does not extend it.
+
+### Estimated effort
+
+Weeks of GPU time across multiple sessions. Includes pretraining the
+learned projection layers on GSM8K and running the gate evaluation with
+multiple seeds and slot count ablation.
