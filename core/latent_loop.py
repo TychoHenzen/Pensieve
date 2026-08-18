@@ -4,6 +4,7 @@ import torch
 from torch import nn
 from transformers import AutoModelForCausalLM
 
+from eval.subject import CostCounters
 from workspace.concept_slots import SLOT_DIM, Workspace
 
 DEFAULT_MODEL_NAME = "EleutherAI/pythia-160m"
@@ -40,6 +41,9 @@ class LatentLoop(nn.Module):
         self.projection = nn.Linear(self.hidden_dim, SLOT_DIM)
         self.projection.to(device)
 
+        self._steps = 0
+        self._flops = 0
+
     def step(self, workspace: Workspace) -> torch.Tensor:
         """Run one latent step: slots -> model forward -> projection -> slots."""
         slots = workspace.read_slots().to(self.device)
@@ -53,6 +57,10 @@ class LatentLoop(nn.Module):
 
         projected = self.projection(last_hidden_state)  # (N, SLOT_DIM)
         workspace.write_slots(projected)
+
+        self._steps += 1
+        self._flops += self.flops_per_step(slots.shape[0])
+
         return projected
 
     def run(self, workspace: Workspace) -> torch.Tensor:
@@ -70,3 +78,12 @@ class LatentLoop(nn.Module):
         """
         num_params = sum(p.numel() for p in self.model.parameters())
         return 2 * num_params * slot_count
+
+    def get_cost(self) -> CostCounters:
+        """Return cumulative cost counters accrued by calls to step()."""
+        return CostCounters(steps=self._steps, flops=self._flops, wall_seconds=0.0)
+
+    def reset_cost(self) -> None:
+        """Zero out the cumulative step and flop counters."""
+        self._steps = 0
+        self._flops = 0
