@@ -19,6 +19,7 @@ from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
+from train.vicreg import DEFAULT_EMA_DECAY, EMAProjection, VICRegLoss
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
 DEFAULT_NUM_STEPS = 8
@@ -35,6 +36,7 @@ class LatentCoreTrainer:
         num_steps: int = DEFAULT_NUM_STEPS,
         lr: float = DEFAULT_LR,
         device: str = "cpu",
+        ema_decay: float = DEFAULT_EMA_DECAY,
     ) -> None:
         self.slot_count = slot_count
         self.device = device
@@ -43,6 +45,8 @@ class LatentCoreTrainer:
         self.encoder = SlotEncoder(slot_count=slot_count, device=device)
         self.latent_loop = LatentLoop(num_steps=num_steps, device=device)
         self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+        self.vicreg = VICRegLoss()
+        self.ema_projection = EMAProjection(self.latent_loop.projection, decay=ema_decay)
 
         self.trainable_params = [
             *self.encoder.projection.parameters(),
@@ -82,9 +86,12 @@ class LatentCoreTrainer:
         # Position (num_slots - 1) predicts the first answer token, and so on.
         answer_logits = logits[num_slots - 1 : num_slots - 1 + num_answer_tokens]
 
-        loss = self.loss_fn(answer_logits, answer_ids.squeeze(0))
+        lm_loss = self.loss_fn(answer_logits, answer_ids.squeeze(0))
+        vicreg_loss = self.vicreg(loop_slots)
+        loss = lm_loss + vicreg_loss
         loss.backward()
         self.optimizer.step()
+        self.ema_projection.update()
 
         return loss.item()
 
