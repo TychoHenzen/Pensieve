@@ -28,6 +28,9 @@ __pycache__/
 # data/MNIST/: MNIST dataset downloaded by torchvision when data_source="mnist"
 data/MNIST/
 
+# data/FashionMNIST/: FashionMNIST dataset downloaded by torchvision when data_source="fashion-mnist"
+data/FashionMNIST/
+
 # .claude/settings.local.json: local Claude Code settings (per-machine)
 .claude/settings.local.json
 

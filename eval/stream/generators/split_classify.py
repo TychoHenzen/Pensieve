@@ -59,21 +59,24 @@ def _draw_features(source: random.Random, classes_per_task: int, class_index: in
 
 
 class _MnistData:
-    """MNIST pixel data, indexed by digit, for both the train and test splits.
+    """Pixel data indexed by class for both train and test splits.
 
-    Loading `torchvision.datasets.MNIST` is what makes `data_source="mnist"`
-    an opt-in path: importing `torchvision` and touching disk only happens
-    when a config actually asks for real data, so the synthetic default
-    stays free of that dependency.
+    Works with any torchvision dataset that has a `.data` tensor and
+    `.targets` list with integer class labels (MNIST, FashionMNIST, etc.).
+    Importing torchvision and touching disk only happens when a config
+    asks for real data, so the synthetic default stays free of that
+    dependency.
     """
 
-    def __init__(self, data_dir: str) -> None:
-        from torchvision.datasets import MNIST
+    def __init__(self, data_dir: str, dataset_name: str = "mnist") -> None:
+        from torchvision.datasets import FashionMNIST, MNIST
 
-        self.train = MNIST(root=data_dir, train=True, download=True)
-        self.test = MNIST(root=data_dir, train=False, download=True)
+        dataset_cls = {"mnist": MNIST, "fashion-mnist": FashionMNIST}[dataset_name]
+        self.train = dataset_cls(root=data_dir, train=True, download=True)
+        self.test = dataset_cls(root=data_dir, train=False, download=True)
         self._train_by_digit = self._index_by_digit(self.train.targets.tolist())
         self._test_by_digit = self._index_by_digit(self.test.targets.tolist())
+        self._dataset_name = dataset_name
 
     @staticmethod
     def _index_by_digit(targets: list[int]) -> dict[int, list[int]]:
@@ -88,25 +91,28 @@ class _MnistData:
 
     def sample_train(self, source: random.Random, digit: int) -> tuple[list[float], str]:
         index = source.choice(self._train_by_digit[digit])
-        return self._pixels(self.train, index), f"mnist-train-{index}"
+        return self._pixels(self.train, index), f"{self._dataset_name}-train-{index}"
 
     def sample_test(self, source: random.Random, digit: int) -> tuple[list[float], str]:
         index = source.choice(self._test_by_digit[digit])
-        return self._pixels(self.test, index), f"mnist-test-{index}"
+        return self._pixels(self.test, index), f"{self._dataset_name}-test-{index}"
 
 
 # Loading MNIST touches disk and, on first use, downloads the dataset. This
 # cache keeps a `generate()` call from redoing that work on every task and
 # every probe, keyed by the data directory so two configs pointing at two
 # directories do not share a cache entry.
-_mnist_cache: dict[str, _MnistData] = {}
+_pixel_data_cache: dict[tuple[str, str], _MnistData] = {}
+
+_PIXEL_DATA_SOURCES = {"mnist", "fashion-mnist"}
 
 
-def _get_mnist_data(data_dir: str) -> _MnistData:
-    data = _mnist_cache.get(data_dir)
+def _get_pixel_data(data_dir: str, dataset_name: str) -> _MnistData:
+    key = (data_dir, dataset_name)
+    data = _pixel_data_cache.get(key)
     if data is None:
-        data = _MnistData(data_dir)
-        _mnist_cache[data_dir] = data
+        data = _MnistData(data_dir, dataset_name)
+        _pixel_data_cache[key] = data
     return data
 
 
@@ -144,14 +150,14 @@ class SplitClassifyGenerator:
             raise ValueError(f"probes_per_task must be at least 1, got {probes_per_task}")
 
         mnist: _MnistData | None = None
-        if data_source == "mnist":
+        if data_source in _PIXEL_DATA_SOURCES:
             if num_tasks * classes_per_task > 10:
                 raise ValueError(
-                    "num_tasks * classes_per_task must be at most 10 for MNIST, "
+                    f"num_tasks * classes_per_task must be at most 10 for {data_source}, "
                     f"got {num_tasks} * {classes_per_task} = {num_tasks * classes_per_task}"
                 )
             data_dir = params.get("data_dir", "./data")
-            mnist = _get_mnist_data(data_dir)
+            mnist = _get_pixel_data(data_dir, data_source)
 
         example_source = derive(seed, "examples")
         probe_source = derive(seed, "probes")

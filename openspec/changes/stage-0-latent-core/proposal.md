@@ -131,6 +131,25 @@ From PLAN.md's cross-cutting section, Stage 0 is responsible for:
 4. A contract document for Stage 1, analogous to
    `docs/STAGE-MINUS-1-CONTRACT.md`.
 
+### Prior results: curriculum cycling experiment
+
+The Stage -1 baselines were tested under curriculum cycling (presenting
+the 5-task sequence multiple times, total examples held constant). Full
+results and methodology:
+`openspec/changes/archive/2026-08-17-stage-minus-1-remainder/cycling-experiment-results.md`
+
+Key findings relevant to Stage 0:
+
+- Replay peaks at 10 cycles on both MNIST and FashionMNIST, closing
+  roughly half the gap to the joint oracle.
+- FashionMNIST is a harder and more discriminating test than MNIST.
+  It should be included in the Stage 0 evaluation alongside MNIST.
+- The split-classify generator already supports FashionMNIST via
+  `data_source: "fashion-mnist"`. No generator changes needed.
+- The Stage 0 gate evaluation should include a cycling sweep to measure
+  whether the latent-reasoning architecture handles re-exposure better
+  than replay does.
+
 ### Retreat option
 
 PLAN.md: "If it loses badly, the premise of the whole design is weak.
