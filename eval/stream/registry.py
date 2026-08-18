@@ -15,6 +15,7 @@ from eval.stream.config import StreamConfig
 from eval.stream.generator import StreamGenerator
 from eval.stream.generators.assoc import AssocGenerator
 from eval.stream.generators.difficulty_mix import DifficultyMixGenerator
+from eval.stream.generators.gsm8k import GSM8KGenerator
 from eval.stream.generators.split_classify import SplitClassifyGenerator
 from eval.stream.truth import StreamItem
 
@@ -22,6 +23,7 @@ REGISTRY: dict[str, type[StreamGenerator]] = {
     AssocGenerator.name: AssocGenerator,
     SplitClassifyGenerator.name: SplitClassifyGenerator,
     DifficultyMixGenerator.name: DifficultyMixGenerator,
+    GSM8KGenerator.name: GSM8KGenerator,
 }
 
 

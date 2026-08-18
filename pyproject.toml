@@ -11,6 +11,7 @@ requires-python = ">=3.13"
 dev = ["pytest", "numpy", "scipy"]
 corpus = ["zstandard"]
 baselines = ["torch", "torchvision"]
+stage0 = ["datasets"]
 
 [tool.setuptools.packages.find]
 include = ["eval", "eval.stream", "eval.stream.generators", "eval.subject", "eval.subject.oracles", "eval.metrics", "eval.run", "eval.baselines", "workspace"]
