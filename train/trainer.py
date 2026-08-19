@@ -21,16 +21,15 @@ from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
+from train.training_results import ExperimentPosition, StepResult
 from train.training_state import TrainingState
-from train.vicreg import DEFAULT_EMA_DECAY, EMAProjection, VICRegLoss
+from train.vicreg import (
+    DEFAULT_EMA_DECAY,
+    EMAProjection,
+    VICRegLoss,
+    post_loop_slot_variance,
+)
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
-
-
-@dataclass
-class StepResult:
-    loss: float
-    variance: float
-    covariance: float
 
 
 @dataclass
@@ -79,7 +78,12 @@ class LatentCoreTrainer:
         """Number of trainable scalar parameters across all trainable modules."""
         return sum(p.numel() for p in self.trainable_params)
 
-    def train_step(self, question: str, answer: str) -> StepResult:
+    def train_step(
+        self,
+        question: str,
+        answer: str,
+        position: ExperimentPosition | None = None,
+    ) -> StepResult:
         """One training step. The model predicts answer tokens from slots alone.
 
         The forward pass feeds only the slot vectors as inputs_embeds.
@@ -96,8 +100,6 @@ class LatentCoreTrainer:
         self.workspace.write_slots(slots)
         self.latent_loop.run(self.workspace, context_embeds=context_embeds)
         loop_slots = self.workspace.read_slots()
-
-        collapse = self.workspace.collapse_stats()
 
         answer_ids = self.tokenizer(answer, return_tensors="pt")["input_ids"].to(
             self.device
@@ -121,15 +123,27 @@ class LatentCoreTrainer:
             ]
             lm_loss = self.loss_fn(answer_logits, answer_id)
         vicreg_loss = self.vicreg(slots)
-        loss = lm_loss + vicreg_loss
-        loss.backward()
+        total_objective = lm_loss + vicreg_loss
+        total_objective.backward()
         self.optimizer.step()
         self.ema_projection.update()
 
+        if position is None:
+            position = ExperimentPosition(
+                update_method="gradient",
+                cycle=0,
+                global_step=0,
+                epoch=0,
+                example_position=0,
+                phase_step=0,
+            )
+
         return StepResult(
-            loss=loss.item(),
-            variance=collapse["variance"],
-            covariance=collapse["covariance"],
+            position=position,
+            language_model_loss=lm_loss.item(),
+            total_objective=total_objective.item(),
+            regularizer_loss=vicreg_loss.item(),
+            shared_variance=post_loop_slot_variance(loop_slots).item(),
         )
 
     def train_epoch(
@@ -153,11 +167,12 @@ class LatentCoreTrainer:
 
         for i, (question, answer) in enumerate(dataset):
             result = self.train_step(question, answer)
-            total_loss += result.loss
-            total_var += result.variance
-            total_cov += result.covariance
-            min_var = min(min_var, result.variance)
-            max_var = max(max_var, result.variance)
+            total_loss += result.total_objective
+            total_var += result.shared_variance
+            covariance = self.workspace.collapse_stats()["covariance"]
+            total_cov += covariance
+            min_var = min(min_var, result.shared_variance)
+            max_var = max(max_var, result.shared_variance)
             if on_step is not None:
                 on_step(i, len(dataset), result)  # type: ignore[operator]
 
