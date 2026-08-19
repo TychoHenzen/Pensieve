@@ -11,6 +11,7 @@ encoder and decoder run frozen pretrained models outside that budget.
 
 from __future__ import annotations
 
+import torch
 from transformers import AutoTokenizer
 
 from codecs_module.decoder import SlotDecoder
@@ -22,7 +23,7 @@ from eval.stream.render import render_event
 from eval.subject import CostCounters, Subject
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
-DEFAULT_NUM_STEPS = 8
+DEFAULT_NUM_STEPS = 2
 TOKENIZER_NAME = "EleutherAI/pythia-160m"
 
 
@@ -40,6 +41,7 @@ class LatentCoreSubject(Subject):
         self.latent_loop = LatentLoop(num_steps=num_steps, device=device)
         self.encoder = SlotEncoder(slot_count=slot_count, device=device)
         self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+        self._last_context_embeds: torch.Tensor | None = None
         self.decoder = SlotDecoder(
             model=self.latent_loop.model, tokenizer=self.tokenizer, device=device
         )
@@ -51,27 +53,39 @@ class LatentCoreSubject(Subject):
             else None
         )
 
+    def _context_embeds(self, text: str) -> torch.Tensor:
+        ids = self.tokenizer(text, return_tensors="pt")["input_ids"]
+        return self.latent_loop.embed_tokens(ids)
+
     def observe(self, event: Event) -> object | None:
         text = render_event(event)
         self.encoder.encode_to_workspace(text, self.workspace)
-        self.latent_loop.run(self.workspace)
+        self._last_context_embeds = self._context_embeds(text)
+        self.latent_loop.run(self.workspace, context_embeds=self._last_context_embeds)
         if self.narration_decoder is not None:
             return self.narration_decoder.narrate(self.workspace)
         return None
 
     def answer(self, probe: Probe) -> str:
         del probe
-        self.latent_loop.run(self.workspace)
+        self.latent_loop.run(self.workspace, context_embeds=self._last_context_embeds)
         return self.decoder.decode(self.workspace)
 
     def idle(self, budget: int) -> None:
         del budget
 
     def snapshot(self) -> object:
-        return self.workspace.snapshot()
+        return {
+            "workspace": self.workspace.snapshot(),
+            "last_context_embeds": self._last_context_embeds.clone()
+            if self._last_context_embeds is not None
+            else None,
+        }
 
     def restore(self, state: object) -> None:
-        self.workspace.restore(state)  # type: ignore[arg-type]
+        s = state  # type: ignore[assignment]
+        self.workspace.restore(s["workspace"])  # type: ignore[index]
+        self._last_context_embeds = s["last_context_embeds"]  # type: ignore[index]
 
     def cost(self) -> CostCounters:
         return self.latent_loop.get_cost()

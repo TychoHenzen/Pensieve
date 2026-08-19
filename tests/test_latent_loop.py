@@ -80,6 +80,28 @@ def test_step_output_shape_matches_input_slots(loop: LatentLoop) -> None:
     assert workspace.read_slots().shape == (4, SLOT_DIM)
 
 
+def test_step_with_context_embeds_output_shape(loop: LatentLoop) -> None:
+    workspace = Workspace(slot_count=4)
+    workspace.write_slots(torch.randn(4, SLOT_DIM))
+    context = torch.randn(10, SLOT_DIM)
+
+    result = loop.step(workspace, context_embeds=context)
+
+    assert result.shape == (4, SLOT_DIM)
+    assert workspace.read_slots().shape == (4, SLOT_DIM)
+
+
+def test_step_with_context_embeds_prepends_context(loop: LatentLoop) -> None:
+    workspace = Workspace(slot_count=4)
+    workspace.write_slots(torch.randn(4, SLOT_DIM))
+    context = torch.randn(10, SLOT_DIM)
+
+    loop.step(workspace, context_embeds=context)
+
+    call_kwargs = loop.model.calls[0]
+    assert call_kwargs["inputs_embeds"].shape == (1, 14, SLOT_DIM)
+
+
 def test_run_calls_step_exactly_num_steps_times(loop: LatentLoop) -> None:
     workspace = Workspace(slot_count=4)
     workspace.write_slots(torch.randn(4, SLOT_DIM))

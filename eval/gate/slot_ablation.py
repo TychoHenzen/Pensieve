@@ -27,7 +27,7 @@ from eval.gate.latent_eval import load_subject, run_seed
 DEFAULT_OUTPUT = Path("gate_results/slot_ablation.json")
 SLOT_COUNTS = [1, 4, 8, 16, 32, 64]
 DEFAULT_SEEDS = [0, 1, 2]
-DEFAULT_NUM_STEPS = 8
+DEFAULT_NUM_STEPS = 2
 
 
 def _checkpoint_for(checkpoint_dir: Path | None, slot_count: int) -> Path | None:

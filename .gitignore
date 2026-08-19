@@ -36,3 +36,6 @@ data/FashionMNIST/
 
 # gate_results/: output written by scripts/run_gate.py
 gate_results/
+
+# checkpoints/: training checkpoint files written by train/run_training.py
+checkpoints/

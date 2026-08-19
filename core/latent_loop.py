@@ -8,7 +8,8 @@ from eval.subject import CostCounters
 from workspace.concept_slots import SLOT_DIM, Workspace
 
 DEFAULT_MODEL_NAME = "EleutherAI/pythia-160m"
-DEFAULT_NUM_STEPS = 8
+DEFAULT_NUM_STEPS = 2
+DEFAULT_RESIDUAL_WEIGHT = 0.5
 
 
 class LatentLoop(nn.Module):
@@ -26,11 +27,13 @@ class LatentLoop(nn.Module):
         model_name: str = DEFAULT_MODEL_NAME,
         num_steps: int = DEFAULT_NUM_STEPS,
         device: str = "cpu",
+        residual_weight: float = DEFAULT_RESIDUAL_WEIGHT,
     ) -> None:
         super().__init__()
         self.model_name = model_name
         self.num_steps = num_steps
         self.device = device
+        self.residual_weight = residual_weight
 
         self.model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
         self.model.to(device)
@@ -40,34 +43,75 @@ class LatentLoop(nn.Module):
         self.hidden_dim = self.model.config.hidden_size
         self.projection = nn.Linear(self.hidden_dim, SLOT_DIM)
         self.projection.to(device)
+        self.layer_norm = nn.LayerNorm(SLOT_DIM)
+        with torch.no_grad():
+            # Pythia embeddings have L2 norms ~0.7. Default gamma=1 gives
+            # norms of sqrt(SLOT_DIM)~27.7. Scale gamma so initial norms
+            # land in Pythia's expected range.
+            self.layer_norm.weight.fill_(0.7 / (SLOT_DIM ** 0.5))
+        self.layer_norm.to(device)
 
         self._steps = 0
         self._flops = 0
 
-    def step(self, workspace: Workspace) -> torch.Tensor:
-        """Run one latent step: slots -> model forward -> projection -> slots."""
+    def embed_tokens(self, token_ids: torch.Tensor) -> torch.Tensor:
+        """Look up token IDs in Pythia's embedding table. Returns (seq_len, hidden_dim)."""
+        with torch.no_grad():
+            return self.model.gpt_neox.embed_in(token_ids.to(self.device)).squeeze(0)
+
+    def step(
+        self, workspace: Workspace, context_embeds: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Run one latent step: project, add residual, normalize.
+
+        When context_embeds is provided (shape (C, hidden_dim)), those
+        vectors are prepended to the slot sequence so the slots attend
+        to question context as well as to each other.
+        """
         slots = workspace.read_slots().to(self.device)
-        input_embeds = slots.unsqueeze(0)  # (1, N, hidden_dim)
+
+        if context_embeds is not None:
+            combined = torch.cat([context_embeds, slots], dim=0)
+            input_embeds = combined.unsqueeze(0)
+        else:
+            input_embeds = slots.unsqueeze(0)
 
         outputs = self.model(
             inputs_embeds=input_embeds,
             output_hidden_states=True,
         )
-        last_hidden_state = outputs.hidden_states[-1].squeeze(0)  # (N, hidden_dim)
+        all_hidden = outputs.hidden_states[-1].squeeze(0)
 
-        projected = self.projection(last_hidden_state)  # (N, SLOT_DIM)
-        workspace.write_slots(projected)
+        if context_embeds is not None:
+            slot_hidden = all_hidden[context_embeds.shape[0] :]
+        else:
+            slot_hidden = all_hidden
+
+        seq_len = input_embeds.shape[1]
+
+        projected = self.projection(slot_hidden)
+        updated = self.layer_norm(projected + self.residual_weight * slots)
+        workspace.write_slots(updated)
 
         self._steps += 1
-        self._flops += self.flops_per_step(slots.shape[0])
+        self._flops += self.flops_per_step(seq_len)
 
-        return projected
+        return updated
 
-    def run(self, workspace: Workspace) -> torch.Tensor:
-        """Run num_steps latent steps in sequence, mutating the workspace in place."""
-        result = workspace.read_slots()
+    def run(
+        self, workspace: Workspace, context_embeds: torch.Tensor | None = None
+    ) -> torch.Tensor:
+        """Run num_steps latent steps in sequence, mutating the workspace in place.
+
+        When context_embeds is provided, each step prepends those vectors
+        to the slot sequence so slots attend to question context rather
+        than only to each other.
+        """
+        initial = self.layer_norm(workspace.read_slots().to(self.device))
+        workspace.write_slots(initial)
+        result = initial
         for _ in range(self.num_steps):
-            result = self.step(workspace)
+            result = self.step(workspace, context_embeds)
         return result
 
     def flops_per_step(self, slot_count: int) -> int:

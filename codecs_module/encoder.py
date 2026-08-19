@@ -16,9 +16,10 @@ class SlotEncoder(nn.Module):
 
     A frozen pretrained sentence encoder (all-MiniLM-L6-v2) produces
     token-level embeddings. A learned linear layer projects those
-    embeddings from 384 to 768 dimensions. A learned cross-attention
-    module, with one query vector per slot, then reads the projected
-    token embeddings into `slot_count` output vectors of dimension 768.
+    embeddings from 384 to 768 dimensions. Each output slot is a
+    learned query vector plus the mean projected embedding, giving
+    inter-slot diversity from the queries and input dependence from
+    the mean.
     """
 
     def __init__(self, slot_count: int = 16, device: str = "cpu") -> None:
@@ -52,15 +53,19 @@ class SlotEncoder(nn.Module):
         return output.last_hidden_state
 
     def encode(self, text: str) -> torch.Tensor:
-        """Encode `text` into `slot_count` vectors of dimension 768."""
-        token_embeddings = self._token_embeddings(text)  # (1, tokens, 384)
-        projected = self.projection(token_embeddings)  # (1, tokens, 768)
+        """Encode `text` into `slot_count` vectors of dimension 768.
 
-        queries = self.slot_queries.unsqueeze(0)  # (1, slot_count, 768)
-        attended, _ = self.cross_attention(
-            query=queries, key=projected, value=projected
-        )
-        return attended.squeeze(0)  # (slot_count, 768)
+        Each slot query attends directly to the projected token embeddings
+        via scaled dot-product attention. Different queries attend to
+        different token positions, so each slot carries a different view
+        of the input text.
+        """
+        token_embeddings = self._token_embeddings(text)  # (1, tokens, 384)
+        projected = self.projection(token_embeddings).squeeze(0)  # (tokens, 768)
+        scale = SLOT_DIM**0.5
+        attn_logits = self.slot_queries @ projected.T / scale  # (slots, tokens)
+        attn_weights = torch.softmax(attn_logits, dim=-1)  # (slots, tokens)
+        return attn_weights @ projected  # (slots, 768)
 
     def encode_to_workspace(self, text: str, workspace: Workspace) -> None:
         """Encode `text` and write the result into `workspace`'s slots."""

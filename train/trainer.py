@@ -13,6 +13,8 @@ neither shape fits a teacher-forced training step.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import torch
 from torch import nn
 from transformers import AutoTokenizer
@@ -22,7 +24,24 @@ from core.latent_loop import LatentLoop
 from train.vicreg import DEFAULT_EMA_DECAY, EMAProjection, VICRegLoss
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
-DEFAULT_NUM_STEPS = 8
+
+@dataclass
+class StepResult:
+    loss: float
+    variance: float
+    covariance: float
+
+
+@dataclass
+class EpochStats:
+    avg_loss: float
+    avg_variance: float
+    avg_covariance: float
+    min_variance: float
+    max_variance: float
+    steps: int
+
+DEFAULT_NUM_STEPS = 2
 DEFAULT_LR = 1e-4
 TOKENIZER_NAME = "EleutherAI/pythia-160m"
 
@@ -50,9 +69,9 @@ class LatentCoreTrainer:
 
         self.trainable_params = [
             *self.encoder.projection.parameters(),
-            *self.encoder.cross_attention.parameters(),
             self.encoder.slot_queries,
             *self.latent_loop.projection.parameters(),
+            *self.latent_loop.layer_norm.parameters(),
         ]
         self.optimizer = torch.optim.Adam(self.trainable_params, lr=lr)
         self.loss_fn = nn.CrossEntropyLoss()
@@ -61,53 +80,94 @@ class LatentCoreTrainer:
         """Number of trainable scalar parameters across all trainable modules."""
         return sum(p.numel() for p in self.trainable_params)
 
-    def train_step(self, question: str, answer: str) -> float:
-        """One teacher-forced training step; returns the scalar loss value."""
+    def train_step(self, question: str, answer: str) -> StepResult:
+        """One training step. The model predicts answer tokens from slots alone.
+
+        The forward pass feeds only the slot vectors as inputs_embeds.
+        Logits at positions [N-T, N-1] predict the T answer tokens.
+        No answer token embeddings are concatenated, so the model
+        cannot shortcut by attending to previous answer tokens.
+        """
         self.optimizer.zero_grad()
+
+        question_ids = self.tokenizer(question, return_tensors="pt")["input_ids"]
+        context_embeds = self.latent_loop.embed_tokens(question_ids)
 
         slots = self.encoder.encode(question)
         self.workspace.write_slots(slots)
-        self.latent_loop.run(self.workspace)
+        self.latent_loop.run(self.workspace, context_embeds=context_embeds)
         loop_slots = self.workspace.read_slots()
+
+        collapse = self.workspace.collapse_stats()
 
         answer_ids = self.tokenizer(answer, return_tensors="pt")["input_ids"].to(
             self.device
         )
-        embedding_layer = self.latent_loop.model.get_input_embeddings()
-        answer_embeds = embedding_layer(answer_ids).squeeze(0)  # (T, hidden_dim)
-
-        input_embeds = torch.cat([loop_slots, answer_embeds], dim=0).unsqueeze(0)
-
-        outputs = self.latent_loop.model(inputs_embeds=input_embeds)
-        logits = outputs.logits.squeeze(0)  # (N + T, vocab)
-
-        num_slots = loop_slots.shape[0]
         num_answer_tokens = answer_ids.shape[1]
-        # Position (num_slots - 1) predicts the first answer token, and so on.
-        answer_logits = logits[num_slots - 1 : num_slots - 1 + num_answer_tokens]
+        num_slots = loop_slots.shape[0]
 
-        lm_loss = self.loss_fn(answer_logits, answer_ids.squeeze(0))
-        vicreg_loss = self.vicreg(loop_slots)
+        outputs = self.latent_loop.model(inputs_embeds=loop_slots.unsqueeze(0))
+        logits = outputs.logits.squeeze(0)  # (N, vocab)
+
+        answer_id = answer_ids.squeeze(0)
+        if num_answer_tokens == 1:
+            target = answer_id.expand(num_slots)
+            lm_loss = self.loss_fn(logits, target)
+        else:
+            predict_positions = num_slots - num_answer_tokens
+            if predict_positions < 0:
+                predict_positions = 0
+            answer_logits = logits[
+                predict_positions : predict_positions + num_answer_tokens
+            ]
+            lm_loss = self.loss_fn(answer_logits, answer_id)
+        vicreg_loss = self.vicreg(slots)
         loss = lm_loss + vicreg_loss
         loss.backward()
         self.optimizer.step()
         self.ema_projection.update()
 
-        return loss.item()
+        return StepResult(
+            loss=loss.item(),
+            variance=collapse["variance"],
+            covariance=collapse["covariance"],
+        )
 
-    def train_epoch(self, dataset: list[tuple[str, str]], batch_size: int = 1) -> float:
-        """Runs one pass over `dataset`, returning the average loss.
+    def train_epoch(
+        self,
+        dataset: list[tuple[str, str]],
+        on_step: None | object = None,
+    ) -> EpochStats:
+        """Runs one pass over `dataset`, returning aggregated stats.
 
-        `batch_size` is accepted for interface compatibility; examples are
-        processed one at a time since each question produces a different
-        number of workspace slot writes and answer token counts.
+        `on_step`, when provided, is called after each example with
+        (step_index, total_steps, StepResult).
         """
-        del batch_size
         if not dataset:
-            return 0.0
+            return EpochStats(0.0, 0.0, 0.0, 0.0, 0.0, 0)
 
         total_loss = 0.0
-        for question, answer in dataset:
-            total_loss += self.train_step(question, answer)
+        total_var = 0.0
+        total_cov = 0.0
+        min_var = float("inf")
+        max_var = float("-inf")
 
-        return total_loss / len(dataset)
+        for i, (question, answer) in enumerate(dataset):
+            result = self.train_step(question, answer)
+            total_loss += result.loss
+            total_var += result.variance
+            total_cov += result.covariance
+            min_var = min(min_var, result.variance)
+            max_var = max(max_var, result.variance)
+            if on_step is not None:
+                on_step(i, len(dataset), result)  # type: ignore[operator]
+
+        n = len(dataset)
+        return EpochStats(
+            avg_loss=total_loss / n,
+            avg_variance=total_var / n,
+            avg_covariance=total_cov / n,
+            min_variance=min_var,
+            max_variance=max_var,
+            steps=n,
+        )

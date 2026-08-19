@@ -46,8 +46,13 @@ def run_baseline(
     problem_count: int | None,
     device: str,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    on_problem: None | object = None,
 ) -> dict[str, Any]:
-    """Run the token-CoT baseline over the GSM8K test split and return results."""
+    """Run the token-CoT baseline over the GSM8K test split and return results.
+
+    `on_problem`, when provided, is called after each problem with
+    (index, total, is_correct, running_correct, running_total).
+    """
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
     model = AutoModelForCausalLM.from_pretrained(MODEL_NAME).to(device)
     model.eval()
@@ -86,6 +91,8 @@ def run_baseline(
                 "correct": is_correct,
             }
         )
+        if on_problem is not None:
+            on_problem(total - 1, len(problems), is_correct, correct, total)  # type: ignore[operator]
 
     accuracy = correct / total if total else 0.0
     return {

@@ -63,12 +63,6 @@ def test_encoder_slot_queries_trainable(encoder: SlotEncoder) -> None:
     assert encoder.slot_queries.requires_grad
 
 
-def test_encoder_cross_attention_params_trainable(encoder: SlotEncoder) -> None:
-    params = list(encoder.cross_attention.parameters())
-    assert len(params) > 0
-    assert all(param.requires_grad for param in params)
-
-
 def test_latent_loop_model_params_frozen(loop: LatentLoop) -> None:
     params = list(loop.model.parameters())
     assert len(params) > 0

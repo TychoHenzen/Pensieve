@@ -43,8 +43,8 @@ def load_subject(
     """Build a `LatentCoreSubject`, loading trained weights if `checkpoint_path` is given.
 
     The checkpoint format matches `train.run_training._save_checkpoint`:
-    state dicts for the encoder's projection and cross-attention, the raw
-    slot-query tensor, and the latent loop's projection.
+    state dicts for the encoder's projection, the raw slot-query tensor,
+    and the latent loop's projection and layer norm.
     """
     subject = LatentCoreSubject(slot_count=slot_count, num_steps=num_steps, device=device)
     if checkpoint_path is not None:
@@ -54,13 +54,22 @@ def load_subject(
         with torch.no_grad():
             subject.encoder.slot_queries.copy_(state["encoder_slot_queries"])
         subject.latent_loop.projection.load_state_dict(state["latent_loop_projection"])
+        if "latent_loop_layer_norm" in state:
+            subject.latent_loop.layer_norm.load_state_dict(state["latent_loop_layer_norm"])
     return subject
 
 
 def run_seed(
-    subject: LatentCoreSubject, seed: int, problem_count: int | None
+    subject: LatentCoreSubject,
+    seed: int,
+    problem_count: int | None,
+    on_problem: None | object = None,
 ) -> float:
-    """Drive `subject` through one seed of the GSM8K test stream and return accuracy."""
+    """Drive `subject` through one seed of the GSM8K test stream and return accuracy.
+
+    `on_problem`, when provided, is called after each probe with
+    (index, is_correct, running_correct, running_total).
+    """
     params: dict[str, Any] = {"split": "test"}
     if problem_count is not None:
         params["problem_count"] = problem_count
@@ -73,9 +82,12 @@ def run_seed(
         if isinstance(event, Probe):
             answer = isolated_answer(subject, event)
             assert item.truth is not None
-            if str(item.truth.answer) == answer:
+            is_correct = str(item.truth.answer) == answer
+            if is_correct:
                 correct += 1
             total += 1
+            if on_problem is not None:
+                on_problem(total - 1, is_correct, correct, total)  # type: ignore[operator]
         else:
             subject.observe(event)
     return correct / total if total else 0.0
