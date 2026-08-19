@@ -10,6 +10,7 @@ from workspace.concept_slots import SLOT_DIM, Workspace
 DEFAULT_MODEL_NAME = "EleutherAI/pythia-160m"
 DEFAULT_NUM_STEPS = 2
 DEFAULT_RESIDUAL_WEIGHT = 0.5
+DEFAULT_TAP_LAYER = 6
 
 
 class LatentLoop(nn.Module):
@@ -28,12 +29,14 @@ class LatentLoop(nn.Module):
         num_steps: int = DEFAULT_NUM_STEPS,
         device: str = "cpu",
         residual_weight: float = DEFAULT_RESIDUAL_WEIGHT,
+        tap_layer: int = DEFAULT_TAP_LAYER,
     ) -> None:
         super().__init__()
         self.model_name = model_name
         self.num_steps = num_steps
         self.device = device
         self.residual_weight = residual_weight
+        self.tap_layer = tap_layer
 
         self.model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
         self.model.to(device)
@@ -43,12 +46,14 @@ class LatentLoop(nn.Module):
         self.hidden_dim = self.model.config.hidden_size
         self.projection = nn.Linear(self.hidden_dim, SLOT_DIM)
         self.projection.to(device)
+
+        gamma_init = 0.7 / (SLOT_DIM ** 0.5)
+        self.proj_norm = nn.LayerNorm(SLOT_DIM)
         self.layer_norm = nn.LayerNorm(SLOT_DIM)
         with torch.no_grad():
-            # Pythia embeddings have L2 norms ~0.7. Default gamma=1 gives
-            # norms of sqrt(SLOT_DIM)~27.7. Scale gamma so initial norms
-            # land in Pythia's expected range.
-            self.layer_norm.weight.fill_(0.7 / (SLOT_DIM ** 0.5))
+            self.proj_norm.weight.fill_(gamma_init)
+            self.layer_norm.weight.fill_(gamma_init)
+        self.proj_norm.to(device)
         self.layer_norm.to(device)
 
         self._steps = 0
@@ -80,7 +85,7 @@ class LatentLoop(nn.Module):
             inputs_embeds=input_embeds,
             output_hidden_states=True,
         )
-        all_hidden = outputs.hidden_states[-1].squeeze(0)
+        all_hidden = outputs.hidden_states[self.tap_layer].squeeze(0)
 
         if context_embeds is not None:
             slot_hidden = all_hidden[context_embeds.shape[0] :]
@@ -89,7 +94,7 @@ class LatentLoop(nn.Module):
 
         seq_len = input_embeds.shape[1]
 
-        projected = self.projection(slot_hidden)
+        projected = self.proj_norm(self.projection(slot_hidden))
         updated = self.layer_norm(projected + self.residual_weight * slots)
         workspace.write_slots(updated)
 

@@ -86,6 +86,8 @@ class EggrollTrainer:
             self.encoder.attn_log_temp,
             self.latent_loop.projection.weight,
             self.latent_loop.projection.bias,
+            self.latent_loop.proj_norm.weight,
+            self.latent_loop.proj_norm.bias,
             self.latent_loop.layer_norm.weight,
             self.latent_loop.layer_norm.bias,
         ]
