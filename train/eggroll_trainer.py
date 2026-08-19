@@ -86,7 +86,7 @@ class EggrollTrainer:
 
         self.trainable_params = list(self.state.parameters())
 
-        self.optimizer = torch.optim.Adam(self.trainable_params, lr=lr)
+        self.optimizer = self.state.create_optimizer(lr)
 
     def trainable_param_count(self) -> int:
         return sum(p.numel() for p in self.trainable_params)

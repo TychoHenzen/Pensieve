@@ -72,7 +72,7 @@ class LatentCoreTrainer:
         self.ema_projection = EMAProjection(self.latent_loop.projection, decay=ema_decay)
 
         self.trainable_params = list(self.state.parameters())
-        self.optimizer = torch.optim.Adam(self.trainable_params, lr=lr)
+        self.optimizer = self.state.create_optimizer(lr)
         self.loss_fn = nn.CrossEntropyLoss()
 
     def trainable_param_count(self) -> int:

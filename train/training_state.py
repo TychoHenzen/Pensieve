@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 
+import torch
 from torch import nn
 
 from codecs_module.encoder import SlotEncoder
@@ -39,3 +40,7 @@ class TrainingState:
     def parameters(self) -> Iterator[nn.Parameter]:
         """Yield trainable parameters in the registry's stable order."""
         return iter(self.trainable_params.values())
+
+    def create_optimizer(self, lr: float) -> torch.optim.Adam:
+        """Create an independent Adam optimizer over the shared registry."""
+        return torch.optim.Adam(self.parameters(), lr=lr)
