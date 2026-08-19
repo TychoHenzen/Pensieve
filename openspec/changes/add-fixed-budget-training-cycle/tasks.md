@@ -11,6 +11,7 @@
   <!-- status: completed -->
 - [ ] 1.4 Define common step and evaluation result records that separate language-model loss, total objective, regularizers, shared variance, and experiment position.
   <!-- covers: train/alternating-cycle :: Comparable phase measurements :: Record experiment position -->
+  <!-- status: completed -->
 
 ## 2. Update Engine Refactor
 
