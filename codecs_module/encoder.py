@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import torch
 from sentence_transformers import SentenceTransformer
 from torch import nn
@@ -34,9 +36,8 @@ class SlotEncoder(nn.Module):
 
         self.projection = nn.Linear(MINILM_DIM, SLOT_DIM)
         self.slot_queries = nn.Parameter(torch.randn(slot_count, SLOT_DIM))
-        self.cross_attention = nn.MultiheadAttention(
-            embed_dim=SLOT_DIM, num_heads=NUM_ATTENTION_HEADS, batch_first=True
-        )
+        d_k = SLOT_DIM / NUM_ATTENTION_HEADS
+        self.attn_log_temp = nn.Parameter(torch.tensor(0.5 * math.log(d_k)))
 
         self.to(device)
 
@@ -62,7 +63,7 @@ class SlotEncoder(nn.Module):
         """
         token_embeddings = self._token_embeddings(text)  # (1, tokens, 384)
         projected = self.projection(token_embeddings).squeeze(0)  # (tokens, 768)
-        scale = SLOT_DIM**0.5
+        scale = self.attn_log_temp.exp()
         attn_logits = self.slot_queries @ projected.T / scale  # (slots, tokens)
         attn_weights = torch.softmax(attn_logits, dim=-1)  # (slots, tokens)
         return attn_weights @ projected  # (slots, 768)

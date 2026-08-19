@@ -20,7 +20,7 @@ from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
-from workspace.concept_slots import DEFAULT_SLOT_COUNT, SLOT_DIM, Workspace
+from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
 TOKENIZER_NAME = "EleutherAI/pythia-160m"
 
@@ -83,6 +83,7 @@ class EggrollTrainer:
             self.encoder.projection.weight,
             self.encoder.projection.bias,
             self.encoder.slot_queries,
+            self.encoder.attn_log_temp,
             self.latent_loop.projection.weight,
             self.latent_loop.projection.bias,
             self.latent_loop.layer_norm.weight,
@@ -133,7 +134,7 @@ class EggrollTrainer:
         answer_ids: torch.Tensor,
     ) -> tuple[float, float, float]:
         projected = self.encoder.projection(token_embeddings).squeeze(0)
-        scale = SLOT_DIM**0.5
+        scale = self.encoder.attn_log_temp.exp()
         attn_logits = self.encoder.slot_queries @ projected.T / scale
         attn_weights = torch.softmax(attn_logits, dim=-1)
         slots = attn_weights @ projected
