@@ -4,6 +4,7 @@
   <!-- covers: train/alternating-cycle :: Comparable phase measurements :: Compare phase metrics -->
   <!-- status: completed -->
 - [ ] 1.2 Add a shared model-state container with a named trainable-parameter registry, and test that both update engines reference the same tensor objects.
+  <!-- status: completed -->
 - [ ] 1.3 Add separate gradient and Eggroll optimizer construction against the shared registry, and test that inactive optimizer state survives both phase directions without model reinitialization.
   <!-- covers: train/alternating-cycle :: Continuous model and optimizer state :: Switch from Eggroll to gradient training -->
   <!-- covers: train/alternating-cycle :: Continuous model and optimizer state :: Return to Eggroll -->

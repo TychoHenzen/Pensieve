@@ -20,6 +20,7 @@ from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
+from train.training_state import TrainingState
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
 TOKENIZER_NAME = "EleutherAI/pythia-160m"
@@ -62,35 +63,28 @@ class EggrollTrainer:
         rank: int = DEFAULT_RANK,
         variance_weight: float = DEFAULT_VARIANCE_WEIGHT,
         device: str = "cpu",
+        state: TrainingState | None = None,
     ) -> None:
         if pop_size % 2 != 0:
             raise ValueError("pop_size must be even for antithetic sampling")
 
-        self.slot_count = slot_count
+        self.state = state or TrainingState(
+            slot_count=slot_count, num_steps=num_steps, device=device
+        )
+        self.slot_count = self.state.encoder.slot_count
         self.device = device
         self.pop_size = pop_size
         self.sigma = sigma
         self.rank = rank
         self.variance_weight = variance_weight
 
-        self.workspace = Workspace(slot_count=slot_count)
-        self.encoder = SlotEncoder(slot_count=slot_count, device=device)
-        self.latent_loop = LatentLoop(num_steps=num_steps, device=device)
+        self.workspace = self.state.workspace
+        self.encoder = self.state.encoder
+        self.latent_loop = self.state.latent_loop
         self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
         self.loss_fn = nn.CrossEntropyLoss()
 
-        self.trainable_params = [
-            self.encoder.projection.weight,
-            self.encoder.projection.bias,
-            self.encoder.slot_queries,
-            self.encoder.attn_log_temp,
-            self.latent_loop.projection.weight,
-            self.latent_loop.projection.bias,
-            self.latent_loop.proj_norm.weight,
-            self.latent_loop.proj_norm.bias,
-            self.latent_loop.layer_norm.weight,
-            self.latent_loop.layer_norm.bias,
-        ]
+        self.trainable_params = list(self.state.parameters())
 
         self.optimizer = torch.optim.Adam(self.trainable_params, lr=lr)
 

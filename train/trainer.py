@@ -21,6 +21,7 @@ from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
+from train.training_state import TrainingState
 from train.vicreg import DEFAULT_EMA_DECAY, EMAProjection, VICRegLoss
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
@@ -56,23 +57,21 @@ class LatentCoreTrainer:
         lr: float = DEFAULT_LR,
         device: str = "cpu",
         ema_decay: float = DEFAULT_EMA_DECAY,
+        state: TrainingState | None = None,
     ) -> None:
-        self.slot_count = slot_count
+        self.state = state or TrainingState(
+            slot_count=slot_count, num_steps=num_steps, device=device
+        )
+        self.slot_count = self.state.encoder.slot_count
         self.device = device
-
-        self.workspace = Workspace(slot_count=slot_count)
-        self.encoder = SlotEncoder(slot_count=slot_count, device=device)
-        self.latent_loop = LatentLoop(num_steps=num_steps, device=device)
+        self.workspace = self.state.workspace
+        self.encoder = self.state.encoder
+        self.latent_loop = self.state.latent_loop
         self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
         self.vicreg = VICRegLoss()
         self.ema_projection = EMAProjection(self.latent_loop.projection, decay=ema_decay)
 
-        self.trainable_params = [
-            *self.encoder.projection.parameters(),
-            self.encoder.slot_queries,
-            *self.latent_loop.projection.parameters(),
-            *self.latent_loop.layer_norm.parameters(),
-        ]
+        self.trainable_params = list(self.state.parameters())
         self.optimizer = torch.optim.Adam(self.trainable_params, lr=lr)
         self.loss_fn = nn.CrossEntropyLoss()
 
