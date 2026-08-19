@@ -28,6 +28,16 @@ DEFAULT_VARIANCE_THRESHOLD = 1.0
 DEFAULT_EMA_DECAY = 0.99
 
 
+def post_loop_slot_variance(slots: torch.Tensor) -> torch.Tensor:
+    """Return the mean population variance across slot vectors.
+
+    `slots` may be `(slots, dimensions)` or
+    `(batch, slots, dimensions)`. The slot axis is always the second-to-last
+    axis, and all remaining axes are averaged into one scalar.
+    """
+    return slots.var(dim=-2, unbiased=False).mean()
+
+
 class VICRegLoss(nn.Module):
     """Variance + covariance collapse-prevention regularizer over slots."""
 
