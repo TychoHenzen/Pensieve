@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import math
-
 import torch
 from sentence_transformers import SentenceTransformer
 from torch import nn
@@ -36,8 +34,7 @@ class SlotEncoder(nn.Module):
 
         self.projection = nn.Linear(MINILM_DIM, SLOT_DIM)
         self.slot_queries = nn.Parameter(torch.randn(slot_count, SLOT_DIM))
-        d_k = SLOT_DIM / NUM_ATTENTION_HEADS
-        self.attn_log_temp = nn.Parameter(torch.tensor(0.5 * math.log(d_k)))
+        self.attn_log_temp = nn.Parameter(torch.tensor(0.0))
 
         self.to(device)
 
