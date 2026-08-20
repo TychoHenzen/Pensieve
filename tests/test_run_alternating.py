@@ -319,7 +319,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         examples=["a", "b", "c"],
         epochs=1,
         phase_steps=2,
-        log_every=2,
+        log_every=3,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
         evaluator=FakeEvaluator(),
@@ -332,7 +332,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         examples=["a", "b", "c"],
         epochs=2,
         phase_steps=2,
-        log_every=2,
+        log_every=3,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
         evaluator=FakeEvaluator(),
@@ -354,11 +354,34 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         for line in first_output.getvalue().splitlines()
         + resumed_output.getvalue().splitlines()
     ]
-    assert [
-        record["global_step"]
-        for record in records
-        if record["record_type"] == "training"
-    ] == [2, 4, 6]
+    training_records = [
+        record for record in records if record["record_type"] == "training"
+    ]
+    assert [record["global_step"] for record in training_records] == [3, 6]
+    assert training_records == [
+        {
+            "record_type": "training",
+            "update_method": "gradient",
+            "cycle": 2,
+            "global_step": 3,
+            "epoch": 1,
+            "example_position": 2,
+            "phase_step": 1,
+            "language_model_loss": 1.0,
+            "shared_variance": 0.5,
+        },
+        {
+            "record_type": "training",
+            "update_method": "eggroll",
+            "cycle": 3,
+            "global_step": 6,
+            "epoch": 2,
+            "example_position": 2,
+            "phase_step": 2,
+            "language_model_loss": 1.0,
+            "shared_variance": 0.5,
+        },
+    ]
     assert any(record["record_type"] == "evaluation" for record in records)
     assert any(record["record_type"] == "checkpoint" for record in records)
     assert saved[1] == CheckpointSchedule("gradient", 1, 3, 1, 2)
