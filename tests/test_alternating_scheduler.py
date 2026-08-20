@@ -66,6 +66,45 @@ def test_step_501_starts_gradient_phase_on_next_example() -> None:
     ]
 
 
+def test_phase_boundary_keeps_the_epoch_dataset_cursor() -> None:
+    eggroll = FakeEngine("eggroll")
+    gradient = FakeEngine("gradient")
+    scheduler = FixedBudgetScheduler(
+        phase_steps=2,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+    )
+
+    for epoch in range(1, 3):
+        for example_position in range(5):
+            scheduler.train_step(
+                (epoch, example_position),
+                epoch=epoch,
+                example_position=example_position,
+            )
+
+    all_calls = sorted(
+        eggroll.calls + gradient.calls,
+        key=lambda call: call[1].global_step,
+    )
+    assert [example for example, _ in all_calls] == [
+        (1, 0),
+        (1, 1),
+        (1, 2),
+        (1, 3),
+        (1, 4),
+        (2, 0),
+        (2, 1),
+        (2, 2),
+        (2, 3),
+        (2, 4),
+    ]
+    assert gradient.calls[0] == (
+        (1, 2),
+        ExperimentPosition("gradient", 2, 3, 1, 2, 1),
+    )
+
+
 def test_returns_to_eggroll_after_500_gradient_steps() -> None:
     eggroll = FakeEngine("eggroll")
     gradient = FakeEngine("gradient")
