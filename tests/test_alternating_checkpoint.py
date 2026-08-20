@@ -84,6 +84,36 @@ def test_phase_boundary_resume_starts_next_example_in_saved_phase(tmp_path) -> N
     assert resumed_scheduler.calls == [("third", "gradient", 2, 3)]
 
 
+def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tmp_path) -> None:
+    scheduler = FakeResumableScheduler(phase_steps=5)
+    schedule = scheduler.run_until_epoch_boundary(["first", "second", "third"])
+    checkpoint = capture_checkpoint(
+        model_state={},
+        eggroll_optimizer=_optimizer(),
+        gradient_optimizer=_optimizer(),
+        schedule=schedule,
+        run_config={"phase_steps": 5},
+        held_out_selection=[],
+        metrics=[],
+    )
+    path = tmp_path / "epoch-boundary.pt"
+    save_checkpoint(path, checkpoint)
+
+    resumed_scheduler = FakeResumableScheduler(phase_steps=5)
+    loaded_schedule = load_checkpoint(path).schedule
+    resumed_scheduler.resume(loaded_schedule, ["first", "second", "third"])
+
+    assert loaded_schedule == CheckpointSchedule(
+        active_phase="eggroll",
+        completed_phase_steps=3,
+        global_step=3,
+        epoch=1,
+        dataset_position=2,
+    )
+    assert resumed_scheduler.calls == [("first", "eggroll", 0, 4)]
+    assert resumed_scheduler.resume_positions == [(2, 0, 3)]
+
+
 def _step(optimizer: torch.optim.Optimizer, model: nn.Module, *, gradient: float) -> None:
     for parameter in model.parameters():
         parameter.grad = torch.full_like(parameter, gradient)
@@ -101,6 +131,7 @@ class FakeResumableScheduler:
 
     phase_steps: int
     calls: list[tuple[object, str, int, int]] = field(default_factory=list)
+    resume_positions: list[tuple[int, int, int]] = field(default_factory=list)
 
     def run_until_phase_boundary(self, examples: list[object]) -> CheckpointSchedule:
         for dataset_position, example in enumerate(examples[: self.phase_steps]):
@@ -113,8 +144,26 @@ class FakeResumableScheduler:
             dataset_position=self.phase_steps - 1,
         )
 
+    def run_until_epoch_boundary(self, examples: list[object]) -> CheckpointSchedule:
+        for dataset_position, example in enumerate(examples):
+            self.calls.append((example, "eggroll", dataset_position, dataset_position + 1))
+        return CheckpointSchedule(
+            active_phase="eggroll",
+            completed_phase_steps=len(examples),
+            global_step=len(examples),
+            epoch=1,
+            dataset_position=len(examples) - 1,
+        )
+
     def resume(self, schedule: CheckpointSchedule, examples: list[object]) -> None:
         next_position = schedule.dataset_position + 1
+        next_epoch = schedule.epoch
+        if next_position == len(examples):
+            next_epoch += 1
+            next_position = 0
+        self.resume_positions.append(
+            (next_epoch, next_position, schedule.completed_phase_steps)
+        )
         self.calls.append(
             (
                 examples[next_position],
