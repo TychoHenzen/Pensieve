@@ -43,16 +43,17 @@ def load_subject(
     """Build a `LatentCoreSubject`, loading trained weights if `checkpoint_path` is given.
 
     The checkpoint format matches `train.run_training._save_checkpoint`:
-    state dicts for the encoder's projection, the raw slot-query tensor,
-    and the latent loop's projection and layer norm.
+    state dicts for the encoder's projection, the slot-query tensor and
+    attention temperature, plus the latent loop's projection and layer norm.
     """
     subject = LatentCoreSubject(slot_count=slot_count, num_steps=num_steps, device=device)
     if checkpoint_path is not None:
         state = torch.load(checkpoint_path, map_location=device)
         subject.encoder.projection.load_state_dict(state["encoder_projection"])
-        subject.encoder.cross_attention.load_state_dict(state["encoder_cross_attention"])
         with torch.no_grad():
             subject.encoder.slot_queries.copy_(state["encoder_slot_queries"])
+            if "encoder_attn_log_temp" in state:
+                subject.encoder.attn_log_temp.copy_(state["encoder_attn_log_temp"])
         subject.latent_loop.projection.load_state_dict(state["latent_loop_projection"])
         if "latent_loop_layer_norm" in state:
             subject.latent_loop.layer_norm.load_state_dict(state["latent_loop_layer_norm"])

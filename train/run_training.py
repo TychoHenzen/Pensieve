@@ -98,10 +98,10 @@ def _load_checkpoint(trainer: LatentCoreTrainer, path: str, device: str) -> int:
     _log(f"loading checkpoint: {path}")
     state = torch.load(path, map_location=device, weights_only=False)
     trainer.encoder.projection.load_state_dict(state["encoder_projection"])
-    if "encoder_cross_attention" in state:
-        trainer.encoder.cross_attention.load_state_dict(state["encoder_cross_attention"])
     with torch.no_grad():
         trainer.encoder.slot_queries.copy_(state["encoder_slot_queries"])
+        if "encoder_attn_log_temp" in state:
+            trainer.encoder.attn_log_temp.copy_(state["encoder_attn_log_temp"])
     trainer.latent_loop.projection.load_state_dict(state["latent_loop_projection"])
     if "latent_loop_layer_norm" in state:
         trainer.latent_loop.layer_norm.load_state_dict(state["latent_loop_layer_norm"])
@@ -128,6 +128,7 @@ def _save_checkpoint(trainer: LatentCoreTrainer, save_dir: str, epoch: int) -> s
     state = {
         "encoder_projection": trainer.encoder.projection.state_dict(),
         "encoder_slot_queries": trainer.encoder.slot_queries,
+        "encoder_attn_log_temp": trainer.encoder.attn_log_temp,
         "latent_loop_projection": trainer.latent_loop.projection.state_dict(),
         "latent_loop_layer_norm": trainer.latent_loop.layer_norm.state_dict(),
         "optimizer": trainer.optimizer.state_dict(),
