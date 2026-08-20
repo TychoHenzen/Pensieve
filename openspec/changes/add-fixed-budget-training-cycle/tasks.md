@@ -80,6 +80,7 @@
 
 - [x] 6.1 Add `train.run_alternating` with five epochs and 500 phase steps by default, distinct learning-rate flags, existing Eggroll controls, held-out size, logging, save directory, and resume options.
   <!-- status: completed -->
-- [ ] 6.2 Add structured progress output for update method, cycle, global step, epoch, example position, phase step, language-model loss, shared variance, evaluations, and checkpoint paths.
+- [x] 6.2 Add structured progress output for update method, cycle, global step, epoch, example position, phase step, language-model loss, shared variance, evaluations, and checkpoint paths.
+  <!-- status: completed -->
 - [ ] 6.3 Add a deterministic small-data integration test that crosses both optimizer phases, an epoch boundary, evaluation, checkpoint save, and resume without loading the full production models.
 - [ ] 6.4 Run the focused alternating-training tests, then run the complete pytest suite and record the exact five-epoch experiment command in the change handoff.

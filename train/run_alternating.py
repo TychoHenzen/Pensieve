@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Sequence
+import json
+from pathlib import Path
+import sys
+from typing import TextIO
 
 import torch
 
 from train.alternating_config import validate_scheduler_config
 from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
+from train.alternating_scheduler import EvaluationRecord
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LR as DEFAULT_EGGROLL_LR,
@@ -19,11 +24,62 @@ from train.eggroll_trainer import (
     DEFAULT_VARIANCE_WEIGHT,
 )
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
+from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
 DEFAULT_EPOCHS = 5
 DEFAULT_PHASE_STEPS = 500
+
+
+def _position_record(position: ExperimentPosition) -> dict[str, int | str]:
+    return {
+        "update_method": position.update_method,
+        "cycle": position.cycle,
+        "global_step": position.global_step,
+        "epoch": position.epoch,
+        "example_position": position.example_position,
+        "phase_step": position.phase_step,
+    }
+
+
+def _training_record(result: StepResult) -> dict[str, float | int | str]:
+    """Return the stable progress record for one completed update."""
+    return {
+        "record_type": "training",
+        **_position_record(result.position),
+        "language_model_loss": result.language_model_loss,
+        "shared_variance": result.shared_variance,
+    }
+
+
+def _evaluation_record(
+    record: EvaluationRecord[EvaluationResult],
+) -> dict[str, float | int | str | list[str]]:
+    """Return one deterministic held-out evaluation progress record."""
+    return {
+        "record_type": "evaluation",
+        **_position_record(record.position),
+        "boundaries": sorted(record.boundaries),
+        "language_model_loss": record.result.language_model_loss,
+        "shared_variance": record.result.shared_variance,
+        "answer_exact_match": record.result.answer_exact_match,
+    }
+
+
+def _checkpoint_record(paths: Sequence[str | Path]) -> dict[str, str | list[str]]:
+    """Return the progress record for checkpoint files written at a boundary."""
+    return {
+        "record_type": "checkpoint",
+        "paths": [str(path) for path in paths],
+    }
+
+
+def _write_progress_record(
+    record: dict[str, object], output: TextIO = sys.stdout
+) -> None:
+    """Write one machine-readable JSON record without buffering partial lines."""
+    print(json.dumps(record, separators=(",", ":")), file=output, flush=True)
 
 
 def _build_parser() -> argparse.ArgumentParser:

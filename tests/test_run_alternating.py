@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+from io import StringIO
+import json
+from pathlib import Path
+
 import pytest
 
 from train import run_alternating
 from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
+from train.alternating_scheduler import EvaluationRecord
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LR as DEFAULT_EGGROLL_LR,
@@ -14,7 +19,96 @@ from train.eggroll_trainer import (
     DEFAULT_VARIANCE_WEIGHT,
 )
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
+from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
+
+
+def _position() -> ExperimentPosition:
+    return ExperimentPosition(
+        update_method="gradient",
+        cycle=4,
+        global_step=27,
+        epoch=2,
+        example_position=6,
+        phase_step=3,
+    )
+
+
+def test_training_progress_record_has_exact_comparable_content() -> None:
+    record = run_alternating._training_record(
+        StepResult(
+            position=_position(),
+            language_model_loss=1.25,
+            total_objective=1.75,
+            regularizer_loss=0.5,
+            shared_variance=0.4,
+        )
+    )
+
+    assert record == {
+        "record_type": "training",
+        "update_method": "gradient",
+        "cycle": 4,
+        "global_step": 27,
+        "epoch": 2,
+        "example_position": 6,
+        "phase_step": 3,
+        "language_model_loss": 1.25,
+        "shared_variance": 0.4,
+    }
+
+
+def test_evaluation_progress_record_has_sorted_boundaries_and_exact_metrics() -> None:
+    position = _position()
+    record = run_alternating._evaluation_record(
+        EvaluationRecord(
+            result=EvaluationResult(
+                position=position,
+                language_model_loss=0.75,
+                shared_variance=0.6,
+                answer_exact_match=0.25,
+            ),
+            position=position,
+            boundaries=frozenset({"phase", "epoch"}),
+        )
+    )
+
+    assert record == {
+        "record_type": "evaluation",
+        "update_method": "gradient",
+        "cycle": 4,
+        "global_step": 27,
+        "epoch": 2,
+        "example_position": 6,
+        "phase_step": 3,
+        "boundaries": ["epoch", "phase"],
+        "language_model_loss": 0.75,
+        "shared_variance": 0.6,
+        "answer_exact_match": 0.25,
+    }
+
+
+def test_checkpoint_progress_record_has_exact_paths() -> None:
+    assert run_alternating._checkpoint_record(
+        [Path("runs/phase-27.pt"), Path("runs/epoch-2.pt")]
+    ) == {
+        "record_type": "checkpoint",
+        "paths": ["runs\\phase-27.pt", "runs\\epoch-2.pt"],
+    }
+
+
+def test_progress_record_is_written_as_one_compact_json_line() -> None:
+    output = StringIO()
+
+    run_alternating._write_progress_record(
+        {"record_type": "checkpoint", "paths": ["phase-27.pt"]}, output
+    )
+
+    assert output.getvalue().count("\n") == 1
+    assert json.loads(output.getvalue()) == {
+        "record_type": "checkpoint",
+        "paths": ["phase-27.pt"],
+    }
 
 
 def test_alternating_command_defaults() -> None:
