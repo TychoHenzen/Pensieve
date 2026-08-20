@@ -129,7 +129,7 @@ def test_alternating_command_defaults() -> None:
     assert args.use_amp is False
     assert args.eval_problem_count == DEFAULT_EVAL_PROBLEM_COUNT
     assert args.problem_count is None
-    assert args.log_every == 10
+    assert args.log_every == 50
     assert args.save_dir == "checkpoints/alternating/"
     assert args.resume is None
 
@@ -178,6 +178,32 @@ def test_alternating_command_accepts_overrides() -> None:
         "save_dir": "runs/alternating",
         "resume": "latest",
     }
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_invalid_log_every_is_rejected_before_production_loading(
+    value: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject_production_loading(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production loading was attempted")
+
+    monkeypatch.setattr(run_alternating, "_load_split", reject_production_loading)
+    monkeypatch.setattr(run_alternating, "TrainingState", reject_production_loading)
+
+    with pytest.raises(ValueError, match="--log-every"):
+        run_alternating.main(["--log-every", value])
+
+
+def test_non_integer_log_every_is_rejected_by_cli_before_production_loading(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(
+        run_alternating, "_load_split", lambda *_args: pytest.fail("production loading was attempted")
+    )
+
+    with pytest.raises(SystemExit):
+        run_alternating.main(["--log-every", "not-an-integer"])
+    assert "--log-every" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize(
@@ -293,6 +319,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         examples=["a", "b", "c"],
         epochs=1,
         phase_steps=2,
+        log_every=2,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
         evaluator=FakeEvaluator(),
@@ -305,6 +332,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         examples=["a", "b", "c"],
         epochs=2,
         phase_steps=2,
+        log_every=2,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
         evaluator=FakeEvaluator(),
@@ -326,6 +354,11 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         for line in first_output.getvalue().splitlines()
         + resumed_output.getvalue().splitlines()
     ]
+    assert [
+        record["global_step"]
+        for record in records
+        if record["record_type"] == "training"
+    ] == [2, 4, 6]
     assert any(record["record_type"] == "evaluation" for record in records)
     assert any(record["record_type"] == "checkpoint" for record in records)
     assert saved[1] == CheckpointSchedule("gradient", 1, 3, 1, 2)

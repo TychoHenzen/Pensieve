@@ -131,6 +131,7 @@ def _run_schedule(
     examples: Sequence[object],
     epochs: int,
     phase_steps: int,
+    log_every: int = 50,
     eggroll_engine: TrainingEngine[StepResult],
     gradient_engine: TrainingEngine[StepResult],
     evaluator: PhaseEvaluator[EvaluationResult],
@@ -139,7 +140,9 @@ def _run_schedule(
     resume: CheckpointSchedule | None = None,
 ) -> CheckpointSchedule | None:
     """Run injected alternating components without loading production dependencies."""
-    validate_scheduler_config(phase_steps=phase_steps, epochs=epochs)
+    validate_scheduler_config(
+        phase_steps=phase_steps, epochs=epochs, log_every=log_every
+    )
     if not examples:
         return resume
 
@@ -170,7 +173,8 @@ def _run_schedule(
                 epoch=epoch,
                 example_position=example_position,
             )
-            _write_progress_record(_training_record(result), output)
+            if result.position.global_step > 0 and result.position.global_step % log_every == 0:
+                _write_progress_record(_training_record(result), output)
 
             phase_boundary = result.position.phase_step == phase_steps
             epoch_boundary = example_position == len(examples) - 1
@@ -252,7 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=str,
         default="cuda" if torch.cuda.is_available() else "cpu",
     )
-    parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument("--log-every", type=int, default=50)
     parser.add_argument("--save-dir", type=str, default="checkpoints/alternating/")
     parser.add_argument(
         "--resume",
@@ -265,7 +269,9 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = _build_parser().parse_args(argv)
-    validate_scheduler_config(phase_steps=args.phase_steps, epochs=args.epochs)
+    validate_scheduler_config(
+        phase_steps=args.phase_steps, epochs=args.epochs, log_every=args.log_every
+    )
     return args
 
 
@@ -377,6 +383,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         examples=examples,
         epochs=args.epochs,
         phase_steps=args.phase_steps,
+        log_every=args.log_every,
         eggroll_engine=_TrainerEngine(eggroll),
         gradient_engine=_TrainerEngine(gradient),
         evaluator=evaluator,

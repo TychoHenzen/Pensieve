@@ -18,4 +18,10 @@ def test_rejects_non_positive_epoch_count(epochs: int) -> None:
 
 
 def test_accepts_positive_phase_budget_and_epoch_count() -> None:
-    validate_scheduler_config(phase_steps=500, epochs=5)
+    validate_scheduler_config(phase_steps=500, epochs=5, log_every=50)
+
+
+@pytest.mark.parametrize("log_every", [0, -1])
+def test_rejects_non_positive_log_interval(log_every: int) -> None:
+    with pytest.raises(ValueError, match="--log-every must be at least 1"):
+        validate_scheduler_config(phase_steps=500, epochs=5, log_every=log_every)
