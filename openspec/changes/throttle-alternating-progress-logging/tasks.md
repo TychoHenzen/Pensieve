@@ -10,10 +10,12 @@
 
 ## 2. Output Filtering
 
-- [ ] 2.1 Add schedule-output tests proving training records emit only at configured global-step multiples while retaining their existing metric and position fields; then apply the training-record filter.
+- [x] 2.1 Add schedule-output tests proving training records emit only at configured global-step multiples while retaining their existing metric and position fields; then apply the training-record filter.
+  <!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Throttled progress output :: Non-progress output remains independent -->
 
-- [ ] 2.2 Add boundary-output tests proving epoch evaluation and checkpoint records remain visible while phase-only records stay silent without suppressing their operations; then apply the boundary-record filter.
+- [x] 2.2 Add boundary-output tests proving epoch evaluation and checkpoint records remain visible while phase-only records stay silent without suppressing their operations; then apply the boundary-record filter.
+  <!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Throttled progress output :: Epoch boundary progress records -->
   <!-- covers: train/alternating-cycle :: Throttled progress output :: Phase-only boundary progress records -->
   <!-- covers: train/alternating-cycle :: Throttled progress output :: Coincident phase and epoch boundary progress records -->

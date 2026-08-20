@@ -184,7 +184,8 @@ def _run_schedule(
                     scheduler.evaluate_final_partial_phase(result.position)
 
             for record in scheduler.evaluation_results[evaluation_count:]:
-                _write_progress_record(_evaluation_record(record), output)
+                if "epoch" in record.boundaries:
+                    _write_progress_record(_evaluation_record(record), output)
 
             if phase_boundary or epoch_boundary:
                 latest_schedule = _checkpoint_schedule(result.position, phase_steps)
@@ -193,7 +194,8 @@ def _run_schedule(
                     phase_boundary=phase_boundary,
                     epoch_boundary=epoch_boundary,
                 )
-                _write_progress_record(_checkpoint_record(paths), output)
+                if epoch_boundary:
+                    _write_progress_record(_checkpoint_record(paths), output)
 
     return latest_schedule
 

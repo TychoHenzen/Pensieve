@@ -382,7 +382,31 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "shared_variance": 0.5,
         },
     ]
-    assert any(record["record_type"] == "evaluation" for record in records)
-    assert any(record["record_type"] == "checkpoint" for record in records)
+    evaluation_records = [
+        record for record in records if record["record_type"] == "evaluation"
+    ]
+    assert [record["global_step"] for record in evaluation_records] == [3, 6]
+    assert evaluation_records[0]["boundaries"] == ["epoch", "partial_phase"]
+    assert evaluation_records[1]["boundaries"] == ["epoch", "phase"]
+
+    checkpoint_records = [
+        record for record in records if record["record_type"] == "checkpoint"
+    ]
+    assert checkpoint_records == [
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-1.pt")],
+        },
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "phase-6.pt"), str(tmp_path / "epoch-2.pt")],
+        },
+    ]
+    assert saved == [
+        CheckpointSchedule("gradient", 0, 2, 1, 1),
+        CheckpointSchedule("gradient", 1, 3, 1, 2),
+        CheckpointSchedule("eggroll", 0, 4, 2, 0),
+        CheckpointSchedule("gradient", 0, 6, 2, 2),
+    ]
     assert saved[1] == CheckpointSchedule("gradient", 1, 3, 1, 2)
     assert saved[-1] == CheckpointSchedule("gradient", 0, 6, 2, 2)
