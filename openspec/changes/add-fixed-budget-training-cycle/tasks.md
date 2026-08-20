@@ -31,6 +31,7 @@
 - [ ] 3.1 Add scheduler configuration validation before model and dataset loading for positive phase budgets and epoch counts.
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Invalid phase budget -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count -->
+  <!-- status: completed -->
 - [ ] 3.2 Add fake-engine tests for an Eggroll-first 500-step phase, the transition at step 501, and repeated alternation, then implement the fixed-budget scheduler.
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Default phase transition -->
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Repeated phase transition -->
