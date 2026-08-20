@@ -14,6 +14,7 @@ from train.alternating_evaluation import (
     evaluate_unperturbed,
     load_held_out_problems,
 )
+from train.alternating_scheduler import FixedBudgetScheduler
 from train.training_results import ExperimentPosition
 
 
@@ -79,6 +80,46 @@ def test_evaluation_isolates_phase_and_epoch_training_state(
 
     assert result.position is evaluation_position
     assert run.snapshot() == before
+
+
+def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_label() -> None:
+    eggroll = FakeEngine("eggroll")
+    evaluator = FakePhaseEvaluator()
+    scheduler = FixedBudgetScheduler(
+        phase_steps=500,
+        eggroll_engine=eggroll,
+        gradient_engine=FakeEngine("gradient"),
+        evaluator=evaluator,
+    )
+
+    for example_position in range(1, 501):
+        scheduler.train_step("example", epoch=3, example_position=example_position)
+
+    expected_position = ExperimentPosition("eggroll", 1, 500, 3, 500, 500)
+    assert evaluator.positions == [expected_position]
+    assert scheduler.evaluation_results == (expected_position,)
+
+
+@dataclass
+class FakeEngine:
+    update_method: str
+
+    def train_step(self, example: object, position: ExperimentPosition) -> str:
+        del example
+        assert position.update_method == self.update_method
+        return self.update_method
+
+
+@dataclass
+class FakePhaseEvaluator:
+    positions: list[ExperimentPosition]
+
+    def __init__(self) -> None:
+        self.positions = []
+
+    def evaluate(self, position: ExperimentPosition) -> ExperimentPosition:
+        self.positions.append(position)
+        return position
 
 
 class FakeTokenizer:

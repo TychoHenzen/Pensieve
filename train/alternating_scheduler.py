@@ -9,6 +9,7 @@ from train.training_results import ExperimentPosition
 
 
 ResultT = TypeVar("ResultT")
+EvaluationT = TypeVar("EvaluationT")
 
 
 class TrainingEngine(Protocol[ResultT]):
@@ -16,6 +17,13 @@ class TrainingEngine(Protocol[ResultT]):
 
     def train_step(self, example: object, position: ExperimentPosition) -> ResultT:
         """Apply one update and return its method-specific result."""
+
+
+class PhaseEvaluator(Protocol[EvaluationT]):
+    """Evaluate the shared model at a completed phase boundary."""
+
+    def evaluate(self, position: ExperimentPosition) -> EvaluationT:
+        """Return the evaluation labeled with the completed phase position."""
 
 
 class FixedBudgetScheduler:
@@ -27,12 +35,20 @@ class FixedBudgetScheduler:
         phase_steps: int,
         eggroll_engine: TrainingEngine[ResultT],
         gradient_engine: TrainingEngine[ResultT],
+        evaluator: PhaseEvaluator[EvaluationT] | None = None,
     ) -> None:
         validate_scheduler_config(phase_steps=phase_steps, epochs=1)
         self._phase_steps = phase_steps
         self._eggroll_engine = eggroll_engine
         self._gradient_engine = gradient_engine
+        self._evaluator = evaluator
         self._completed_steps = 0
+        self._evaluation_results: list[EvaluationT] = []
+
+    @property
+    def evaluation_results(self) -> tuple[EvaluationT, ...]:
+        """Return evaluations from completed phases in production order."""
+        return tuple(self._evaluation_results)
 
     def train_step(
         self,
@@ -58,4 +74,6 @@ class FixedBudgetScheduler:
         )
         result = engine.train_step(example, position)
         self._completed_steps = global_step
+        if phase_step == self._phase_steps and self._evaluator is not None:
+            self._evaluation_results.append(self._evaluator.evaluate(position))
         return result

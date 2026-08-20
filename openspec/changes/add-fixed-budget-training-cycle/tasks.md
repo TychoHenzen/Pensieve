@@ -53,8 +53,9 @@
 - [x] 4.2 Add an isolation test proving evaluation leaves model parameters, both optimizer states, random states, dataset position, and phase position unchanged.
   <!-- covers: train/alternating-cycle :: Phase and epoch evaluation :: Evaluation isolation -->
   <!-- status: completed -->
-- [ ] 4.3 Wire evaluation to completed phase boundaries and label each result with the phase that produced it.
+- [x] 4.3 Wire evaluation to completed phase boundaries and label each result with the phase that produced it.
   <!-- covers: train/alternating-cycle :: Phase and epoch evaluation :: Completed phase evaluation -->
+  <!-- status: completed -->
 - [ ] 4.4 Wire deduplicated epoch-boundary evaluation and final partial-phase evaluation with boundary labels.
   <!-- covers: train/alternating-cycle :: Phase and epoch evaluation :: Partial final phase evaluation -->
 
