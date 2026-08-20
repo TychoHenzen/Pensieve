@@ -35,6 +35,7 @@
 - [ ] 3.2 Add fake-engine tests for an Eggroll-first 500-step phase, the transition at step 501, and repeated alternation, then implement the fixed-budget scheduler.
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Default phase transition -->
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Repeated phase transition -->
+  <!-- status: completed -->
 - [ ] 3.3 Add scheduler tests proving a phase boundary continues with the next example inside an epoch and does not reset the dataset cursor.
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Phase boundary within an epoch -->
 - [ ] 3.4 Add scheduler tests proving an epoch boundary preserves the active phase and remaining phase budget.
