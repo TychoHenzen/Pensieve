@@ -204,6 +204,54 @@ def test_invalid_schedule_is_rejected_before_production_loading(
         run_alternating.main(arguments)
 
 
+def test_main_builds_shared_production_run_and_executes_schedule(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    calls: dict[str, object] = {}
+    shared_state = object()
+    gradient = type("Gradient", (), {"optimizer": object()})()
+    eggroll = type("Eggroll", (), {"optimizer": object()})()
+
+    monkeypatch.setattr(run_alternating, "_load_split", lambda split: [
+        {"question": "q", "answer": "work #### 1"}
+    ])
+    monkeypatch.setattr(
+        run_alternating, "load_held_out_problems", lambda count: ["held-out"]
+    )
+    monkeypatch.setattr(
+        run_alternating, "TrainingState", lambda *args: shared_state
+    )
+
+    def build_gradient(**kwargs: object) -> object:
+        calls["gradient_state"] = kwargs["state"]
+        return gradient
+
+    def build_eggroll(**kwargs: object) -> object:
+        calls["eggroll_state"] = kwargs["state"]
+        return eggroll
+
+    monkeypatch.setattr(run_alternating, "LatentCoreTrainer", build_gradient)
+    monkeypatch.setattr(run_alternating, "EggrollTrainer", build_eggroll)
+    monkeypatch.setattr(run_alternating, "_Evaluator", lambda model, held: "evaluator")
+
+    def run_schedule(**kwargs: object) -> None:
+        calls.update(kwargs)
+
+    monkeypatch.setattr(run_alternating, "_run_schedule", run_schedule)
+
+    run_alternating.main([
+        "--epochs", "1", "--phase-steps", "2", "--problem-count", "1",
+        "--eval-problem-count", "1", "--save-dir", str(tmp_path),
+    ])
+
+    assert calls["gradient_state"] is shared_state
+    assert calls["eggroll_state"] is shared_state
+    assert calls["examples"] == [("q", "1")]
+    assert calls["epochs"] == 1
+    assert calls["phase_steps"] == 2
+    assert calls["evaluator"] == "evaluator"
+
+
 def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_examples(
     tmp_path: Path,
 ) -> None:
