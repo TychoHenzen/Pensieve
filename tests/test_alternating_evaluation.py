@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from io import BytesIO
+import random
 from types import SimpleNamespace
 
 import pytest
@@ -58,6 +61,26 @@ def test_unperturbed_evaluation_averages_metrics_without_changing_model() -> Non
     assert model.latent_loop.model.training
 
 
+@pytest.mark.parametrize(
+    "evaluation_position",
+    [
+        ExperimentPosition("eggroll", 2, 500, 1, 500, 500),
+        ExperimentPosition("eggroll", 2, 1_000, 1, 1_000, 500),
+    ],
+    ids=["phase", "epoch"],
+)
+def test_evaluation_isolates_phase_and_epoch_training_state(
+    evaluation_position: ExperimentPosition,
+) -> None:
+    run = FakeAlternatingRun()
+    before = run.snapshot()
+
+    result = run.evaluate(evaluation_position)
+
+    assert result.position is evaluation_position
+    assert run.snapshot() == before
+
+
 class FakeTokenizer:
     eos_token_id = None
 
@@ -90,8 +113,12 @@ class FakeEncoder(nn.Module):
 
 
 class FakeLanguageModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.scale = nn.Parameter(torch.tensor(1.0))
+
     def forward(self, *, inputs_embeds: torch.Tensor) -> SimpleNamespace:
-        logits = torch.zeros(*inputs_embeds.shape[:-1], 3)
+        logits = torch.zeros(*inputs_embeds.shape[:-1], 3) * self.scale
         return SimpleNamespace(logits=logits)
 
 
@@ -119,3 +146,61 @@ class FakeSharedModel:
 
     def parameters(self):
         return self.latent_loop.parameters()
+
+
+@dataclass
+class FakeAlternatingRun:
+    """The mutable state held by an alternating training run."""
+
+    model: FakeSharedModel
+    eggroll_optimizer: torch.optim.Adam
+    gradient_optimizer: torch.optim.Adam
+    dataset_position: int
+    phase_position: ExperimentPosition
+
+    def __init__(self) -> None:
+        self.model = FakeSharedModel()
+        parameters = list(self.model.parameters())
+        self.eggroll_optimizer = torch.optim.Adam(parameters, lr=0.1)
+        self.gradient_optimizer = torch.optim.Adam(parameters, lr=0.01)
+        _initialize_optimizer_state(self.eggroll_optimizer, parameters, gradient=1.0)
+        _initialize_optimizer_state(self.gradient_optimizer, parameters, gradient=2.0)
+        self.dataset_position = 499
+        self.phase_position = ExperimentPosition("eggroll", 2, 499, 1, 499, 499)
+
+    def evaluate(self, position: ExperimentPosition):
+        return evaluate_unperturbed(
+            self.model,
+            [HeldOutProblem("one", "1")],
+            position,
+            answer_decoder=lambda _: "1",
+        )
+
+    def snapshot(self) -> tuple[bytes, bytes, bytes, object, bytes, int, ExperimentPosition]:
+        return (
+            _serialized_state([parameter.detach() for parameter in self.model.parameters()]),
+            _serialized_state(self.eggroll_optimizer.state_dict()),
+            _serialized_state(self.gradient_optimizer.state_dict()),
+            random.getstate(),
+            _serialized_state(torch.get_rng_state()),
+            self.dataset_position,
+            self.phase_position,
+        )
+
+
+def _initialize_optimizer_state(
+    optimizer: torch.optim.Adam,
+    parameters: list[nn.Parameter],
+    *,
+    gradient: float,
+) -> None:
+    for parameter in parameters:
+        parameter.grad = torch.full_like(parameter, gradient)
+    optimizer.step()
+    optimizer.zero_grad()
+
+
+def _serialized_state(state: object) -> bytes:
+    buffer = BytesIO()
+    torch.save(state, buffer)
+    return buffer.getvalue()
