@@ -24,6 +24,7 @@
   <!-- status: completed -->
 - [ ] 2.4 Add regression tests proving the existing gradient command remains single-method after the refactor.
   <!-- covers: train/alternating-cycle :: Standalone trainer compatibility :: Run standalone gradient training -->
+  <!-- status: completed -->
 
 ## 3. Fixed-Budget Multi-Epoch Scheduler
 
