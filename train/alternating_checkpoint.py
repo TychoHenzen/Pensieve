@@ -11,6 +11,15 @@ import torch
 
 
 CHECKPOINT_VERSION = 1
+SCHEDULE_DEFINING_SETTINGS = (
+    "dataset_selection",
+    "phase_steps",
+    "model_shape",
+    "gradient_optimizer",
+    "eggroll_optimizer",
+    "eggroll_population",
+    "held_out_selection",
+)
 
 
 @dataclass(frozen=True)
@@ -133,3 +142,26 @@ def load_checkpoint(path: str | Path) -> AlternatingCheckpoint:
     if not isinstance(payload, Mapping):
         raise ValueError("alternating checkpoint payload must be a mapping")
     return AlternatingCheckpoint.from_dict(payload)
+
+
+def validate_resume_config(
+    *,
+    checkpoint_config: Mapping[str, Any],
+    resume_config: Mapping[str, Any],
+    completed_epochs: int,
+) -> None:
+    """Reject resume settings that would change the saved training schedule."""
+    conflicts = [
+        setting
+        for setting in SCHEDULE_DEFINING_SETTINGS
+        if checkpoint_config.get(setting) != resume_config.get(setting)
+    ]
+
+    epoch_target = resume_config.get("epochs")
+    if not isinstance(epoch_target, int) or epoch_target < completed_epochs:
+        conflicts.append("epochs")
+
+    if conflicts:
+        raise ValueError(
+            "incompatible resume configuration: " + ", ".join(conflicts)
+        )

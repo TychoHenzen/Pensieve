@@ -70,8 +70,9 @@
 - [x] 5.3 Add epoch-boundary save and resume tests that start the next epoch while preserving unfinished phase budget.
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary -->
   <!-- status: completed -->
-- [ ] 5.4 Add compatibility checks that reject schedule-defining resume overrides and identify each conflicting setting.
+- [x] 5.4 Add compatibility checks that reject schedule-defining resume overrides and identify each conflicting setting.
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration -->
+  <!-- status: completed -->
 - [ ] 5.5 Implement `latest` checkpoint discovery by highest stored global step and deduplicate coincident phase and epoch boundary payloads.
 
 ## 6. Alternating Experiment Command

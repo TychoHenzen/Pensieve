@@ -5,9 +5,11 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
+import pytest
 import torch
 from torch import nn
 
+import train.alternating_checkpoint as alternating_checkpoint
 from train.alternating_checkpoint import (
     CHECKPOINT_VERSION,
     CheckpointSchedule,
@@ -15,6 +17,19 @@ from train.alternating_checkpoint import (
     load_checkpoint,
     save_checkpoint,
 )
+
+
+SCHEDULE_CONFIG = {
+    "dataset_selection": "gsm8k-train",
+    "epochs": 5,
+    "phase_steps": 500,
+    "model_shape": {"hidden_size": 64, "num_slots": 8},
+    "gradient_optimizer": {"learning_rate": 1e-4},
+    "eggroll_optimizer": {"learning_rate": 1e-3},
+    "eggroll_population": {"size": 128, "sigma": 0.01, "rank": 4},
+    "held_out_selection": {"split": "test", "count": 128},
+    "logging_frequency": 10,
+}
 
 
 def test_checkpoint_round_trips_resumption_state(tmp_path) -> None:
@@ -114,6 +129,66 @@ def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tm
     assert resumed_scheduler.resume_positions == [(2, 0, 3)]
 
 
+@pytest.mark.parametrize(
+    ("setting", "override"),
+    [
+        ("dataset_selection", "gsm8k-train-subset"),
+        ("phase_steps", 250),
+        ("model_shape", {"hidden_size": 128, "num_slots": 8}),
+        ("gradient_optimizer", {"learning_rate": 2e-4}),
+        ("eggroll_optimizer", {"learning_rate": 2e-3}),
+        ("eggroll_population", {"size": 64, "sigma": 0.01, "rank": 4}),
+        ("held_out_selection", {"split": "test", "count": 64}),
+    ],
+)
+def test_resume_rejects_each_changed_schedule_setting_before_training(
+    setting: str, override: object
+) -> None:
+    resume_config = dict(SCHEDULE_CONFIG)
+    resume_config[setting] = override
+    training_updates: list[str] = []
+
+    with pytest.raises(ValueError, match=setting):
+        _validate_then_update(resume_config, completed_epochs=2, updates=training_updates)
+
+    assert training_updates == []
+
+
+def test_resume_rejects_epoch_target_below_completed_progress_before_training() -> None:
+    resume_config = dict(SCHEDULE_CONFIG, epochs=1)
+    training_updates: list[str] = []
+
+    with pytest.raises(ValueError, match="epochs"):
+        _validate_then_update(resume_config, completed_epochs=2, updates=training_updates)
+
+    assert training_updates == []
+
+
+def test_resume_error_names_every_conflicting_setting() -> None:
+    resume_config = dict(
+        SCHEDULE_CONFIG,
+        phase_steps=250,
+        model_shape={"hidden_size": 128, "num_slots": 8},
+        held_out_selection={"split": "test", "count": 64},
+    )
+
+    with pytest.raises(ValueError) as error:
+        _validate_then_update(resume_config, completed_epochs=2, updates=[])
+
+    assert "phase_steps" in str(error.value)
+    assert "model_shape" in str(error.value)
+    assert "held_out_selection" in str(error.value)
+
+
+def test_resume_accepts_matching_schedule_and_display_only_changes() -> None:
+    resume_config = dict(SCHEDULE_CONFIG, epochs=8, logging_frequency=1)
+    training_updates: list[str] = []
+
+    _validate_then_update(resume_config, completed_epochs=2, updates=training_updates)
+
+    assert training_updates == ["updated"]
+
+
 def _step(optimizer: torch.optim.Optimizer, model: nn.Module, *, gradient: float) -> None:
     for parameter in model.parameters():
         parameter.grad = torch.full_like(parameter, gradient)
@@ -123,6 +198,22 @@ def _step(optimizer: torch.optim.Optimizer, model: nn.Module, *, gradient: float
 
 def _optimizer() -> torch.optim.Optimizer:
     return torch.optim.SGD([nn.Parameter(torch.zeros(()))], lr=0.1)
+
+
+def _validate_then_update(
+    resume_config: dict[str, object], *, completed_epochs: int, updates: list[str]
+) -> None:
+    validate_resume_config = getattr(
+        alternating_checkpoint,
+        "validate_resume_config",
+        lambda **_: None,
+    )
+    validate_resume_config(
+        checkpoint_config=SCHEDULE_CONFIG,
+        resume_config=resume_config,
+        completed_epochs=completed_epochs,
+    )
+    updates.append("updated")
 
 
 @dataclass
