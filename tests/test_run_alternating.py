@@ -8,6 +8,7 @@ import pytest
 
 from train import run_alternating
 from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
+from train.alternating_checkpoint import CheckpointSchedule
 from train.alternating_scheduler import EvaluationRecord
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
@@ -201,3 +202,83 @@ def test_invalid_schedule_is_rejected_before_production_loading(
 
     with pytest.raises(ValueError, match=message):
         run_alternating.main(arguments)
+
+
+def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_examples(
+    tmp_path: Path,
+) -> None:
+    visits: list[tuple[str, int, int, str]] = []
+
+    class FakeEngine:
+        def __init__(self, method: str) -> None:
+            self.method = method
+
+        def train_step(
+            self, example: object, position: ExperimentPosition
+        ) -> StepResult:
+            visits.append(
+                (str(example), position.epoch, position.example_position, self.method)
+            )
+            return StepResult(position, 1.0, 1.0, 0.0, 0.5)
+
+    class FakeEvaluator:
+        def evaluate(self, position: ExperimentPosition) -> EvaluationResult:
+            return EvaluationResult(position, 0.75, 0.5, 1.0)
+
+    saved: list[CheckpointSchedule] = []
+
+    def save(
+        schedule: CheckpointSchedule, *, phase_boundary: bool, epoch_boundary: bool
+    ) -> tuple[Path, ...]:
+        saved.append(schedule)
+        names = []
+        if phase_boundary:
+            names.append(tmp_path / f"phase-{schedule.global_step}.pt")
+        if epoch_boundary:
+            names.append(tmp_path / f"epoch-{schedule.epoch}.pt")
+        for path in names:
+            path.write_text(str(schedule.to_dict()), encoding="utf-8")
+        return tuple(names)
+
+    first_output = StringIO()
+    run_alternating._run_schedule(
+        examples=["a", "b", "c"],
+        epochs=1,
+        phase_steps=2,
+        eggroll_engine=FakeEngine("eggroll"),
+        gradient_engine=FakeEngine("gradient"),
+        evaluator=FakeEvaluator(),
+        save_boundary=save,
+        output=first_output,
+    )
+
+    resumed_output = StringIO()
+    run_alternating._run_schedule(
+        examples=["a", "b", "c"],
+        epochs=2,
+        phase_steps=2,
+        eggroll_engine=FakeEngine("eggroll"),
+        gradient_engine=FakeEngine("gradient"),
+        evaluator=FakeEvaluator(),
+        save_boundary=save,
+        output=resumed_output,
+        resume=saved[-1],
+    )
+
+    assert visits == [
+        ("a", 1, 0, "eggroll"),
+        ("b", 1, 1, "eggroll"),
+        ("c", 1, 2, "gradient"),
+        ("a", 2, 0, "gradient"),
+        ("b", 2, 1, "eggroll"),
+        ("c", 2, 2, "eggroll"),
+    ]
+    records = [
+        json.loads(line)
+        for line in first_output.getvalue().splitlines()
+        + resumed_output.getvalue().splitlines()
+    ]
+    assert any(record["record_type"] == "evaluation" for record in records)
+    assert any(record["record_type"] == "checkpoint" for record in records)
+    assert saved[1] == CheckpointSchedule("gradient", 1, 3, 1, 2)
+    assert saved[-1] == CheckpointSchedule("gradient", 0, 6, 2, 2)

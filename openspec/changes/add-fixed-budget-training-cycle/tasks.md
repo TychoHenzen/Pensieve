@@ -82,5 +82,6 @@
   <!-- status: completed -->
 - [x] 6.2 Add structured progress output for update method, cycle, global step, epoch, example position, phase step, language-model loss, shared variance, evaluations, and checkpoint paths.
   <!-- status: completed -->
-- [ ] 6.3 Add a deterministic small-data integration test that crosses both optimizer phases, an epoch boundary, evaluation, checkpoint save, and resume without loading the full production models.
+- [x] 6.3 Add a deterministic small-data integration test that crosses both optimizer phases, an epoch boundary, evaluation, checkpoint save, and resume without loading the full production models.
+  <!-- status: completed -->
 - [ ] 6.4 Run the focused alternating-training tests, then run the complete pytest suite and record the exact five-epoch experiment command in the change handoff.

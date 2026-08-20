@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 import json
 from pathlib import Path
 import sys
@@ -12,8 +12,14 @@ from typing import TextIO
 import torch
 
 from train.alternating_config import validate_scheduler_config
+from train.alternating_checkpoint import CheckpointSchedule
 from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
-from train.alternating_scheduler import EvaluationRecord
+from train.alternating_scheduler import (
+    EvaluationRecord,
+    FixedBudgetScheduler,
+    PhaseEvaluator,
+    TrainingEngine,
+)
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LR as DEFAULT_EGGROLL_LR,
@@ -80,6 +86,87 @@ def _write_progress_record(
 ) -> None:
     """Write one machine-readable JSON record without buffering partial lines."""
     print(json.dumps(record, separators=(",", ":")), file=output, flush=True)
+
+
+def _run_schedule(
+    *,
+    examples: Sequence[object],
+    epochs: int,
+    phase_steps: int,
+    eggroll_engine: TrainingEngine[StepResult],
+    gradient_engine: TrainingEngine[StepResult],
+    evaluator: PhaseEvaluator[EvaluationResult],
+    save_boundary: Callable[..., Sequence[str | Path]],
+    output: TextIO = sys.stdout,
+    resume: CheckpointSchedule | None = None,
+) -> CheckpointSchedule | None:
+    """Run injected alternating components without loading production dependencies."""
+    validate_scheduler_config(phase_steps=phase_steps, epochs=epochs)
+    if not examples:
+        return resume
+
+    scheduler = FixedBudgetScheduler(
+        phase_steps=phase_steps,
+        eggroll_engine=eggroll_engine,
+        gradient_engine=gradient_engine,
+        evaluator=evaluator,
+    )
+    if resume is None:
+        next_epoch = 1
+        next_example_position = 0
+    else:
+        scheduler._completed_steps = resume.global_step
+        next_epoch = resume.epoch
+        next_example_position = resume.dataset_position + 1
+        if next_example_position == len(examples):
+            next_epoch += 1
+            next_example_position = 0
+
+    latest_schedule = resume
+    for epoch in range(next_epoch, epochs + 1):
+        first_position = next_example_position if epoch == next_epoch else 0
+        for example_position in range(first_position, len(examples)):
+            evaluation_count = len(scheduler.evaluation_results)
+            result = scheduler.train_step(
+                examples[example_position],
+                epoch=epoch,
+                example_position=example_position,
+            )
+            _write_progress_record(_training_record(result), output)
+
+            phase_boundary = result.position.phase_step == phase_steps
+            epoch_boundary = example_position == len(examples) - 1
+            if epoch_boundary:
+                scheduler.evaluate_epoch_boundary(result.position)
+                if epoch == epochs:
+                    scheduler.evaluate_final_partial_phase(result.position)
+
+            for record in scheduler.evaluation_results[evaluation_count:]:
+                _write_progress_record(_evaluation_record(record), output)
+
+            if phase_boundary or epoch_boundary:
+                latest_schedule = _checkpoint_schedule(result.position, phase_steps)
+                paths = save_boundary(
+                    latest_schedule,
+                    phase_boundary=phase_boundary,
+                    epoch_boundary=epoch_boundary,
+                )
+                _write_progress_record(_checkpoint_record(paths), output)
+
+    return latest_schedule
+
+
+def _checkpoint_schedule(
+    position: ExperimentPosition, phase_steps: int
+) -> CheckpointSchedule:
+    next_phase_index = position.global_step // phase_steps
+    return CheckpointSchedule(
+        active_phase="eggroll" if next_phase_index % 2 == 0 else "gradient",
+        completed_phase_steps=position.global_step % phase_steps,
+        global_step=position.global_step,
+        epoch=position.epoch,
+        dataset_position=position.example_position,
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
