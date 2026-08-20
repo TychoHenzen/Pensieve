@@ -21,6 +21,7 @@
   <!-- status: completed -->
 - [ ] 2.3 Add regression tests proving the existing Eggroll command remains single-method after the refactor.
   <!-- covers: train/alternating-cycle :: Standalone trainer compatibility :: Run standalone Eggroll training -->
+  <!-- status: completed -->
 - [ ] 2.4 Add regression tests proving the existing gradient command remains single-method after the refactor.
   <!-- covers: train/alternating-cycle :: Standalone trainer compatibility :: Run standalone gradient training -->
 
