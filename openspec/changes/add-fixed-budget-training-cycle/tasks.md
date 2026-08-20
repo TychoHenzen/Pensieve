@@ -18,6 +18,7 @@
 - [ ] 2.1 Refactor gradient training to accept shared model state, emit the common result, and preserve its current language-model plus VICReg objective.
   <!-- status: completed -->
 - [ ] 2.2 Refactor Eggroll training to accept shared model state, use the canonical variance in fitness and reporting, and emit the common result.
+  <!-- status: completed -->
 - [ ] 2.3 Add regression tests proving the existing Eggroll command remains single-method after the refactor.
   <!-- covers: train/alternating-cycle :: Standalone trainer compatibility :: Run standalone Eggroll training -->
 - [ ] 2.4 Add regression tests proving the existing gradient command remains single-method after the refactor.

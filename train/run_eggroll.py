@@ -16,6 +16,7 @@ import torch
 
 from eval.stream.generators.gsm8k import _extract_answer, _load_split
 from train.eggroll_trainer import (
+    DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
@@ -58,6 +59,18 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--sigma", type=float, default=DEFAULT_SIGMA)
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--rank", type=int, default=DEFAULT_RANK)
+    parser.add_argument(
+        "--eval-batch-size",
+        type=int,
+        default=DEFAULT_EVAL_BATCH_SIZE,
+        help="Perturbed candidates evaluated together. Higher is faster but uses more VRAM.",
+    )
+    parser.add_argument(
+        "--amp",
+        action="store_true",
+        dest="use_amp",
+        help="Use CUDA mixed precision. Benchmark this before long runs.",
+    )
     parser.add_argument(
         "--variance-weight", type=float, default=DEFAULT_VARIANCE_WEIGHT
     )
@@ -106,6 +119,8 @@ def _save_checkpoint(
         "sigma": trainer.sigma,
         "rank": trainer.rank,
         "variance_weight": trainer.variance_weight,
+        "eval_batch_size": trainer.eval_batch_size,
+        "use_amp": trainer.use_amp,
     }
     torch.save(state, checkpoint_path)
     return checkpoint_path
@@ -119,7 +134,8 @@ def main() -> None:
         f"config: epochs={args.epochs} slots={args.slot_count} "
         f"steps={args.num_steps} pop={args.pop_size} "
         f"sigma={args.sigma} lr={args.lr} rank={args.rank} "
-        f"var_weight={args.variance_weight}"
+        f"var_weight={args.variance_weight} eval_batch={args.eval_batch_size} "
+        f"amp={args.use_amp}"
     )
 
     dataset = _load_dataset(args.problem_count)
@@ -134,6 +150,8 @@ def main() -> None:
         lr=args.lr,
         rank=args.rank,
         variance_weight=args.variance_weight,
+        eval_batch_size=args.eval_batch_size,
+        use_amp=args.use_amp,
         device=args.device,
     )
     _log(
