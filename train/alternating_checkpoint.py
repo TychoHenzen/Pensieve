@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import random
 from typing import Any, Mapping
@@ -142,6 +143,53 @@ def load_checkpoint(path: str | Path) -> AlternatingCheckpoint:
     if not isinstance(payload, Mapping):
         raise ValueError("alternating checkpoint payload must be a mapping")
     return AlternatingCheckpoint.from_dict(payload)
+
+
+def latest_checkpoint(directory: str | Path) -> Path | None:
+    """Return the alternating checkpoint with the highest stored global step."""
+    checkpoint_directory = Path(directory)
+    if not checkpoint_directory.is_dir():
+        return None
+
+    candidates = {
+        *checkpoint_directory.glob("phase-*.pt"),
+        *checkpoint_directory.glob("epoch-*.pt"),
+    }
+    if not candidates:
+        return None
+
+    return max(
+        candidates,
+        key=lambda path: load_checkpoint(path).schedule.global_step,
+    )
+
+
+def save_boundary_checkpoints(
+    directory: str | Path,
+    checkpoint: AlternatingCheckpoint,
+    *,
+    phase_boundary: bool,
+    epoch_boundary: bool,
+) -> tuple[Path, ...]:
+    """Save one boundary payload and expose each applicable checkpoint name."""
+    paths: list[Path] = []
+    checkpoint_directory = Path(directory)
+    checkpoint_directory.mkdir(parents=True, exist_ok=True)
+    if phase_boundary:
+        paths.append(
+            checkpoint_directory / f"phase-{checkpoint.schedule.global_step}.pt"
+        )
+    if epoch_boundary:
+        paths.append(checkpoint_directory / f"epoch-{checkpoint.schedule.epoch}.pt")
+    if not paths:
+        return ()
+
+    paths[0].unlink(missing_ok=True)
+    save_checkpoint(paths[0], checkpoint)
+    for alias in paths[1:]:
+        alias.unlink(missing_ok=True)
+        os.link(paths[0], alias)
+    return tuple(paths)
 
 
 def validate_resume_config(

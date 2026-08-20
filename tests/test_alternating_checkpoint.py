@@ -11,10 +11,13 @@ from torch import nn
 
 import train.alternating_checkpoint as alternating_checkpoint
 from train.alternating_checkpoint import (
+    AlternatingCheckpoint,
     CHECKPOINT_VERSION,
     CheckpointSchedule,
     capture_checkpoint,
+    latest_checkpoint,
     load_checkpoint,
+    save_boundary_checkpoints,
     save_checkpoint,
 )
 
@@ -189,6 +192,52 @@ def test_resume_accepts_matching_schedule_and_display_only_changes() -> None:
     assert training_updates == ["updated"]
 
 
+def test_latest_checkpoint_uses_stored_global_step_not_filename_order(tmp_path) -> None:
+    lower_step = _checkpoint(global_step=9, epoch=100)
+    higher_step = _checkpoint(global_step=10, epoch=2)
+    save_checkpoint(tmp_path / "epoch-100.pt", lower_step)
+    save_checkpoint(tmp_path / "phase-10.pt", higher_step)
+
+    assert latest_checkpoint(tmp_path) == tmp_path / "phase-10.pt"
+
+
+def test_latest_checkpoint_returns_none_for_missing_directory(tmp_path) -> None:
+    assert latest_checkpoint(tmp_path / "missing") is None
+
+
+def test_latest_checkpoint_returns_none_for_empty_directory(tmp_path) -> None:
+    assert latest_checkpoint(tmp_path) is None
+
+
+def test_coincident_boundaries_serialize_once_and_expose_both_names(
+    tmp_path, monkeypatch
+) -> None:
+    checkpoint = _checkpoint(global_step=12, epoch=3)
+    save_calls = 0
+    real_save = torch.save
+
+    def counting_save(*args, **kwargs) -> None:
+        nonlocal save_calls
+        save_calls += 1
+        real_save(*args, **kwargs)
+
+    monkeypatch.setattr(torch, "save", counting_save)
+
+    paths = save_boundary_checkpoints(
+        tmp_path,
+        checkpoint,
+        phase_boundary=True,
+        epoch_boundary=True,
+    )
+
+    assert paths == (tmp_path / "phase-12.pt", tmp_path / "epoch-3.pt")
+    assert save_calls == 1
+    assert all(path.exists() for path in paths)
+    assert paths[0].samefile(paths[1])
+    assert load_checkpoint(paths[0]).schedule == checkpoint.schedule
+    assert load_checkpoint(paths[1]).schedule == checkpoint.schedule
+
+
 def _step(optimizer: torch.optim.Optimizer, model: nn.Module, *, gradient: float) -> None:
     for parameter in model.parameters():
         parameter.grad = torch.full_like(parameter, gradient)
@@ -198,6 +247,20 @@ def _step(optimizer: torch.optim.Optimizer, model: nn.Module, *, gradient: float
 
 def _optimizer() -> torch.optim.Optimizer:
     return torch.optim.SGD([nn.Parameter(torch.zeros(()))], lr=0.1)
+
+
+def _checkpoint(*, global_step: int, epoch: int) -> AlternatingCheckpoint:
+    return AlternatingCheckpoint(
+        model_state={},
+        eggroll_optimizer_state={},
+        gradient_optimizer_state={},
+        schedule=CheckpointSchedule("eggroll", 0, global_step, epoch, 0),
+        run_config={},
+        held_out_selection=[],
+        metrics={},
+        python_random_state=random.getstate(),
+        torch_random_state=torch.get_rng_state(),
+    )
 
 
 def _validate_then_update(
