@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Protocol, TypeVar
+from dataclasses import dataclass
+from typing import Generic, Protocol, TypeVar
 
 from train.alternating_config import validate_scheduler_config
 from train.training_results import ExperimentPosition
@@ -10,6 +11,19 @@ from train.training_results import ExperimentPosition
 
 ResultT = TypeVar("ResultT")
 EvaluationT = TypeVar("EvaluationT")
+
+PHASE_BOUNDARY = "phase"
+EPOCH_BOUNDARY = "epoch"
+PARTIAL_PHASE_BOUNDARY = "partial_phase"
+
+
+@dataclass(frozen=True)
+class EvaluationRecord(Generic[EvaluationT]):
+    """One evaluation result and every boundary reached at its position."""
+
+    result: EvaluationT
+    position: ExperimentPosition
+    boundaries: frozenset[str]
 
 
 class TrainingEngine(Protocol[ResultT]):
@@ -43,11 +57,11 @@ class FixedBudgetScheduler:
         self._gradient_engine = gradient_engine
         self._evaluator = evaluator
         self._completed_steps = 0
-        self._evaluation_results: list[EvaluationT] = []
+        self._evaluation_results: list[EvaluationRecord[EvaluationT]] = []
 
     @property
-    def evaluation_results(self) -> tuple[EvaluationT, ...]:
-        """Return evaluations from completed phases in production order."""
+    def evaluation_results(self) -> tuple[EvaluationRecord[EvaluationT], ...]:
+        """Return evaluations and their phase, epoch, or partial-phase labels."""
         return tuple(self._evaluation_results)
 
     def train_step(
@@ -74,6 +88,35 @@ class FixedBudgetScheduler:
         )
         result = engine.train_step(example, position)
         self._completed_steps = global_step
-        if phase_step == self._phase_steps and self._evaluator is not None:
-            self._evaluation_results.append(self._evaluator.evaluate(position))
+        if phase_step == self._phase_steps:
+            self._evaluate_at_boundary(position, PHASE_BOUNDARY)
         return result
+
+    def evaluate_epoch_boundary(self, position: ExperimentPosition) -> None:
+        """Evaluate after an epoch, merging its label with a phase boundary."""
+        self._evaluate_at_boundary(position, EPOCH_BOUNDARY)
+
+    def evaluate_final_partial_phase(self, position: ExperimentPosition) -> None:
+        """Evaluate an unfinished final phase without re-evaluating shared boundaries."""
+        if position.phase_step == self._phase_steps:
+            return
+        self._evaluate_at_boundary(position, PARTIAL_PHASE_BOUNDARY)
+
+    def _evaluate_at_boundary(self, position: ExperimentPosition, boundary: str) -> None:
+        if self._evaluator is None:
+            return
+        if self._evaluation_results and self._evaluation_results[-1].position == position:
+            previous = self._evaluation_results[-1]
+            self._evaluation_results[-1] = EvaluationRecord(
+                result=previous.result,
+                position=position,
+                boundaries=previous.boundaries | {boundary},
+            )
+            return
+        self._evaluation_results.append(
+            EvaluationRecord(
+                result=self._evaluator.evaluate(position),
+                position=position,
+                boundaries=frozenset({boundary}),
+            )
+        )

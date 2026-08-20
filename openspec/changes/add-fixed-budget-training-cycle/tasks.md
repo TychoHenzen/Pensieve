@@ -56,8 +56,9 @@
 - [x] 4.3 Wire evaluation to completed phase boundaries and label each result with the phase that produced it.
   <!-- covers: train/alternating-cycle :: Phase and epoch evaluation :: Completed phase evaluation -->
   <!-- status: completed -->
-- [ ] 4.4 Wire deduplicated epoch-boundary evaluation and final partial-phase evaluation with boundary labels.
+- [x] 4.4 Wire deduplicated epoch-boundary evaluation and final partial-phase evaluation with boundary labels.
   <!-- covers: train/alternating-cycle :: Phase and epoch evaluation :: Partial final phase evaluation -->
+  <!-- status: completed -->
 
 ## 5. Checkpoint and Resume
 

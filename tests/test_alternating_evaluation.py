@@ -14,7 +14,13 @@ from train.alternating_evaluation import (
     evaluate_unperturbed,
     load_held_out_problems,
 )
-from train.alternating_scheduler import FixedBudgetScheduler
+from train.alternating_scheduler import (
+    EPOCH_BOUNDARY,
+    PARTIAL_PHASE_BOUNDARY,
+    PHASE_BOUNDARY,
+    EvaluationRecord,
+    FixedBudgetScheduler,
+)
 from train.training_results import ExperimentPosition
 
 
@@ -97,7 +103,51 @@ def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_l
 
     expected_position = ExperimentPosition("eggroll", 1, 500, 3, 500, 500)
     assert evaluator.positions == [expected_position]
-    assert scheduler.evaluation_results == (expected_position,)
+    assert scheduler.evaluation_results == (
+        EvaluationRecord(expected_position, expected_position, frozenset({PHASE_BOUNDARY})),
+    )
+
+
+def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_position() -> None:
+    evaluator = FakePhaseEvaluator()
+    scheduler = FixedBudgetScheduler(
+        phase_steps=500,
+        eggroll_engine=FakeEngine("eggroll"),
+        gradient_engine=FakeEngine("gradient"),
+        evaluator=evaluator,
+    )
+
+    for example_position in range(1, 501):
+        scheduler.train_step("example", epoch=1, example_position=example_position)
+
+    position = ExperimentPosition("eggroll", 1, 500, 1, 500, 500)
+    scheduler.evaluate_epoch_boundary(position)
+
+    assert evaluator.positions == [position]
+    assert scheduler.evaluation_results == (
+        EvaluationRecord(position, position, frozenset({PHASE_BOUNDARY, EPOCH_BOUNDARY})),
+    )
+
+
+def test_scheduler_evaluates_an_incomplete_final_phase_with_a_partial_label() -> None:
+    evaluator = FakePhaseEvaluator()
+    scheduler = FixedBudgetScheduler(
+        phase_steps=500,
+        eggroll_engine=FakeEngine("eggroll"),
+        gradient_engine=FakeEngine("gradient"),
+        evaluator=evaluator,
+    )
+
+    for example_position in range(1, 301):
+        scheduler.train_step("example", epoch=1, example_position=example_position)
+
+    position = ExperimentPosition("eggroll", 1, 300, 1, 300, 300)
+    scheduler.evaluate_final_partial_phase(position)
+
+    assert evaluator.positions == [position]
+    assert scheduler.evaluation_results == (
+        EvaluationRecord(position, position, frozenset({PARTIAL_PHASE_BOUNDARY})),
+    )
 
 
 @dataclass
