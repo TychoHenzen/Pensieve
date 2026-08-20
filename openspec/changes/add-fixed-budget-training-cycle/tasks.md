@@ -64,8 +64,9 @@
 
 - [x] 5.1 Add a versioned checkpoint payload containing named model state, both optimizers, schedule position, configuration, held-out selection, metrics, and Python and PyTorch random states.
   <!-- status: completed -->
-- [ ] 5.2 Add phase-boundary save and resume tests that continue with the next unprocessed example and saved phase.
+- [x] 5.2 Add phase-boundary save and resume tests that continue with the next unprocessed example and saved phase.
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume within an epoch -->
+  <!-- status: completed -->
 - [ ] 5.3 Add epoch-boundary save and resume tests that start the next epoch while preserving unfinished phase budget.
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary -->
 - [ ] 5.4 Add compatibility checks that reject schedule-defining resume overrides and identify each conflicting setting.
