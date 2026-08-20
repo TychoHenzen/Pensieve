@@ -23,4 +23,5 @@
 
 ## 3. Verification
 
-- [ ] 3.1 Run the focused alternating-command, scheduler, evaluation, and checkpoint tests, then run the complete pytest suite.
+- [x] 3.1 Run the focused alternating-command, scheduler, evaluation, and checkpoint tests, then run the complete pytest suite.
+  <!-- status: completed -->
