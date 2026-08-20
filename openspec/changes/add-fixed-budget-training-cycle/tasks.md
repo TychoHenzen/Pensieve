@@ -1,38 +1,38 @@
 ## 1. Shared Training State and Metrics
 
-- [ ] 1.1 Add tests for one canonical post-loop variance function on batched and unbatched slot tensors, then implement the shared metric with `unbiased=False` and identical slot-axis aggregation.
+- [x] 1.1 Add tests for one canonical post-loop variance function on batched and unbatched slot tensors, then implement the shared metric with `unbiased=False` and identical slot-axis aggregation.
   <!-- covers: train/alternating-cycle :: Comparable phase measurements :: Compare phase metrics -->
   <!-- status: completed -->
-- [ ] 1.2 Add a shared model-state container with a named trainable-parameter registry, and test that both update engines reference the same tensor objects.
+- [x] 1.2 Add a shared model-state container with a named trainable-parameter registry, and test that both update engines reference the same tensor objects.
   <!-- status: completed -->
-- [ ] 1.3 Add separate gradient and Eggroll optimizer construction against the shared registry, and test that inactive optimizer state survives both phase directions without model reinitialization.
+- [x] 1.3 Add separate gradient and Eggroll optimizer construction against the shared registry, and test that inactive optimizer state survives both phase directions without model reinitialization.
   <!-- covers: train/alternating-cycle :: Continuous model and optimizer state :: Switch from Eggroll to gradient training -->
   <!-- covers: train/alternating-cycle :: Continuous model and optimizer state :: Return to Eggroll -->
   <!-- status: completed -->
-- [ ] 1.4 Define common step and evaluation result records that separate language-model loss, total objective, regularizers, shared variance, and experiment position.
+- [x] 1.4 Define common step and evaluation result records that separate language-model loss, total objective, regularizers, shared variance, and experiment position.
   <!-- covers: train/alternating-cycle :: Comparable phase measurements :: Record experiment position -->
   <!-- status: completed -->
 
 ## 2. Update Engine Refactor
 
-- [ ] 2.1 Refactor gradient training to accept shared model state, emit the common result, and preserve its current language-model plus VICReg objective.
+- [x] 2.1 Refactor gradient training to accept shared model state, emit the common result, and preserve its current language-model plus VICReg objective.
   <!-- status: completed -->
-- [ ] 2.2 Refactor Eggroll training to accept shared model state, use the canonical variance in fitness and reporting, and emit the common result.
+- [x] 2.2 Refactor Eggroll training to accept shared model state, use the canonical variance in fitness and reporting, and emit the common result.
   <!-- status: completed -->
-- [ ] 2.3 Add regression tests proving the existing Eggroll command remains single-method after the refactor.
+- [x] 2.3 Add regression tests proving the existing Eggroll command remains single-method after the refactor.
   <!-- covers: train/alternating-cycle :: Standalone trainer compatibility :: Run standalone Eggroll training -->
   <!-- status: completed -->
-- [ ] 2.4 Add regression tests proving the existing gradient command remains single-method after the refactor.
+- [x] 2.4 Add regression tests proving the existing gradient command remains single-method after the refactor.
   <!-- covers: train/alternating-cycle :: Standalone trainer compatibility :: Run standalone gradient training -->
   <!-- status: completed -->
 
 ## 3. Fixed-Budget Multi-Epoch Scheduler
 
-- [ ] 3.1 Add scheduler configuration validation before model and dataset loading for positive phase budgets and epoch counts.
+- [x] 3.1 Add scheduler configuration validation before model and dataset loading for positive phase budgets and epoch counts.
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Invalid phase budget -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count -->
   <!-- status: completed -->
-- [ ] 3.2 Add fake-engine tests for an Eggroll-first 500-step phase, the transition at step 501, and repeated alternation, then implement the fixed-budget scheduler.
+- [x] 3.2 Add fake-engine tests for an Eggroll-first 500-step phase, the transition at step 501, and repeated alternation, then implement the fixed-budget scheduler.
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Default phase transition -->
   <!-- covers: train/alternating-cycle :: Fixed-budget optimizer phases :: Repeated phase transition -->
   <!-- status: completed -->
