@@ -105,6 +105,33 @@ def test_phase_boundary_keeps_the_epoch_dataset_cursor() -> None:
     )
 
 
+def test_epoch_boundary_preserves_active_phase_and_remaining_budget() -> None:
+    eggroll = FakeEngine("eggroll")
+    gradient = FakeEngine("gradient")
+    scheduler = FixedBudgetScheduler(
+        phase_steps=500,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+    )
+
+    for epoch, examples in ((1, range(300)), (2, range(300))):
+        for example_position in examples:
+            scheduler.train_step(
+                (epoch, example_position),
+                epoch=epoch,
+                example_position=example_position,
+            )
+
+    assert eggroll.calls[-1] == (
+        (2, 199),
+        ExperimentPosition("eggroll", 1, 500, 2, 199, 500),
+    )
+    assert gradient.calls[0] == (
+        (2, 200),
+        ExperimentPosition("gradient", 2, 501, 2, 200, 1),
+    )
+
+
 def test_returns_to_eggroll_after_500_gradient_steps() -> None:
     eggroll = FakeEngine("eggroll")
     gradient = FakeEngine("gradient")

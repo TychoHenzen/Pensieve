@@ -39,8 +39,9 @@
 - [x] 3.3 Add scheduler tests proving a phase boundary continues with the next example inside an epoch and does not reset the dataset cursor.
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Phase boundary within an epoch -->
   <!-- status: completed -->
-- [ ] 3.4 Add scheduler tests proving an epoch boundary preserves the active phase and remaining phase budget.
+- [x] 3.4 Add scheduler tests proving an epoch boundary preserves the active phase and remaining phase budget.
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within a phase -->
+  <!-- status: completed -->
 - [ ] 3.5 Add a count-only five-epoch test for 7,473 examples that produces exactly 37,365 unique epoch-position visits under the continuous phase schedule.
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run -->
 
