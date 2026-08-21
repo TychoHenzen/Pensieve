@@ -94,11 +94,16 @@ def test_writer_emits_v2_stored_archive_with_exact_bounded_members(tmp_path: Pat
     path = tmp_path / "phase-7.ckpt"
     tensor_payload = _tiny_safetensors_bytes()
 
-    module.write_checkpoint_container(
-        path,
-        metadata={"schema_version": 2},
-        tensor_payload=tensor_payload,
-    )
+    with patch.object(
+        module,
+        "_canonical_metadata_bytes",
+        return_value=(b'{"schema_version":2}', None),
+    ):
+        module.write_checkpoint_container(
+            path,
+            metadata={"schema_version": 2},
+            tensor_payload=tensor_payload,
+        )
 
     assert module.MAX_METADATA_BYTES == 1 * 1024 * 1024
     assert module.MAX_TENSOR_BYTES == 64 * 1024 * 1024
@@ -113,6 +118,52 @@ def test_writer_emits_v2_stored_archive_with_exact_bounded_members(tmp_path: Pat
         assert members[1].file_size <= module.MAX_TENSOR_BYTES
         assert json.loads(archive.read(METADATA_MEMBER)) == {"schema_version": 2}
         assert archive.read(TENSORS_MEMBER) == tensor_payload
+
+
+def test_writer_validation_failure_preserves_target_and_leaves_no_temp_file(
+    tmp_path: Path,
+) -> None:
+    module = _checkpoint_module()
+    path = tmp_path / "existing.ckpt"
+    original = b"existing checkpoint bytes"
+    path.write_bytes(original)
+
+    with pytest.raises(module.CheckpointMetadataError):
+        module.write_checkpoint_container(
+            path,
+            metadata={"schema_version": 3},
+            tensor_payload=_tiny_safetensors_bytes(),
+        )
+
+    assert path.read_bytes() == original
+    assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
+
+
+def test_writer_replace_failure_preserves_target_and_removes_temp_file(
+    tmp_path: Path,
+) -> None:
+    module = _checkpoint_module()
+    path = tmp_path / "existing.ckpt"
+    original = b"existing checkpoint bytes"
+    path.write_bytes(original)
+
+    with (
+        patch.object(
+            module,
+            "_canonical_metadata_bytes",
+            return_value=(b'{"schema_version":2}', None),
+        ),
+        patch.object(module.os, "replace", side_effect=OSError("replace failed")),
+    ):
+        with pytest.raises(OSError, match="replace failed"):
+            module.write_checkpoint_container(
+                path,
+                metadata={"schema_version": 2},
+                tensor_payload=_tiny_safetensors_bytes(),
+            )
+
+    assert path.read_bytes() == original
+    assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
 
 
 # covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary
