@@ -8,12 +8,12 @@ import os
 import struct
 import tempfile
 from collections import Counter
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
-from zipfile import ZIP_STORED, ZipFile
+from zipfile import BadZipFile, ZIP_STORED, ZipFile, ZipInfo
 
 from eval.stage0_identity import STAGE0_IDENTITY
 
@@ -118,6 +118,19 @@ _DTYPE_TO_SAFETENSORS = {
     "uint32": "U32",
     "bool": "BOOL",
 }
+_DTYPE_BYTES = {
+    "float32": 4,
+    "float16": 2,
+    "bfloat16": 2,
+    "float64": 8,
+    "int64": 8,
+    "int32": 4,
+    "int16": 2,
+    "int8": 1,
+    "uint8": 1,
+    "uint32": 4,
+    "bool": 1,
+}
 
 
 class CheckpointContainerError(ValueError):
@@ -126,6 +139,14 @@ class CheckpointContainerError(ValueError):
 
 class CheckpointMetadataError(CheckpointContainerError):
     """Checkpoint metadata violates the version-2 schema."""
+
+
+@dataclass(frozen=True)
+class LoadedCheckpointContainer:
+    """Validated metadata and CPU tensors read from a checkpoint container."""
+
+    metadata: Mapping[str, Any]
+    tensors: Any
 
 
 def _freeze(value: Any) -> Any:
@@ -815,6 +836,15 @@ def _validate_safetensors_payload(
         raise CheckpointContainerError(f"invalid safetensors header: {error}") from error
     if not isinstance(header, dict):
         raise CheckpointContainerError("safetensors header must be an object")
+    metadata = header.get("__metadata__")
+    if metadata is not None and (
+        not isinstance(metadata, dict)
+        or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in metadata.items()
+        )
+    ):
+        raise CheckpointContainerError("safetensors __metadata__ must map strings to strings")
     entries = {key: value for key, value in header.items() if key != "__metadata__"}
     if declared_tensors is not None and set(entries) != set(declared_tensors):
         missing = sorted(set(declared_tensors) - set(entries))
@@ -823,6 +853,7 @@ def _validate_safetensors_payload(
             f"safetensors names do not match tensor_manifest; missing={missing!r}, extra={extra!r}"
         )
     data_size = len(payload) - 8 - header_size
+    validated_offsets: list[tuple[int, int, str]] = []
     for name, item in entries.items():
         if not isinstance(item, dict):
             raise CheckpointContainerError(f"safetensors tensor {name!r} has invalid metadata")
@@ -852,6 +883,25 @@ def _validate_safetensors_payload(
                 raise CheckpointContainerError(
                     f"safetensors tensor {name!r} dtype does not match tensor_manifest"
                 )
+            element_count = math.prod(shape)
+            expected_bytes = element_count * _DTYPE_BYTES[declared["dtype"]]
+            if offsets[1] - offsets[0] != expected_bytes:
+                raise CheckpointContainerError(
+                    f"safetensors tensor {name!r} byte size does not match its shape and dtype"
+                )
+        validated_offsets.append((offsets[0], offsets[1], name))
+
+    cursor = 0
+    for start, end, name in sorted(validated_offsets):
+        if start != cursor:
+            raise CheckpointContainerError(
+                f"safetensors tensor {name!r} has overlapping or non-contiguous data offsets"
+            )
+        cursor = end
+    if cursor != data_size:
+        raise CheckpointContainerError(
+            "safetensors data size does not match declared tensor offsets"
+        )
 
 
 def write_checkpoint_container(
@@ -892,6 +942,176 @@ def write_checkpoint_container(
         raise
 
 
-def read_checkpoint_container(*args: Any, **kwargs: Any) -> Any:
-    """Reader implementation belongs to OpenSpec task 4.4."""
-    raise NotImplementedError("read_checkpoint_container is implemented by task 4.4")
+def _duplicate_metadata_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    counts = Counter(key for key, _ in pairs)
+    duplicates = sorted(key for key, count in counts.items() if count > 1)
+    if duplicates:
+        raise CheckpointContainerError(
+            f"metadata.json has duplicate key {duplicates[0]!r}"
+        )
+    return dict(pairs)
+
+
+def _validate_archive_structure(archive: ZipFile) -> dict[str, ZipInfo]:
+    infos = archive.infolist()
+    names = [info.filename for info in infos]
+    duplicate_names = sorted(
+        name for name, count in Counter(names).items() if count > 1
+    )
+    if duplicate_names:
+        raise CheckpointContainerError(
+            f"checkpoint has duplicate member {duplicate_names[0]!r}"
+        )
+
+    for name in names:
+        path = Path(name)
+        if (
+            name not in {METADATA_MEMBER, TENSORS_MEMBER}
+            and (
+                path.is_absolute()
+                or "/" in name
+                or "\\" in name
+                or ":" in name
+                or name in {".", ".."}
+            )
+        ):
+            raise CheckpointContainerError(f"checkpoint has unsafe member name {name!r}")
+
+    expected = {METADATA_MEMBER, TENSORS_MEMBER}
+    present = set(names)
+    missing = sorted(expected - present)
+    if missing:
+        raise CheckpointContainerError(
+            f"checkpoint is missing required member {missing[0]!r}"
+        )
+    extra = sorted(present - expected)
+    if extra:
+        raise CheckpointContainerError(
+            f"checkpoint has unexpected extra member {extra[0]!r}"
+        )
+
+    by_name = {info.filename: info for info in infos}
+    for name, maximum in (
+        (METADATA_MEMBER, MAX_METADATA_BYTES),
+        (TENSORS_MEMBER, MAX_TENSOR_BYTES),
+    ):
+        info = by_name[name]
+        if info.is_dir():
+            raise CheckpointContainerError(f"checkpoint member {name!r} must be a file")
+        if info.compress_type != ZIP_STORED:
+            raise CheckpointContainerError(
+                f"checkpoint member {name!r} must use ZIP_STORED compression"
+            )
+        if info.file_size > maximum or info.compress_size > maximum:
+            raise CheckpointContainerError(
+                f"{name} size exceeds {maximum} bytes"
+            )
+    return by_name
+
+
+def _read_bounded_member(
+    archive: ZipFile,
+    info: ZipInfo,
+    maximum: int,
+) -> bytes:
+    try:
+        with archive.open(info, "r") as member:
+            payload = member.read(maximum + 1)
+            trailing = member.read(1)
+    except (BadZipFile, OSError, RuntimeError) as error:
+        raise CheckpointContainerError(
+            f"checkpoint member {info.filename!r} cannot be read: {error}"
+        ) from error
+    if len(payload) > maximum or trailing:
+        raise CheckpointContainerError(
+            f"{info.filename} actual size exceeds {maximum} bytes"
+        )
+    if len(payload) != info.file_size:
+        raise CheckpointContainerError(
+            f"checkpoint member {info.filename!r} actual size does not match its ZIP declaration"
+        )
+    return payload
+
+
+def _parse_checkpoint_metadata(payload: bytes) -> ValidatedCheckpointMetadata:
+    try:
+        decoded = payload.decode("utf-8")
+    except UnicodeDecodeError as error:
+        raise CheckpointContainerError(
+            f"metadata.json is not valid UTF-8: {error}"
+        ) from error
+    try:
+        metadata = json.loads(
+            decoded,
+            object_pairs_hook=_duplicate_metadata_object,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-finite JSON constant {value}")
+            ),
+        )
+    except (json.JSONDecodeError, ValueError) as error:
+        if isinstance(error, CheckpointContainerError):
+            raise
+        raise CheckpointContainerError(f"invalid metadata.json: {error}") from error
+    if not isinstance(metadata, dict):
+        raise CheckpointContainerError("metadata.json root must be an object")
+    version = metadata.get("schema_version")
+    if (
+        not isinstance(version, int)
+        or isinstance(version, bool)
+        or version != CHECKPOINT_SCHEMA_VERSION
+    ):
+        raise CheckpointMetadataError(
+            f"$.schema_version: unsupported value {version!r}; expected integer 2"
+        )
+    return validate_checkpoint_metadata(metadata)
+
+
+def _load_safetensors_on_cpu(payload: bytes) -> Mapping[str, Any]:
+    try:
+        from safetensors.torch import load
+
+        tensors = load(payload)
+    except Exception as error:
+        raise CheckpointContainerError(f"cannot load tensors.safetensors: {error}") from error
+    for name, tensor in tensors.items():
+        device = getattr(tensor, "device", None)
+        if device is None or device.type != "cpu":
+            raise CheckpointContainerError(
+                f"safetensors tensor {name!r} was not loaded on CPU"
+            )
+    return tensors
+
+
+def read_checkpoint_container(
+    path: str | os.PathLike[str],
+    *,
+    tensor_loader: Callable[[bytes], Any] | None = None,
+) -> LoadedCheckpointContainer:
+    """Read and fully validate a bounded checkpoint before exposing CPU tensors."""
+    try:
+        with ZipFile(path, "r") as archive:
+            members = _validate_archive_structure(archive)
+            metadata_payload = _read_bounded_member(
+                archive, members[METADATA_MEMBER], MAX_METADATA_BYTES
+            )
+            metadata = _parse_checkpoint_metadata(metadata_payload)
+            declared_tensors = {
+                item["name"]: item for item in metadata.tensor_manifest
+            }
+            tensor_payload = _read_bounded_member(
+                archive, members[TENSORS_MEMBER], MAX_TENSOR_BYTES
+            )
+    except CheckpointContainerError:
+        raise
+    except (BadZipFile, OSError, ValueError) as error:
+        raise CheckpointContainerError(
+            f"checkpoint is not a valid ZIP container: {error}"
+        ) from error
+
+    _validate_safetensors_payload(tensor_payload, declared_tensors)
+    loader = tensor_loader or _load_safetensors_on_cpu
+    tensors = loader(tensor_payload)
+    return LoadedCheckpointContainer(
+        metadata=_freeze(metadata.to_dict()),
+        tensors=tensors,
+    )

@@ -9,6 +9,7 @@ import struct
 import warnings
 from collections.abc import Callable
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
@@ -47,6 +48,19 @@ def _tiny_safetensors_bytes() -> bytes:
     ).encode("utf-8")
     header += b" " * (-len(header) % 8)
     return struct.pack("<Q", len(header)) + header + struct.pack("<f", 1.0)
+
+
+def _validated_tiny_metadata(*, shape: list[int] | None = None) -> SimpleNamespace:
+    tensor = {
+        "name": "model.encoder.projection.bias",
+        "shape": shape or [1],
+        "dtype": "float32",
+        "role": "model_parameter",
+    }
+    return SimpleNamespace(
+        tensor_manifest=(tensor,),
+        to_dict=lambda: {"schema_version": 2},
+    )
 
 
 def _write_archive(
@@ -168,19 +182,83 @@ def test_writer_replace_failure_preserves_target_and_removes_temp_file(
 
 # covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary
 def test_reader_decodes_metadata_before_loading_safetensors(tmp_path: Path) -> None:
+    module = _checkpoint_module()
     path = tmp_path / "epoch-3.ckpt"
-    tensor_payload = _tiny_safetensors_bytes()
     _write_archive(path)
-    calls: list[bytes] = []
+    events: list[str] = []
 
-    loaded = _read(
-        path,
-        tensor_loader=lambda payload: calls.append(payload) or {"weight": 1.0},
-    )
+    def validate(metadata: object):
+        assert metadata == {"schema_version": 2}
+        events.append("metadata")
+        return _validated_tiny_metadata()
+
+    with patch.object(module, "validate_checkpoint_metadata", side_effect=validate):
+        loaded = module.read_checkpoint_container(
+            path,
+            tensor_loader=lambda payload: events.append("tensors") or {"weight": 1.0},
+        )
 
     assert loaded.metadata == {"schema_version": 2}
     assert loaded.tensors == {"weight": 1.0}
-    assert calls == [tensor_payload]
+    assert events == ["metadata", "tensors"]
+
+
+def test_reader_uses_the_default_safetensors_cpu_loader(tmp_path: Path) -> None:
+    module = _checkpoint_module()
+    path = tmp_path / "cpu.ckpt"
+    _write_archive(path)
+
+    with patch.object(
+        module,
+        "validate_checkpoint_metadata",
+        return_value=_validated_tiny_metadata(),
+    ):
+        loaded = module.read_checkpoint_container(path)
+
+    tensor = loaded.tensors["model.encoder.projection.bias"]
+    assert tensor.device.type == "cpu"
+    assert tensor.shape == (1,)
+    assert tensor.item() == 1.0
+
+
+def test_reader_rejects_incomplete_metadata_before_reading_tensor_member(
+    tmp_path: Path,
+) -> None:
+    module = _checkpoint_module()
+    path = tmp_path / "incomplete-metadata.ckpt"
+    _write_archive(path)
+    member_reads: list[str] = []
+    original_read = module._read_bounded_member
+
+    def record_read(archive, info, maximum):
+        member_reads.append(info.filename)
+        return original_read(archive, info, maximum)
+
+    with patch.object(module, "_read_bounded_member", side_effect=record_read):
+        with pytest.raises(module.CheckpointMetadataError, match=r"\$\.identity"):
+            module.read_checkpoint_container(path, tensor_loader=lambda _: None)
+
+    assert member_reads == [METADATA_MEMBER]
+
+
+def test_reader_rejects_tensor_shape_before_calling_loader(tmp_path: Path) -> None:
+    module = _checkpoint_module()
+    path = tmp_path / "shape-mismatch.ckpt"
+    _write_archive(path)
+    calls: list[bytes] = []
+
+    with patch.object(
+        module,
+        "validate_checkpoint_metadata",
+        return_value=_validated_tiny_metadata(shape=[2]),
+    ):
+        with pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"):
+            module.read_checkpoint_container(
+                path,
+                tensor_loader=lambda payload: calls.append(payload),
+            )
+
+    assert calls == []
 
 
 # covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration

@@ -80,7 +80,7 @@
   <!-- covers: train/stage0-training :: Stage 0 identity accompanies training artifacts :: Legacy artifact rejected -->
 - [x] 4.2 Add schema tests for version-2 metadata, gradient, Eggroll, and alternating modes, model and optimizer tensor manifests, every RNG source, complete alternating schedule state, metrics, and ordered train and held-out selections.
 - [x] 4.3 Implement the version-2 JSON plus safetensors checkpoint writer with canonical metadata, allowed tensor names, bounded members, and atomic replacement.
-- [ ] 4.4 Implement CPU checkpoint loading that validates ZIP structure and metadata before reading safetensors, then validates every identity, name, shape, dtype, role, schedule, selection, and RNG field before applying any state.
+- [x] 4.4 Implement CPU checkpoint loading that validates ZIP structure and metadata before reading safetensors, then validates every identity, name, shape, dtype, role, schedule, selection, and RNG field before applying any state.
 - [ ] 4.5 Add compatible-resume tests and side-effect-free rejection tests for legacy checkpoints, mismatched identities, unexpected tensors, incomplete optimizer state, and incompatible schedules.
 
 ## 5. Comparable Stage 0 gate
