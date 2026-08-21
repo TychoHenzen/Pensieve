@@ -207,28 +207,32 @@ def test_non_integer_log_every_is_rejected_by_cli_before_production_loading(
     assert "--log-every" in capsys.readouterr().err
 
 
-@pytest.mark.parametrize(
-    ("arguments", "message"),
-    [
-        (["--epochs", "0"], "epochs must be at least 1"),
-        (["--phase-steps", "0"], "phase_steps must be at least 1"),
-    ],
-)
-def test_invalid_schedule_is_rejected_before_production_loading(
-    arguments: list[str], message: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("epochs", ["0", "-1"])
+# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count
+def test_invalid_epoch_count_is_rejected_before_production_loading(
+    epochs: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     def reject_production_loading(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("production loading was attempted")
 
-    monkeypatch.setattr(
-        "train.stage0_data.load_stage0_dataset", reject_production_loading
-    )
-    monkeypatch.setattr(
-        "train.training_state.TrainingState.__init__", reject_production_loading
-    )
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", reject_production_loading)
+    monkeypatch.setattr(run_alternating, "TrainingState", reject_production_loading)
 
-    with pytest.raises(ValueError, match=message):
-        run_alternating.main(arguments)
+    with pytest.raises(ValueError, match="epochs must be at least 1"):
+        run_alternating.main(["--epochs", epochs])
+
+
+def test_invalid_phase_budget_is_rejected_before_production_loading(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def reject_production_loading(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production loading was attempted")
+
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", reject_production_loading)
+    monkeypatch.setattr(run_alternating, "TrainingState", reject_production_loading)
+
+    with pytest.raises(ValueError, match="phase_steps must be at least 1"):
+        run_alternating.main(["--phase-steps", "0"])
 
 
 def test_main_builds_shared_production_run_and_executes_schedule(

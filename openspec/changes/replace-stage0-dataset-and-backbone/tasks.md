@@ -64,7 +64,7 @@
   <!-- covers: train/stage0-training :: Decoder-aligned numerical objective :: Multi-token numerical target -->
   <!-- covers: train/stage0-training :: Decoder-aligned numerical objective :: Training prompt contract -->
 - [x] 3.4 Adapt gradient and Eggroll training to the shared Qwen tokenizer and context contract while preserving the existing answer-objective repairs and frozen-backbone policy.
-- [ ] 3.5 Update alternating-schedule tests for 1,089 examples per epoch, 5,445 default steps, uninterrupted phase budgets, and invalid epoch rejection.
+- [x] 3.5 Update alternating-schedule tests for 1,089 examples per epoch, 5,445 default steps, uninterrupted phase budgets, and invalid epoch rejection.
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Phase boundary within an epoch -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within a phase -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run -->
