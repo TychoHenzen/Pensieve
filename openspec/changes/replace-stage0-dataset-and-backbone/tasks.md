@@ -88,7 +88,7 @@
 - [x] 5.1 Add token-baseline tests for exact Qwen messages, template arguments, greedy generation settings, all 520 ordered test identifiers, non-gating bounded development selection, and deterministic CUDA runtime identity.
   <!-- covers: eval/stage0-gate :: Frozen Qwen token baseline :: Full token baseline -->
   <!-- covers: eval/stage0-gate :: Frozen Qwen token baseline :: Official prompt format -->
-- [ ] 5.2 Route the token baseline through the shared identity, prompt, dataset records, and numerical scorer, and include per-item identities in its JSON.
+- [x] 5.2 Route the token baseline through the shared identity, prompt, dataset records, and numerical scorer, and include per-item identities in its JSON.
 - [ ] 5.3 Add latent-evaluation tests proving full and limited runs consume the token path's persisted ordered identifiers, emit the shared `{item_id, prediction, target, correct}` item schema, and bind identity to the canonical ordered `{item_id, input_ids}` digest.
   <!-- covers: eval/stage0-gate :: Comparable test selection :: Full evaluation identity -->
   <!-- covers: eval/stage0-gate :: Comparable test selection :: Limited evaluation identity -->
