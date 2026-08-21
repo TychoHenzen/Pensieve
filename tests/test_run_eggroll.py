@@ -69,10 +69,15 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
         save_dir="unused",
         problem_count=None,
         log_every=1,
+        resume=None,
     )
     monkeypatch.setattr(run_eggroll, "_parse_args", lambda: args)
-    monkeypatch.setattr(run_eggroll, "_load_dataset", lambda _: [("q", "a")])
-    monkeypatch.setattr(run_eggroll, "_save_checkpoint", lambda *_: "unused.pt")
+    monkeypatch.setattr(
+        run_eggroll,
+        "_load_dataset_context",
+        lambda _: ([("q", "a")], {}, {}),
+    )
+    monkeypatch.setattr(run_eggroll, "_save_checkpoint", lambda *_, **__: "unused.ckpt")
     monkeypatch.setattr(run_eggroll, "_log", lambda _: None)
 
     run_eggroll.main()

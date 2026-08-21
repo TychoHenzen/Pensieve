@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import random
 from dataclasses import dataclass, field
 
 import pytest
@@ -14,12 +13,14 @@ from train.alternating_checkpoint import (
     AlternatingCheckpoint,
     CHECKPOINT_VERSION,
     CheckpointSchedule,
+    build_alternating_checkpoint,
     capture_checkpoint,
     latest_checkpoint,
     load_checkpoint,
     save_boundary_checkpoints,
     save_checkpoint,
 )
+from test_stage0_checkpoint_resume import _metadata, _plain, _tensor_values
 
 
 SCHEDULE_CONFIG = {
@@ -36,57 +37,78 @@ SCHEDULE_CONFIG = {
 
 
 def test_checkpoint_round_trips_resumption_state(tmp_path) -> None:
-    model = nn.Linear(2, 1)
-    eggroll_optimizer = torch.optim.Adam(model.parameters(), lr=0.1)
-    gradient_optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    _step(eggroll_optimizer, model, gradient=1.0)
-    _step(gradient_optimizer, model, gradient=2.0)
-    schedule = CheckpointSchedule("gradient", 17, 517, 2, 16)
-    model_state = {name: value.detach().clone() for name, value in model.state_dict().items()}
-    random.seed(123)
-    torch.manual_seed(456)
-    expected_python_random = random.getstate()
-    expected_torch_random = torch.get_rng_state()
-
-    checkpoint = capture_checkpoint(
-        model_state=model_state,
-        eggroll_optimizer=eggroll_optimizer,
-        gradient_optimizer=gradient_optimizer,
-        schedule=schedule,
-        run_config={"phase_steps": 500, "epochs": 5},
-        held_out_selection=[{"question": "q", "answer": "1"}],
-        metrics={"answer_exact_match": 0.25},
-    )
-    path = tmp_path / "boundary.pt"
+    metadata = _metadata()
+    tensors = _tensor_values(metadata)
+    checkpoint = capture_checkpoint(metadata=metadata, tensors=tensors)
+    path = tmp_path / "boundary.ckpt"
     save_checkpoint(path, checkpoint)
     loaded = load_checkpoint(path)
 
-    assert loaded.version == CHECKPOINT_VERSION
-    assert loaded.schedule == schedule
-    assert loaded.run_config == {"phase_steps": 500, "epochs": 5}
-    assert loaded.held_out_selection == [{"question": "q", "answer": "1"}]
-    assert loaded.metrics == {"answer_exact_match": 0.25}
-    assert loaded.python_random_state == expected_python_random
-    assert torch.equal(loaded.torch_random_state, expected_torch_random)
-    assert set(loaded.model_state) == {"weight", "bias"}
-    assert all(torch.equal(loaded.model_state[name], value) for name, value in model_state.items())
-    assert _same_state(loaded.eggroll_optimizer_state, eggroll_optimizer.state_dict())
-    assert _same_state(loaded.gradient_optimizer_state, gradient_optimizer.state_dict())
+    assert CHECKPOINT_VERSION == 2
+    assert _plain(loaded.metadata) == metadata
+    assert set(loaded.tensors) == set(tensors)
+    assert all(loaded.tensors[name].equal(value) for name, value in tensors.items())
+
+
+def test_typed_builder_captures_real_model_optimizer_and_rng_state(
+    tmp_path, monkeypatch
+) -> None:
+    parameters = {
+        name: nn.Parameter(torch.tensor([float(index)]))
+        for index, name in enumerate(alternating_checkpoint.stage0_parameter_paths())
+    }
+    gradient = torch.optim.Adam(parameters.values(), lr=1e-4)
+    eggroll = torch.optim.Adam(parameters.values(), lr=1e-3)
+    for optimizer in (gradient, eggroll):
+        for parameter in parameters.values():
+            parameter.grad = torch.ones_like(parameter)
+        optimizer.step()
+        optimizer.zero_grad()
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    fixture = _metadata()
+
+    checkpoint = build_alternating_checkpoint(
+        identity=fixture["identity"],
+        selections=fixture["selections"],
+        model_state=parameters,
+        eggroll_optimizer=eggroll,
+        gradient_optimizer=gradient,
+        schedule=CheckpointSchedule("gradient", 0, 2, 1, 1),
+        phase_steps=2,
+        next_dataset_position=2,
+        metrics={"loss": 1.25},
+    )
+    path = tmp_path / "phase-2.ckpt"
+    save_checkpoint(path, checkpoint)
+    loaded = load_checkpoint(path)
+
+    assert loaded.metadata["schema_version"] == 2
+    assert loaded.metadata["schedule"]["next_dataset_position"] == 2
+    assert set(loaded.metadata["optimizer_manifests"][0]["tensor_references"]) == set(parameters)
+    assert all(
+        loaded.metadata["optimizer_manifests"][0]["tensor_references"][name]
+        for name in parameters
+    )
+    assert all(
+        torch.equal(loaded.tensors[f"model.{name}"], parameter.detach())
+        for name, parameter in parameters.items()
+    )
 
 
 def test_phase_boundary_resume_starts_next_example_in_saved_phase(tmp_path) -> None:
     scheduler = FakeResumableScheduler(phase_steps=2)
     schedule = scheduler.run_until_phase_boundary(["first", "second", "third"])
-    checkpoint = capture_checkpoint(
-        model_state={},
-        eggroll_optimizer=_optimizer(),
-        gradient_optimizer=_optimizer(),
-        schedule=schedule,
-        run_config={"phase_steps": 2},
-        held_out_selection=[],
-        metrics=[],
-    )
-    path = tmp_path / "phase-boundary.pt"
+    metadata = _metadata()
+    metadata["schedule"] = {
+        "active_phase": schedule.active_phase,
+        "completed_phase_steps": schedule.completed_phase_steps,
+        "phase_steps": 2,
+        "global_step": schedule.global_step,
+        "epoch": schedule.epoch,
+        "next_dataset_position": schedule.dataset_position + 1,
+    }
+    checkpoint = capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
+    path = tmp_path / "phase-boundary.ckpt"
     save_checkpoint(path, checkpoint)
 
     resumed_scheduler = FakeResumableScheduler(phase_steps=2)
@@ -105,16 +127,9 @@ def test_phase_boundary_resume_starts_next_example_in_saved_phase(tmp_path) -> N
 def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tmp_path) -> None:
     scheduler = FakeResumableScheduler(phase_steps=5)
     schedule = scheduler.run_until_epoch_boundary(["first", "second", "third"])
-    checkpoint = capture_checkpoint(
-        model_state={},
-        eggroll_optimizer=_optimizer(),
-        gradient_optimizer=_optimizer(),
-        schedule=schedule,
-        run_config={"phase_steps": 5},
-        held_out_selection=[],
-        metrics=[],
-    )
-    path = tmp_path / "epoch-boundary.pt"
+    metadata = _metadata(epoch_boundary=True)
+    checkpoint = capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
+    path = tmp_path / "epoch-boundary.ckpt"
     save_checkpoint(path, checkpoint)
 
     resumed_scheduler = FakeResumableScheduler(phase_steps=5)
@@ -126,7 +141,7 @@ def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tm
         completed_phase_steps=3,
         global_step=3,
         epoch=1,
-        dataset_position=2,
+        dataset_position=-1,
     )
     assert resumed_scheduler.calls == [("first", "eggroll", 0, 4)]
     assert resumed_scheduler.resume_positions == [(2, 0, 3)]
@@ -195,10 +210,10 @@ def test_resume_accepts_matching_schedule_and_display_only_changes() -> None:
 def test_latest_checkpoint_uses_stored_global_step_not_filename_order(tmp_path) -> None:
     lower_step = _checkpoint(global_step=9, epoch=100)
     higher_step = _checkpoint(global_step=10, epoch=2)
-    save_checkpoint(tmp_path / "epoch-100.pt", lower_step)
-    save_checkpoint(tmp_path / "phase-10.pt", higher_step)
+    save_checkpoint(tmp_path / "epoch-100.ckpt", lower_step)
+    save_checkpoint(tmp_path / "phase-10.ckpt", higher_step)
 
-    assert latest_checkpoint(tmp_path) == tmp_path / "phase-10.pt"
+    assert latest_checkpoint(tmp_path) == tmp_path / "phase-10.ckpt"
 
 
 def test_latest_checkpoint_returns_none_for_missing_directory(tmp_path) -> None:
@@ -214,14 +229,14 @@ def test_coincident_boundaries_serialize_once_and_expose_both_names(
 ) -> None:
     checkpoint = _checkpoint(global_step=12, epoch=3)
     save_calls = 0
-    real_save = torch.save
+    real_save = alternating_checkpoint.save_checkpoint
 
     def counting_save(*args, **kwargs) -> None:
         nonlocal save_calls
         save_calls += 1
         real_save(*args, **kwargs)
 
-    monkeypatch.setattr(torch, "save", counting_save)
+    monkeypatch.setattr(alternating_checkpoint, "save_checkpoint", counting_save)
 
     paths = save_boundary_checkpoints(
         tmp_path,
@@ -230,7 +245,7 @@ def test_coincident_boundaries_serialize_once_and_expose_both_names(
         epoch_boundary=True,
     )
 
-    assert paths == (tmp_path / "phase-12.pt", tmp_path / "epoch-3.pt")
+    assert paths == (tmp_path / "phase-12.ckpt", tmp_path / "epoch-3.ckpt")
     assert save_calls == 1
     assert all(path.exists() for path in paths)
     assert paths[0].samefile(paths[1])
@@ -238,29 +253,11 @@ def test_coincident_boundaries_serialize_once_and_expose_both_names(
     assert load_checkpoint(paths[1]).schedule == checkpoint.schedule
 
 
-def _step(optimizer: torch.optim.Optimizer, model: nn.Module, *, gradient: float) -> None:
-    for parameter in model.parameters():
-        parameter.grad = torch.full_like(parameter, gradient)
-    optimizer.step()
-    optimizer.zero_grad()
-
-
-def _optimizer() -> torch.optim.Optimizer:
-    return torch.optim.SGD([nn.Parameter(torch.zeros(()))], lr=0.1)
-
-
 def _checkpoint(*, global_step: int, epoch: int) -> AlternatingCheckpoint:
-    return AlternatingCheckpoint(
-        model_state={},
-        eggroll_optimizer_state={},
-        gradient_optimizer_state={},
-        schedule=CheckpointSchedule("eggroll", 0, global_step, epoch, 0),
-        run_config={},
-        held_out_selection=[],
-        metrics={},
-        python_random_state=random.getstate(),
-        torch_random_state=torch.get_rng_state(),
-    )
+    metadata = _metadata()
+    metadata["schedule"]["global_step"] = global_step
+    metadata["schedule"]["epoch"] = epoch
+    return capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
 
 
 def _validate_then_update(
@@ -312,7 +309,9 @@ class FakeResumableScheduler:
     def resume(self, schedule: CheckpointSchedule, examples: list[object]) -> None:
         next_position = schedule.dataset_position + 1
         next_epoch = schedule.epoch
-        if next_position == len(examples):
+        if schedule.dataset_position < 0:
+            next_epoch += 1
+        elif next_position == len(examples):
             next_epoch += 1
             next_position = 0
         self.resume_positions.append(
@@ -326,13 +325,3 @@ class FakeResumableScheduler:
                 schedule.global_step + 1,
             )
         )
-
-
-def _same_state(left: object, right: object) -> bool:
-    if isinstance(left, torch.Tensor) and isinstance(right, torch.Tensor):
-        return torch.equal(left, right)
-    if isinstance(left, dict) and isinstance(right, dict):
-        return left.keys() == right.keys() and all(_same_state(left[key], right[key]) for key in left)
-    if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(_same_state(*pair) for pair in zip(left, right))
-    return left == right

@@ -65,8 +65,12 @@ def test_main_constructs_and_runs_only_gradient_trainer(monkeypatch) -> None:
         resume=None,
     )
     monkeypatch.setattr(run_training, "_parse_args", lambda: args)
-    monkeypatch.setattr(run_training, "_load_dataset", lambda _: [("q", "a")])
-    monkeypatch.setattr(run_training, "_save_checkpoint", lambda *_: "unused.pt")
+    monkeypatch.setattr(
+        run_training,
+        "_load_dataset_context",
+        lambda _: ([("q", "a")], {}, {}),
+    )
+    monkeypatch.setattr(run_training, "_save_checkpoint", lambda *_, **__: "unused.ckpt")
     monkeypatch.setattr(run_training, "_log", lambda _: None)
 
     run_training.main()

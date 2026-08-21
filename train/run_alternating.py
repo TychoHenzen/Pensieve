@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Sequence
-from dataclasses import asdict
+from collections.abc import Callable, Mapping, Sequence
+import importlib.metadata
 import json
+import os
 from pathlib import Path
+import platform
 import random
 import sys
 import time
@@ -14,16 +16,24 @@ from typing import Any, TextIO
 
 import torch
 
-from eval.stage0_identity import CALC_MAWPS_DATASET, CALC_MAWPS_REVISION
+from eval.stage0_identity import (
+    CALC_MAWPS_DATASET,
+    CALC_MAWPS_REVISION,
+    training_identity,
+)
+from eval.stream.generators.calc_mawps import (
+    CalcMawpsSelection,
+    calc_mawps_selection_identity,
+)
 from train.alternating_config import validate_scheduler_config
 from train.alternating_checkpoint import (
     AlternatingCheckpoint,
     CheckpointSchedule,
-    capture_checkpoint,
+    build_alternating_checkpoint,
     latest_checkpoint,
     load_checkpoint,
     save_boundary_checkpoints,
-    validate_resume_config,
+    stage0_parameter_paths,
 )
 from train.alternating_evaluation import (
     DEFAULT_EVAL_PROBLEM_COUNT,
@@ -51,11 +61,93 @@ from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
 from train.training_state import TrainingState
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from train.stage0_data import load_stage0_dataset, training_examples
+from train.standalone_checkpoint import configure_deterministic_runtime
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
 DEFAULT_EPOCHS = 5
 DEFAULT_PHASE_STEPS = 500
+
+
+def _dependency_version(distribution: str) -> str:
+    try:
+        return importlib.metadata.version(distribution)
+    except importlib.metadata.PackageNotFoundError:
+        return "unavailable"
+
+
+def _runtime_identity() -> dict[str, object]:
+    return {
+        "initialization_seed": 0,
+        "python_version": platform.python_version(),
+        "numpy_version": _dependency_version("numpy"),
+        "pytorch_version": torch.__version__,
+        "cuda_version": str(torch.version.cuda or "none"),
+        "transformers_version": _dependency_version("transformers"),
+        "datasets_version": _dependency_version("datasets"),
+        "sentence_transformers_version": _dependency_version("sentence-transformers"),
+        "device_topology": [f"cuda:{index}" for index in range(torch.cuda.device_count())],
+        "dtype": "float32",
+        "attention_implementation": "eager",
+        "cublas_workspace_config": os.environ.get("CUBLAS_WORKSPACE_CONFIG", ":4096:8"),
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "tf32_enabled": bool(torch.backends.cuda.matmul.allow_tf32),
+        "cudnn_benchmark": bool(torch.backends.cudnn.benchmark),
+    }
+
+
+def _selection_metadata(
+    selection: CalcMawpsSelection, count: int | None
+) -> dict[str, object]:
+    normalized_count = selection.problem_count if count is None else count
+    records = selection.records[:normalized_count]
+    identity = (
+        selection.identity
+        if normalized_count == selection.problem_count
+        else calc_mawps_selection_identity(
+            records=records,
+            split=selection.split,
+            seed=selection.seed,
+            problem_count=normalized_count,
+            revision=CALC_MAWPS_REVISION,
+        )
+    )
+    return {
+        "identity": identity,
+        "split": selection.split,
+        "seed": selection.seed,
+        "problem_count": normalized_count,
+        "ordered_item_ids": [record.id for record in records],
+    }
+
+
+def _validate_resume_metadata(
+    checkpoint: AlternatingCheckpoint,
+    *,
+    identity: dict[str, object],
+    selections: dict[str, object],
+    phase_steps: int,
+    epochs: int,
+) -> None:
+    def plain(value: object) -> object:
+        if isinstance(value, Mapping):
+            return {key: plain(item) for key, item in value.items()}
+        if isinstance(value, tuple):
+            return [plain(item) for item in value]
+        return value
+
+    metadata = checkpoint.metadata
+    conflicts: list[str] = []
+    if plain(metadata["identity"]) != plain(identity):
+        conflicts.append("$.identity")
+    if plain(metadata["selections"]) != plain(selections):
+        conflicts.append("$.selections")
+    if metadata["schedule"]["phase_steps"] != phase_steps:
+        conflicts.append("$.schedule.phase_steps")
+    if epochs < int(metadata["schedule"]["epoch"]):
+        conflicts.append("$.schedule.epoch")
+    if conflicts:
+        raise ValueError("incompatible resume configuration: " + ", ".join(conflicts))
 
 
 def _ts() -> str:
@@ -179,7 +271,9 @@ def _run_schedule(
         scheduler._completed_steps = resume.global_step
         next_epoch = resume.epoch
         next_example_position = resume.dataset_position + 1
-        if next_example_position == len(examples):
+        if resume.dataset_position < 0:
+            next_epoch += 1
+        elif next_example_position == len(examples):
             next_epoch += 1
             next_example_position = 0
 
@@ -388,13 +482,115 @@ def _restore_model_state(state: TrainingState, values: object) -> None:
     model_state = values  # retain the named registry boundary
     with torch.no_grad():
         for name, parameter in state.trainable_params.items():
-            parameter.copy_(model_state[name])  # type: ignore[index]
+            parameter.copy_(model_state[f"model.{name}"])  # type: ignore[index]
+
+
+def _optimizer_state_from_checkpoint(
+    checkpoint: AlternatingCheckpoint,
+    method: str,
+    optimizer: torch.optim.Optimizer,
+) -> dict[str, object]:
+    manifest = next(
+        item
+        for item in checkpoint.metadata["optimizer_manifests"]
+        if item["method"] == method
+    )
+    current = optimizer.state_dict()
+    parameter_ids = current["param_groups"][0]["params"]
+    parameters = optimizer.param_groups[0]["params"]
+    names = list(manifest["parameter_names"])
+    if len(parameter_ids) != len(names) or len(parameters) != len(names):
+        raise ValueError(
+            f"$.optimizer_manifests.{method}.parameter_names: "
+            "does not match the constructed optimizer"
+        )
+    restored_state: dict[int, dict[str, object]] = {}
+    for parameter_id, parameter, name in zip(parameter_ids, parameters, names):
+        values = dict(manifest["scalar_state"][name])
+        for state_name, tensor_name in manifest["tensor_references"][name].items():
+            tensor = checkpoint.tensors[tensor_name]
+            if tensor.shape != parameter.shape:
+                raise ValueError(
+                    f"$.optimizer_manifests.{method}.tensor_references.{name}.{state_name}: "
+                    "tensor shape does not match the constructed parameter"
+                )
+            values[state_name] = tensor
+        if values:
+            restored_state[parameter_id] = values
+
+    group = dict(current["param_groups"][0])
+    scalars = dict(manifest["parameter_groups"][0]["scalars"])
+    if "beta1" in scalars or "beta2" in scalars:
+        group["betas"] = (scalars.pop("beta1"), scalars.pop("beta2"))
+    group.update(scalars)
+    group["params"] = parameter_ids
+    return {"state": restored_state, "param_groups": [group]}
+
+
+def _restore_checkpoint_state(
+    checkpoint: AlternatingCheckpoint,
+    state: TrainingState,
+    gradient_optimizer: torch.optim.Optimizer,
+    eggroll_optimizer: torch.optim.Optimizer,
+) -> None:
+    current_names = set(state.trainable_params)
+    expected_names = set(stage0_parameter_paths())
+    if current_names != expected_names:
+        raise ValueError(
+            "$.tensor_manifest: constructed model parameter names do not match the checkpoint contract"
+        )
+    incompatibilities: list[str] = []
+    for name, parameter in state.trainable_params.items():
+        saved = checkpoint.tensors[f"model.{name}"]
+        if saved.shape != parameter.shape:
+            incompatibilities.append(f"$.tensor_manifest.model.{name}.shape")
+        if saved.dtype != parameter.dtype:
+            incompatibilities.append(f"$.tensor_manifest.model.{name}.dtype")
+    if incompatibilities:
+        raise ValueError(
+            "incompatible resume configuration: " + ", ".join(incompatibilities)
+        )
+    gradient_state = _optimizer_state_from_checkpoint(
+        checkpoint, "gradient", gradient_optimizer
+    )
+    eggroll_state = _optimizer_state_from_checkpoint(
+        checkpoint, "eggroll", eggroll_optimizer
+    )
+    rng = checkpoint.metadata["rng"]
+    python_rng = rng["python"]
+    numpy_rng = rng["numpy"]
+    python_state = (
+        int(python_rng["version"]),
+        tuple(python_rng["state"]),
+        python_rng["gaussian_cache"],
+    )
+    numpy_state = (
+        str(numpy_rng["bit_generator"]),
+        checkpoint.tensors[numpy_rng["state_tensor"]].numpy(),
+        int(numpy_rng["position"]),
+        int(numpy_rng["has_gaussian"]),
+        float(numpy_rng["gaussian_cache"]),
+    )
+    cuda_states = [
+        checkpoint.tensors[item["state_tensor"]] for item in rng["cuda"]
+    ]
+
+    _restore_model_state(state, checkpoint.tensors)
+    gradient_optimizer.load_state_dict(gradient_state)
+    eggroll_optimizer.load_state_dict(eggroll_state)
+    random.setstate(python_state)
+    import numpy as np
+
+    np.random.set_state(numpy_state)
+    torch.set_rng_state(checkpoint.tensors[rng["pytorch_cpu"]["state_tensor"]])
+    if cuda_states:
+        torch.cuda.set_rng_state_all(cuda_states)
 
 
 def main(argv: Sequence[str] | None = None) -> None:
     """Run a fixed-budget alternating experiment, optionally from a checkpoint."""
+    configure_deterministic_runtime()
     args = _parse_args(argv)
-    run_config = _run_config(args)
     save_dir = Path(args.save_dir)
 
     _log(f"device={args.device}")
@@ -414,11 +610,6 @@ def main(argv: Sequence[str] | None = None) -> None:
         if resume_path is None:
             raise FileNotFoundError(f"no alternating checkpoint found in {save_dir}")
         resumed = load_checkpoint(resume_path)
-        validate_resume_config(
-            checkpoint_config=resumed.run_config,
-            resume_config=run_config,
-            completed_epochs=resumed.schedule.epoch,
-        )
 
     stage0_dataset = load_stage0_dataset()
     examples = training_examples(
@@ -427,13 +618,28 @@ def main(argv: Sequence[str] | None = None) -> None:
         epoch=1,
         problem_count=args.problem_count,
     )
-    _log(f"loaded {len(examples)} training problems ({_format_duration(time.monotonic() - load_start)})")
-    held_out = (
-        resumed.held_out_selection
-        if resumed is not None
-        else load_held_out_problems(
-            stage0_dataset.held_out_records(), args.eval_problem_count
+    train_selection = _selection_metadata(
+        stage0_dataset.train_selection, args.problem_count
+    )
+    held_out_selection = _selection_metadata(
+        stage0_dataset.held_out_selection, args.eval_problem_count
+    )
+    selections = {"train": train_selection, "held_out": held_out_selection}
+    checkpoint_identity = training_identity(
+        runtime=_runtime_identity(),
+        held_out_item_ids=held_out_selection["ordered_item_ids"],
+    )
+    if resumed is not None:
+        _validate_resume_metadata(
+            resumed,
+            identity=checkpoint_identity,
+            selections=selections,
+            phase_steps=args.phase_steps,
+            epochs=args.epochs,
         )
+    _log(f"loaded {len(examples)} training problems ({_format_duration(time.monotonic() - load_start)})")
+    held_out = load_held_out_problems(
+        stage0_dataset.held_out_records(), args.eval_problem_count
     )
 
     _log(
@@ -473,16 +679,16 @@ def main(argv: Sequence[str] | None = None) -> None:
     evaluator = _Evaluator(gradient, held_out)
 
     if resumed is not None:
-        _restore_model_state(state, resumed.model_state)
-        eggroll.optimizer.load_state_dict(resumed.eggroll_optimizer_state)
-        gradient.optimizer.load_state_dict(resumed.gradient_optimizer_state)
-        random.setstate(resumed.python_random_state)
-        torch.set_rng_state(resumed.torch_random_state)
+        _restore_checkpoint_state(
+            resumed, state, gradient.optimizer, eggroll.optimizer
+        )
 
     def save_boundary(
         schedule: CheckpointSchedule, *, phase_boundary: bool, epoch_boundary: bool
     ) -> Sequence[Path]:
-        checkpoint = capture_checkpoint(
+        checkpoint = build_alternating_checkpoint(
+            identity=checkpoint_identity,
+            selections=selections,
             model_state={
                 name: parameter.detach().cpu().clone()
                 for name, parameter in state.trainable_params.items()
@@ -490,9 +696,13 @@ def main(argv: Sequence[str] | None = None) -> None:
             eggroll_optimizer=eggroll.optimizer,
             gradient_optimizer=gradient.optimizer,
             schedule=schedule,
-            run_config=run_config,
-            held_out_selection=held_out,
-            metrics=asdict(evaluator.latest) if evaluator.latest is not None else {},
+            phase_steps=args.phase_steps,
+            next_dataset_position=0 if epoch_boundary else schedule.dataset_position + 1,
+            metrics=(
+                _evaluation_record(evaluator.latest)
+                if evaluator.latest is not None
+                else {}
+            ),
         )
         return save_boundary_checkpoints(
             save_dir,

@@ -483,9 +483,10 @@ def _validate_optimizer_manifests(
 
         references = obj.get("tensor_references")
         valid_references = isinstance(references, Mapping) and set(references) == set(parameter_names)
+        referenced_tensors: set[str] = set()
         if valid_references:
             for parameter, states in references.items():
-                if not isinstance(states, Mapping) or not states:
+                if not isinstance(states, Mapping):
                     valid_references = False
                     break
                 for state_name, tensor_name in states.items():
@@ -494,6 +495,15 @@ def _validate_optimizer_manifests(
                     if tensor_name != expected_name or tensor is None or tensor.get("role") != "optimizer_state":
                         valid_references = False
                         break
+                    referenced_tensors.add(tensor_name)
+        declared_optimizer_tensors = {
+            name
+            for name, tensor in tensors.items()
+            if tensor.get("role") == "optimizer_state"
+            and name.startswith(f"optimizer.{method}.")
+        }
+        if referenced_tensors != declared_optimizer_tensors:
+            valid_references = False
         if not valid_references:
             validator.add(
                 f"{path}.tensor_references",
@@ -875,7 +885,7 @@ def _validate_safetensors_payload(
         if declared_tensors is not None:
             declared = declared_tensors[name]
             expected_dtype = _DTYPE_TO_SAFETENSORS[declared["dtype"]]
-            if shape != declared["shape"]:
+            if shape != list(declared["shape"]):
                 raise CheckpointContainerError(
                     f"safetensors tensor {name!r} shape does not match tensor_manifest"
                 )

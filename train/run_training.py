@@ -7,14 +7,25 @@ trainer uses the frozen Qwen/Qwen2.5-0.5B-Instruct backbone and frozen MiniLM.
 from __future__ import annotations
 
 import argparse
-import glob
 import os
-import re
 import time
 
 import torch
 
+from eval.stage0_identity import training_identity
 from train.stage0_data import load_stage0_dataset, training_examples
+from train.standalone_checkpoint import (
+    build_checkpoint,
+    checkpoint_epoch,
+    configure_deterministic_runtime,
+    latest_epoch_checkpoint,
+    load_checkpoint,
+    restore_checkpoint,
+    runtime_identity,
+    save_checkpoint,
+    selection_metadata,
+    validate_compatibility,
+)
 from train.trainer import DEFAULT_LR, DEFAULT_NUM_STEPS, LatentCoreTrainer, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
@@ -78,39 +89,29 @@ def _parse_args() -> argparse.Namespace:
 
 def _find_latest_checkpoint(save_dir: str) -> str | None:
     """Find the checkpoint with the highest epoch number in save_dir."""
-    pattern = os.path.join(save_dir, "epoch-*.pt")
-    files = glob.glob(pattern)
-    if not files:
-        return None
-    epoch_re = re.compile(r"epoch-(\d+)\.pt$")
-    best_epoch = -1
-    best_path = None
-    for path in files:
-        m = epoch_re.search(path)
-        if m:
-            epoch = int(m.group(1))
-            if epoch > best_epoch:
-                best_epoch = epoch
-                best_path = path
-    return best_path
+    path = latest_epoch_checkpoint(save_dir)
+    return str(path) if path is not None else None
 
 
-def _load_checkpoint(trainer: LatentCoreTrainer, path: str, device: str) -> int:
-    """Load a checkpoint into the trainer. Returns the epoch it was saved at."""
+def _load_checkpoint(
+    path: str,
+    *,
+    identity: dict[str, object],
+    selections: dict[str, object],
+    learning_rate: float,
+):
+    """Validate a safe checkpoint before constructing a trainer."""
     _log(f"loading checkpoint: {path}")
-    state = torch.load(path, map_location=device, weights_only=False)
-    trainer.encoder.projection.load_state_dict(state["encoder_projection"])
-    with torch.no_grad():
-        trainer.encoder.slot_queries.copy_(state["encoder_slot_queries"])
-        if "encoder_attn_log_temp" in state:
-            trainer.encoder.attn_log_temp.copy_(state["encoder_attn_log_temp"])
-    trainer.latent_loop.projection.load_state_dict(state["latent_loop_projection"])
-    if "latent_loop_layer_norm" in state:
-        trainer.latent_loop.layer_norm.load_state_dict(state["latent_loop_layer_norm"])
-    trainer.optimizer.load_state_dict(state["optimizer"])
-    epoch = state["epoch"]
+    checkpoint = load_checkpoint(path, expected_mode="gradient")
+    validate_compatibility(
+        checkpoint,
+        identity=identity,
+        selections=selections,
+        learning_rate=learning_rate,
+    )
+    epoch = checkpoint_epoch(path)
     _log(f"resumed from epoch {epoch}")
-    return epoch
+    return checkpoint, epoch
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
@@ -127,30 +128,69 @@ def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
     return dataset
 
 
-def _save_checkpoint(trainer: LatentCoreTrainer, save_dir: str, epoch: int) -> str:
+def _load_dataset_context(problem_count: int | None):
+    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    t0 = time.monotonic()
+    stage0_dataset = load_stage0_dataset()
+    dataset = training_examples(
+        stage0_dataset, mode="gradient", epoch=1, problem_count=problem_count
+    )
+    train = selection_metadata(stage0_dataset.train_selection, problem_count)
+    held_out = selection_metadata(stage0_dataset.held_out_selection, None)
+    selections = {"train": train, "held_out": held_out}
+    identity = training_identity(
+        runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"]
+    )
+    _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
+    return dataset, identity, selections
+
+
+def _save_checkpoint(
+    trainer: LatentCoreTrainer,
+    save_dir: str,
+    epoch: int,
+    *,
+    identity: dict[str, object],
+    selections: dict[str, object],
+    metrics: dict[str, object],
+) -> str:
     os.makedirs(save_dir, exist_ok=True)
-    checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.pt")
-    state = {
-        "encoder_projection": trainer.encoder.projection.state_dict(),
-        "encoder_slot_queries": trainer.encoder.slot_queries,
-        "encoder_attn_log_temp": trainer.encoder.attn_log_temp,
-        "latent_loop_projection": trainer.latent_loop.projection.state_dict(),
-        "latent_loop_layer_norm": trainer.latent_loop.layer_norm.state_dict(),
-        "optimizer": trainer.optimizer.state_dict(),
-        "epoch": epoch,
-    }
-    torch.save(state, checkpoint_path)
+    checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.ckpt")
+    checkpoint = build_checkpoint(
+        mode="gradient",
+        identity=identity,
+        selections=selections,
+        model_state=trainer.state.trainable_params,
+        optimizer=trainer.optimizer,
+        metrics=metrics,
+    )
+    save_checkpoint(checkpoint_path, checkpoint)
     return checkpoint_path
 
 
 def main() -> None:
+    configure_deterministic_runtime()
     args = _parse_args()
 
     _log(f"device={args.device}")
     _log(f"config: epochs={args.epochs} slots={args.slot_count} "
          f"steps={args.num_steps} lr={args.lr}")
 
-    dataset = _load_dataset(args.problem_count)
+    dataset, checkpoint_identity, selections = _load_dataset_context(args.problem_count)
+
+    resumed = None
+    start_epoch = 0
+    if args.resume is not None:
+        path = _find_latest_checkpoint(args.save_dir) if args.resume == "latest" else args.resume
+        if path is None:
+            _log(f"no checkpoints found in {args.save_dir}, starting from scratch")
+        else:
+            resumed, start_epoch = _load_checkpoint(
+                path,
+                identity=checkpoint_identity,
+                selections=selections,
+                learning_rate=args.lr,
+            )
 
     _log(
         "building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct "
@@ -166,16 +206,12 @@ def main() -> None:
     _log(f"trainer ready ({_format_duration(time.monotonic() - t0)}), "
          f"trainable_params={trainer.trainable_param_count():,}")
 
-    start_epoch = 0
-    if args.resume is not None:
-        if args.resume == "latest":
-            path = _find_latest_checkpoint(args.save_dir)
-            if path is None:
-                _log(f"no checkpoints found in {args.save_dir}, starting from scratch")
-            else:
-                start_epoch = _load_checkpoint(trainer, path, args.device)
-        else:
-            start_epoch = _load_checkpoint(trainer, args.resume, args.device)
+    if resumed is not None:
+        restore_checkpoint(
+            resumed,
+            model_parameters=trainer.state.trainable_params,
+            optimizer=trainer.optimizer,
+        )
 
     remaining_epochs = args.epochs - start_epoch
     if remaining_epochs <= 0:
@@ -223,7 +259,20 @@ def main() -> None:
             _log(f"WARNING: slots are collapsing. "
                  f"avg_variance={stats.avg_variance:.8f} across {stats.steps} steps")
 
-        checkpoint_path = _save_checkpoint(trainer, args.save_dir, epoch)
+        checkpoint_path = _save_checkpoint(
+            trainer,
+            args.save_dir,
+            epoch,
+            identity=checkpoint_identity,
+            selections=selections,
+            metrics={
+                "avg_loss": stats.avg_loss,
+                "avg_variance": stats.avg_variance,
+                "min_variance": stats.min_variance,
+                "max_variance": stats.max_variance,
+                "avg_covariance": stats.avg_covariance,
+            },
+        )
         _log(f"saved: {checkpoint_path}")
 
         epochs_done = epoch - start_epoch

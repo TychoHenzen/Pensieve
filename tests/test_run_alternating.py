@@ -3,13 +3,21 @@ from __future__ import annotations
 from io import StringIO
 import json
 from pathlib import Path
+import random
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
+import torch
+from torch import nn
 
 from train import run_alternating
 from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
-from train.alternating_checkpoint import CheckpointSchedule
+from train.alternating_checkpoint import (
+    CheckpointSchedule,
+    build_alternating_checkpoint,
+    stage0_parameter_paths,
+)
 from train.alternating_scheduler import EvaluationRecord
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
@@ -23,6 +31,7 @@ from train.eggroll_trainer import (
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
+from test_stage0_checkpoint_resume import _metadata
 
 
 def _position() -> ExperimentPosition:
@@ -243,7 +252,11 @@ def test_main_builds_shared_production_run_and_executes_schedule(
     gradient = type("Gradient", (), {"optimizer": object()})()
     eggroll = type("Eggroll", (), {"optimizer": object()})()
 
-    stage0_dataset = SimpleNamespace(held_out_records=lambda: ["validation-record"])
+    stage0_dataset = SimpleNamespace(
+        train_selection=object(),
+        held_out_selection=object(),
+        held_out_records=lambda: ["validation-record"],
+    )
     monkeypatch.setattr(run_alternating, "load_stage0_dataset", lambda: stage0_dataset)
     monkeypatch.setattr(
         run_alternating,
@@ -254,6 +267,17 @@ def test_main_builds_shared_production_run_and_executes_schedule(
         run_alternating,
         "load_held_out_problems",
         lambda records, count: ["held-out"],
+    )
+    monkeypatch.setattr(
+        run_alternating,
+        "_selection_metadata",
+        lambda selection, count: {
+            "identity": "a" * 64,
+            "split": "train" if selection is stage0_dataset.train_selection else "validation",
+            "seed": 0,
+            "problem_count": count,
+            "ordered_item_ids": ["item-0"],
+        },
     )
     monkeypatch.setattr(
         run_alternating, "TrainingState", lambda *args: shared_state
@@ -287,6 +311,85 @@ def test_main_builds_shared_production_run_and_executes_schedule(
     assert calls["epochs"] == 1
     assert calls["phase_steps"] == 2
     assert calls["evaluator"] == "evaluator"
+
+
+def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parameters = {
+        name: nn.Parameter(torch.tensor([float(index)]))
+        for index, name in enumerate(stage0_parameter_paths())
+    }
+    gradient = torch.optim.Adam(parameters.values(), lr=1e-4)
+    eggroll = torch.optim.Adam(parameters.values(), lr=1e-3)
+    for optimizer in (gradient, eggroll):
+        for parameter in parameters.values():
+            parameter.grad = torch.ones_like(parameter)
+        optimizer.step()
+        optimizer.zero_grad()
+    cuda_rng = torch.tensor([3, 1, 4, 1], dtype=torch.uint8)
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [cuda_rng.clone()])
+    fixture = _metadata()
+    fixture["identity"]["runtime"]["device_topology"] = ["cuda:0"]
+    checkpoint = build_alternating_checkpoint(
+        identity=fixture["identity"],
+        selections=fixture["selections"],
+        model_state=parameters,
+        eggroll_optimizer=eggroll,
+        gradient_optimizer=gradient,
+        schedule=CheckpointSchedule("gradient", 0, 2, 1, 1),
+        phase_steps=2,
+        next_dataset_position=2,
+        metrics={"loss": 1.25},
+    )
+    for parameter in parameters.values():
+        parameter.data.add_(100.0)
+    restored_gradient = torch.optim.Adam(parameters.values(), lr=9e-4)
+    restored_eggroll = torch.optim.Adam(parameters.values(), lr=9e-3)
+    random.random()
+    np.random.random()
+    torch.rand(1)
+    restored_cuda: list[list[torch.Tensor]] = []
+    monkeypatch.setattr(
+        torch.cuda,
+        "set_rng_state_all",
+        lambda values: restored_cuda.append(list(values)),
+    )
+
+    run_alternating._restore_checkpoint_state(
+        checkpoint,
+        SimpleNamespace(trainable_params=parameters),
+        restored_gradient,
+        restored_eggroll,
+    )
+
+    assert all(
+        torch.equal(parameter, checkpoint.tensors[f"model.{name}"])
+        for name, parameter in parameters.items()
+    )
+    assert restored_gradient.param_groups[0]["lr"] == 1e-4
+    assert restored_eggroll.param_groups[0]["lr"] == 1e-3
+    assert all(restored_gradient.state[parameter] for parameter in parameters.values())
+    assert all(restored_eggroll.state[parameter] for parameter in parameters.values())
+    python_rng = checkpoint.metadata["rng"]["python"]
+    assert random.getstate() == (
+        python_rng["version"],
+        tuple(python_rng["state"]),
+        python_rng["gaussian_cache"],
+    )
+    numpy_rng = checkpoint.metadata["rng"]["numpy"]
+    restored_numpy = np.random.get_state()
+    assert restored_numpy[0] == numpy_rng["bit_generator"]
+    assert np.array_equal(
+        restored_numpy[1], checkpoint.tensors[numpy_rng["state_tensor"]].numpy()
+    )
+    assert torch.equal(
+        torch.get_rng_state(),
+        checkpoint.tensors[checkpoint.metadata["rng"]["pytorch_cpu"]["state_tensor"]],
+    )
+    assert len(restored_cuda) == 1
+    assert len(restored_cuda[0]) == 1
+    assert torch.equal(restored_cuda[0][0], cuda_rng)
 
 
 def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_examples(

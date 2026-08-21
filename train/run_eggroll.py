@@ -14,6 +14,7 @@ import time
 
 import torch
 
+from eval.stage0_identity import training_identity
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LR,
@@ -26,6 +27,18 @@ from train.eggroll_trainer import (
     StepResult,
 )
 from train.stage0_data import load_stage0_dataset, training_examples
+from train.standalone_checkpoint import (
+    build_checkpoint,
+    checkpoint_epoch,
+    configure_deterministic_runtime,
+    latest_epoch_checkpoint,
+    load_checkpoint,
+    restore_checkpoint,
+    runtime_identity,
+    save_checkpoint,
+    selection_metadata,
+    validate_compatibility,
+)
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
@@ -90,6 +103,12 @@ def _parse_args() -> argparse.Namespace:
         help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
     )
     parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Checkpoint to resume from. 'latest' finds the highest epoch in --save-dir.",
+    )
     return parser.parse_args()
 
 
@@ -107,30 +126,73 @@ def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
     return dataset
 
 
+def _load_dataset_context(problem_count: int | None):
+    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    t0 = time.monotonic()
+    stage0_dataset = load_stage0_dataset()
+    dataset = training_examples(
+        stage0_dataset, mode="eggroll", epoch=1, problem_count=problem_count
+    )
+    train = selection_metadata(stage0_dataset.train_selection, problem_count)
+    held_out = selection_metadata(stage0_dataset.held_out_selection, None)
+    selections = {"train": train, "held_out": held_out}
+    identity = training_identity(
+        runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"]
+    )
+    _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
+    return dataset, identity, selections
+
+
+def _find_latest_checkpoint(save_dir: str) -> str | None:
+    path = latest_epoch_checkpoint(save_dir)
+    return str(path) if path is not None else None
+
+
+def _load_checkpoint(
+    path: str,
+    *,
+    identity: dict[str, object],
+    selections: dict[str, object],
+    learning_rate: float,
+):
+    _log(f"loading checkpoint: {path}")
+    checkpoint = load_checkpoint(path, expected_mode="eggroll")
+    validate_compatibility(
+        checkpoint,
+        identity=identity,
+        selections=selections,
+        learning_rate=learning_rate,
+    )
+    epoch = checkpoint_epoch(path)
+    _log(f"resumed from epoch {epoch}")
+    return checkpoint, epoch
+
+
 def _save_checkpoint(
-    trainer: EggrollTrainer, save_dir: str, epoch: int
+    trainer: EggrollTrainer,
+    save_dir: str,
+    epoch: int,
+    *,
+    identity: dict[str, object],
+    selections: dict[str, object],
+    metrics: dict[str, object],
 ) -> str:
     os.makedirs(save_dir, exist_ok=True)
-    checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.pt")
-    state = {
-        "encoder_projection": trainer.encoder.projection.state_dict(),
-        "encoder_slot_queries": trainer.encoder.slot_queries,
-        "latent_loop_projection": trainer.latent_loop.projection.state_dict(),
-        "latent_loop_layer_norm": trainer.latent_loop.layer_norm.state_dict(),
-        "optimizer": trainer.optimizer.state_dict(),
-        "epoch": epoch,
-        "pop_size": trainer.pop_size,
-        "sigma": trainer.sigma,
-        "rank": trainer.rank,
-        "variance_weight": trainer.variance_weight,
-        "eval_batch_size": trainer.eval_batch_size,
-        "use_amp": trainer.use_amp,
-    }
-    torch.save(state, checkpoint_path)
+    checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.ckpt")
+    checkpoint = build_checkpoint(
+        mode="eggroll",
+        identity=identity,
+        selections=selections,
+        model_state=trainer.state.trainable_params,
+        optimizer=trainer.optimizer,
+        metrics=metrics,
+    )
+    save_checkpoint(checkpoint_path, checkpoint)
     return checkpoint_path
 
 
 def main() -> None:
+    configure_deterministic_runtime()
     args = _parse_args()
 
     _log(f"device={args.device}")
@@ -142,12 +204,27 @@ def main() -> None:
         f"amp={args.use_amp}"
     )
 
-    dataset = _load_dataset(args.problem_count)
+    dataset, checkpoint_identity, selections = _load_dataset_context(args.problem_count)
+
+    resumed = None
+    start_epoch = 0
+    if args.resume is not None:
+        path = _find_latest_checkpoint(args.save_dir) if args.resume == "latest" else args.resume
+        if path is None:
+            _log(f"no checkpoints found in {args.save_dir}, starting from scratch")
+        else:
+            resumed, start_epoch = _load_checkpoint(
+                path,
+                identity=checkpoint_identity,
+                selections=selections,
+                learning_rate=args.lr,
+            )
 
     _log(
         "building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct "
         "+ frozen MiniLM)..."
     )
+
     t0 = time.monotonic()
     trainer = EggrollTrainer(
         slot_count=args.slot_count,
@@ -166,6 +243,13 @@ def main() -> None:
         f"trainable_params={trainer.trainable_param_count():,}"
     )
 
+    if resumed is not None:
+        restore_checkpoint(
+            resumed,
+            model_parameters=trainer.state.trainable_params,
+            optimizer=trainer.optimizer,
+        )
+
     _log(f"{'=' * 60}")
     _log(f"  EGGROLL ES training: {args.epochs} epochs x {len(dataset)} examples")
     _log(f"  population={args.pop_size} (antithetic pairs)")
@@ -174,7 +258,7 @@ def main() -> None:
     epoch_losses: list[float] = []
     training_start = time.monotonic()
 
-    for epoch in range(1, args.epochs + 1):
+    for epoch in range(start_epoch + 1, args.epochs + 1):
         epoch_start = time.monotonic()
         recent_losses: list[float] = []
         recent_vars: list[float] = []
@@ -208,7 +292,19 @@ def main() -> None:
             f"[{stats.min_variance:.6f}, {stats.max_variance:.6f}]"
         )
 
-        checkpoint_path = _save_checkpoint(trainer, args.save_dir, epoch)
+        checkpoint_path = _save_checkpoint(
+            trainer,
+            args.save_dir,
+            epoch,
+            identity=checkpoint_identity,
+            selections=selections,
+            metrics={
+                "avg_loss": stats.avg_loss,
+                "avg_variance": stats.avg_variance,
+                "min_variance": stats.min_variance,
+                "max_variance": stats.max_variance,
+            },
+        )
         _log(f"saved: {checkpoint_path}")
 
         if epoch > 1:
