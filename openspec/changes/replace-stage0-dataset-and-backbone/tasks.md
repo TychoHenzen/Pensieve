@@ -92,7 +92,7 @@
 - [x] 5.3 Add latent-evaluation tests proving full and limited runs consume the token path's persisted ordered identifiers, emit the shared `{item_id, prediction, target, correct}` item schema, and bind identity to the canonical ordered `{item_id, input_ids}` digest.
   <!-- covers: eval/stage0-gate :: Comparable test selection :: Full evaluation identity -->
   <!-- covers: eval/stage0-gate :: Comparable test selection :: Limited evaluation identity -->
-- [ ] 5.4 Route latent evaluation through the shared records and scoring contract without per-seed resampling of selected test items.
+- [x] 5.4 Route latent evaluation through the shared records and scoring contract without per-seed resampling of selected test items.
 - [ ] 5.5 Add gate-cache tests for typed schema validation, checkpoint digest, `rendered_inputs_sha256`, complete inference and runtime identity, exact compatible reuse, per-item coverage, recomputed aggregates, atomic writes, and rejection of absent or changed fields.
   <!-- covers: eval/stage0-gate :: Result compatibility identity :: Matching cached baseline -->
   <!-- covers: eval/stage0-gate :: Result compatibility identity :: Stale cached baseline -->
