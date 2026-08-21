@@ -56,7 +56,7 @@
 
 ## 3. Stage 0 training integration
 
-- [ ] 3.1 Add contract tests proving all trainers reuse the complete seed-0 train order each epoch while held-out evaluation uses only the first 128 persisted seed-0 validation identifiers.
+- [x] 3.1 Add contract tests proving all trainers reuse the complete seed-0 train order each epoch while held-out evaluation uses only the first 128 persisted seed-0 validation identifiers.
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Training modes share examples -->
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Held-out split isolation -->
 - [ ] 3.2 Route all three training entry points and held-out evaluation through the shared dataset adapter and Stage 0 identity.
