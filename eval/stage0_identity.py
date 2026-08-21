@@ -374,10 +374,19 @@ def _sentence_transformer_loader(
     )
 
 
-def load_minilm_model(model_loader: Callable[..., Any] | None = None) -> Any:
+def load_minilm_model(
+    model_loader: Callable[..., Any] | None = None,
+    manifest_verifier: Callable[
+        [str, str, Mapping[str, Mapping[str, str]]], None
+    ]
+    | None = None,
+) -> Any:
     if model_loader is None:
         model_loader = _sentence_transformer_loader
+    if manifest_verifier is None:
+        manifest_verifier = verify_huggingface_manifest
     try:
+        manifest_verifier(MINILM_MODEL, MINILM_REVISION, MINILM_MANIFEST)
         return model_loader(
             MINILM_MODEL,
             revision=MINILM_REVISION,

@@ -15,10 +15,16 @@ from train.training_results import ExperimentPosition
 class SequenceTokenizer:
     eos_token_id = 6
 
-    def __call__(self, text: str, return_tensors: str) -> dict[str, torch.Tensor]:
-        del return_tensors
+    def __call__(self, text: str, **kwargs: object) -> dict[str, torch.Tensor]:
+        del kwargs
         ids = [9] if text == "question" else [4, 5]
         return {"input_ids": torch.tensor([ids])}
+
+    def apply_chat_template(
+        self, messages: object, **kwargs: object
+    ) -> dict[str, torch.Tensor]:
+        del messages, kwargs
+        return {"input_ids": torch.tensor([[9]])}
 
 
 class RecordingLanguageModel(nn.Module):
@@ -35,7 +41,7 @@ class RecordingLanguageModel(nn.Module):
     def get_input_embeddings(self) -> nn.Embedding:
         return self.embedding
 
-    def forward(self, *, inputs_embeds: torch.Tensor) -> SimpleNamespace:
+    def forward(self, *, inputs_embeds: torch.Tensor, **_: object) -> SimpleNamespace:
         self.seen_inputs.append(inputs_embeds.detach().clone())
         logits = torch.full((*inputs_embeds.shape[:-1], 10), -100.0)
         if inputs_embeds.shape[1] >= 4:
@@ -97,9 +103,9 @@ def test_held_out_loss_teacher_forces_decoder_sequence_through_eos() -> None:
 
     result = evaluate_unperturbed(
         shared_model,
-        [HeldOutProblem("question", "answer")],
+        [HeldOutProblem("question", "45")],
         ExperimentPosition("gradient", 0, 1, 1, 1, 1),
-        answer_decoder=lambda _: "answer",
+        answer_decoder=lambda _: "45",
     )
 
     expected_prefixes = shared_model.latent_loop.model.embedding(

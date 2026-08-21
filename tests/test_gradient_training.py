@@ -28,9 +28,18 @@ from train.training_results import ExperimentPosition, StepResult
 
 
 class FakeTokenizer:
-    def __call__(self, text: str, return_tensors: str) -> dict[str, torch.Tensor]:
-        token_id = 1 if text == "question" else 2
+    eos_token_id = 3
+
+    def __call__(self, text: str, **kwargs: object) -> dict[str, torch.Tensor]:
+        del kwargs
+        token_id = 2 if text == "2" else 1
         return {"input_ids": torch.tensor([[token_id]])}
+
+    def apply_chat_template(
+        self, messages: object, **kwargs: object
+    ) -> dict[str, torch.Tensor]:
+        del messages, kwargs
+        return {"input_ids": torch.tensor([[1]])}
 
 
 class FakeWorkspace:
@@ -64,11 +73,13 @@ class FakeLatentLoop(nn.Module):
         super().__init__()
         self.projection = nn.Linear(3, 3)
         self.model = FakeLanguageModel()
+        self.run_calls = 0
 
     def embed_tokens(self, question_ids: torch.Tensor) -> torch.Tensor:
         return torch.zeros(1, 3)
 
     def run(self, workspace: FakeWorkspace, context_embeds: torch.Tensor) -> torch.Tensor:
+        self.run_calls += 1
         workspace.write_slots(workspace.read_slots() * 2)
         return workspace.read_slots()
 
@@ -76,9 +87,13 @@ class FakeLatentLoop(nn.Module):
 class FakeLanguageModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
+        self.embedding = nn.Embedding(4, 3)
         self.output = nn.Linear(3, 4, bias=False)
 
-    def forward(self, *, inputs_embeds: torch.Tensor) -> SimpleNamespace:
+    def get_input_embeddings(self) -> nn.Module:
+        return self.embedding
+
+    def forward(self, *, inputs_embeds: torch.Tensor, **_: object) -> SimpleNamespace:
         return SimpleNamespace(logits=self.output(inputs_embeds))
 
 
@@ -87,6 +102,7 @@ class SharedState:
         self.workspace = FakeWorkspace()
         self.encoder = FakeEncoder()
         self.latent_loop = FakeLatentLoop()
+        self.tokenizer = FakeTokenizer()
 
     def parameters(self):
         return iter(
@@ -107,21 +123,19 @@ class SharedState:
 def test_gradient_step_uses_shared_state_and_emits_common_objective_metrics(
     monkeypatch,
 ) -> None:
-    monkeypatch.setattr(
-        "train.trainer.AutoTokenizer.from_pretrained", lambda _: FakeTokenizer()
-    )
     state = SharedState()
     trainer = LatentCoreTrainer(state=state)
     position = ExperimentPosition("gradient", 3, 12, 2, 4, 1)
 
-    result = trainer.train_step("question", "answer", position)
+    result = trainer.train_step("question", "2", position)
 
     assert trainer.state is state
     assert trainer.encoder is state.encoder
     assert trainer.latent_loop is state.latent_loop
     assert isinstance(result, StepResult)
     assert result.position is position
-    assert result.shared_variance == pytest.approx(4.0)
+    assert state.latent_loop.run_calls == 2
+    assert result.shared_variance == pytest.approx(16.0)
     assert result.regularizer_loss > 0.0
     assert result.total_objective == pytest.approx(
         result.language_model_loss + result.regularizer_loss

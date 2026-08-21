@@ -88,10 +88,16 @@ def _parse_target(value: object) -> tuple[str, Fraction]:
         )
     elif "." in normalized:
         canonical = format(Decimal(normalized), "f").rstrip("0").rstrip(".")
-        canonical = canonical or "0"
+        canonical = "0" if not canonical or Decimal(normalized).is_zero() else canonical
     else:
         canonical = str(rational.numerator)
     return canonical, rational
+
+
+def canonicalize_numerical_target(value: str) -> str:
+    """Return the exact canonical numerical text used by Calc-MAWPS."""
+    canonical, _ = _parse_target(value)
+    return canonical
 
 
 def _validate_result_float(value: object, target: Fraction) -> None:

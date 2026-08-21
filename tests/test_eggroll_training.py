@@ -45,7 +45,8 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         proj_norm=nn.LayerNorm(2),
         layer_norm=nn.LayerNorm(2),
         residual_weight=0.0,
-        num_steps=0,
+        num_steps=1,
+        tap_layer=0,
         model=model,
     )
 
@@ -62,6 +63,7 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         context_embeds=torch.zeros(1, 2),
         answer_ids=torch.tensor([[0]]),
         perturbations=[[torch.zeros_like(parameter) for parameter in trainer.trainable_params]],
+        eos_token_id=1,
     )
 
     assert variance.tolist() == pytest.approx(
@@ -70,18 +72,17 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
     assert fitness.tolist() == pytest.approx(
         (-losses + trainer.variance_weight * variance.clamp_min(1e-10).log()).tolist()
     )
+    assert model.forward_calls == 3
 
 
 def test_constructor_accepts_supplied_shared_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(
-        "train.eggroll_trainer.AutoTokenizer.from_pretrained", lambda _: object()
-    )
     state = SimpleNamespace(
         workspace=object(),
         encoder=SimpleNamespace(slot_count=2),
         latent_loop=SimpleNamespace(model=nn.Identity()),
+        tokenizer=object(),
         parameters=lambda: iter(()),
         create_optimizer=lambda _: object(),
     )
@@ -101,7 +102,7 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     trainer.state = object()
     trainer.encoder = SimpleNamespace(_token_embeddings=lambda _: torch.zeros(1, 2))
     trainer.latent_loop = SimpleNamespace(embed_tokens=lambda _: torch.zeros(1, 2))
-    trainer.tokenizer = lambda text, return_tensors: {"input_ids": torch.tensor([[0]])}
+    trainer.tokenizer = FakeTokenizer()
     trainer.device = "cpu"
     trainer.use_amp = False
     trainer.pop_size = 2
@@ -119,7 +120,7 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     monkeypatch.setattr(trainer, "_forward_fitness_batch", forward)
     position = ExperimentPosition("eggroll", 1, 2, 3, 4, 5)
 
-    result = trainer.train_step("question", "answer", position)
+    result = trainer.train_step("question", "0", position)
 
     assert trainer.state is not None
     assert isinstance(result, StepResult)
@@ -131,6 +132,29 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
 
 
 class FakeLanguageModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.forward_calls = 0
+        self.embedding = nn.Embedding(2, 2)
+
+    def get_input_embeddings(self) -> nn.Module:
+        return self.embedding
+
     def forward(self, *, inputs_embeds: torch.Tensor, **kwargs: object) -> SimpleNamespace:
+        self.forward_calls += 1
         logits = torch.zeros(*inputs_embeds.shape[:-1], 2)
         return SimpleNamespace(logits=logits, hidden_states=[inputs_embeds])
+
+
+class FakeTokenizer:
+    eos_token_id = 1
+
+    def __call__(self, text: str, **kwargs: object) -> dict[str, torch.Tensor]:
+        del text, kwargs
+        return {"input_ids": torch.tensor([[0]])}
+
+    def apply_chat_template(
+        self, messages: object, **kwargs: object
+    ) -> dict[str, torch.Tensor]:
+        del messages, kwargs
+        return {"input_ids": torch.tensor([[0]])}

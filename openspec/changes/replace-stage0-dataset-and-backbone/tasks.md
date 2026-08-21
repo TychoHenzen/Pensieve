@@ -63,7 +63,7 @@
 - [x] 3.3 Extend decoder-aligned objective tests with canonical integer, decimal, fraction, and negative targets. For `K` answer tokens, assert `[slots, all K answer tokens]` inputs and equal-length labels containing `slot_count - 1` ignored entries followed by all `K` tokens and EOS.
   <!-- covers: train/stage0-training :: Decoder-aligned numerical objective :: Multi-token numerical target -->
   <!-- covers: train/stage0-training :: Decoder-aligned numerical objective :: Training prompt contract -->
-- [ ] 3.4 Adapt gradient and Eggroll training to the shared Qwen tokenizer and context contract while preserving the existing answer-objective repairs and frozen-backbone policy.
+- [x] 3.4 Adapt gradient and Eggroll training to the shared Qwen tokenizer and context contract while preserving the existing answer-objective repairs and frozen-backbone policy.
 - [ ] 3.5 Update alternating-schedule tests for 1,089 examples per epoch, 5,445 default steps, uninterrupted phase budgets, and invalid epoch rejection.
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Phase boundary within an epoch -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within a phase -->

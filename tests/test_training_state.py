@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
 
 import torch
 from torch import nn
@@ -33,8 +33,11 @@ class FakeWorkspace:
 
 
 class FakeEncoder(nn.Module):
-    def __init__(self, slot_count: int, device: str) -> None:
+    def __init__(
+        self, slot_count: int, device: str, sentence_model: object | None = None
+    ) -> None:
         super().__init__()
+        del device, sentence_model
         self.slot_count = slot_count
         self.projection = nn.Linear(3, 4)
         self.slot_queries = nn.Parameter(torch.randn(slot_count, 4))
@@ -42,13 +45,14 @@ class FakeEncoder(nn.Module):
 
 
 class FakeLatentLoop(nn.Module):
-    def __init__(self, num_steps: int, device: str) -> None:
+    def __init__(self, num_steps: int, device: str, backbone: object) -> None:
         super().__init__()
+        del device
         self.num_steps = num_steps
         self.projection = nn.Linear(4, 4)
         self.proj_norm = nn.LayerNorm(4)
         self.layer_norm = nn.LayerNorm(4)
-        self.model = nn.Identity()
+        self.model = backbone.model
 
 
 class FakeTokenizer:
@@ -60,10 +64,8 @@ def _patch_training_dependencies(monkeypatch) -> None:
     monkeypatch.setattr("train.training_state.SlotEncoder", FakeEncoder)
     monkeypatch.setattr("train.training_state.LatentLoop", FakeLatentLoop)
     monkeypatch.setattr(
-        "train.trainer.AutoTokenizer.from_pretrained", lambda _: FakeTokenizer()
-    )
-    monkeypatch.setattr(
-        "train.eggroll_trainer.AutoTokenizer.from_pretrained", lambda _: FakeTokenizer()
+        "train.training_state.load_frozen_qwen_backbone",
+        lambda **_: SimpleNamespace(model=nn.Identity(), tokenizer=FakeTokenizer()),
     )
 
 

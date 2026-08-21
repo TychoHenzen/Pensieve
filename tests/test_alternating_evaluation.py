@@ -167,11 +167,17 @@ class FakePhaseEvaluator:
 
 
 class FakeTokenizer:
-    eos_token_id = None
+    eos_token_id = 0
 
-    def __call__(self, text: str, return_tensors: str) -> dict[str, torch.Tensor]:
-        del return_tensors
+    def __call__(self, text: str, **kwargs: object) -> dict[str, torch.Tensor]:
+        del kwargs
         return {"input_ids": torch.tensor([[1 if text == "one" else 2]])}
+
+    def apply_chat_template(
+        self, messages: object, **kwargs: object
+    ) -> dict[str, torch.Tensor]:
+        del messages, kwargs
+        return {"input_ids": torch.tensor([[1]])}
 
 
 class FakeWorkspace:
@@ -201,8 +207,12 @@ class FakeLanguageModel(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.scale = nn.Parameter(torch.tensor(1.0))
+        self.embedding = nn.Embedding(3, 2)
 
-    def forward(self, *, inputs_embeds: torch.Tensor) -> SimpleNamespace:
+    def get_input_embeddings(self) -> nn.Module:
+        return self.embedding
+
+    def forward(self, *, inputs_embeds: torch.Tensor, **_: object) -> SimpleNamespace:
         logits = torch.zeros(*inputs_embeds.shape[:-1], 3) * self.scale
         return SimpleNamespace(logits=logits)
 
@@ -227,7 +237,7 @@ class FakeSharedModel:
         self.encoder = FakeEncoder()
         self.latent_loop = FakeLatentLoop()
         self.tokenizer = FakeTokenizer()
-        self.answers = ["1", "wrong"]
+        self.answers = ["The answer is 1", "wrong"]
 
     def parameters(self):
         return self.latent_loop.parameters()

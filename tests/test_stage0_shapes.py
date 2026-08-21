@@ -121,7 +121,11 @@ def test_workspace_accepts_each_unchanged_ablation_slot_count(slot_count: int) -
 
 # covers: codecs/encoder::Encoder maps text to workspace slots::text encoded to slots
 def test_encoder_maps_text_to_896_wide_workspace_slots(fake_sentence_transformer: Any) -> None:
-    encoder = SlotEncoder(slot_count=8, device="cpu")
+    encoder = SlotEncoder(
+        slot_count=8,
+        device="cpu",
+        manifest_verifier=lambda *_: None,
+    )
 
     slots = encoder.encode("a small text input")
 
@@ -132,7 +136,11 @@ def test_encoder_maps_text_to_896_wide_workspace_slots(fake_sentence_transformer
 def test_encoder_maps_short_and_long_text_to_same_896_wide_slot_shape(
     fake_sentence_transformer: Any,
 ) -> None:
-    encoder = SlotEncoder(slot_count=8, device="cpu")
+    encoder = SlotEncoder(
+        slot_count=8,
+        device="cpu",
+        manifest_verifier=lambda *_: None,
+    )
 
     short_slots = encoder.encode("word")
     long_slots = encoder.encode("this is a paragraph with several distinct words")

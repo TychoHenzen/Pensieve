@@ -1,6 +1,6 @@
-"""Trains the latent-core subject's learned components on GSM8K.
+"""Train the latent-core subject's learned components on Calc-MAWPS.
 
-The frozen Pythia-160M backbone and the frozen MiniLM sentence encoder are
+The frozen Qwen backbone and the frozen MiniLM sentence encoder are
 never updated. Only the encoder's projection, cross-attention, and slot
 queries, plus the latent loop's hidden-state projection, receive gradients.
 
@@ -16,11 +16,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import torch
-from torch import nn
-from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
+from train.answer_objective import (
+    SUBJECT_LATENT_RUNS_PER_ANSWER,
+    decoder_aligned_answer_loss,
+    prepare_training_example,
+)
 from train.training_results import ExperimentPosition, StepResult
 from train.training_state import TrainingState
 from train.vicreg import (
@@ -43,11 +46,10 @@ class EpochStats:
 
 DEFAULT_NUM_STEPS = 2
 DEFAULT_LR = 1e-4
-TOKENIZER_NAME = "EleutherAI/pythia-160m"
 
 
 class LatentCoreTrainer:
-    """Trains the encoder and latent loop's learned parameters on GSM8K."""
+    """Train the encoder and latent loop wrappers on Stage 0 examples."""
 
     def __init__(
         self,
@@ -66,15 +68,12 @@ class LatentCoreTrainer:
         self.workspace = self.state.workspace
         self.encoder = self.state.encoder
         self.latent_loop = self.state.latent_loop
-        self.tokenizer = getattr(self.state, "tokenizer", None)
-        if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+        self.tokenizer = self.state.tokenizer
         self.vicreg = VICRegLoss()
         self.ema_projection = EMAProjection(self.latent_loop.projection, decay=ema_decay)
 
         self.trainable_params = list(self.state.parameters())
         self.optimizer = self.state.create_optimizer(lr)
-        self.loss_fn = nn.CrossEntropyLoss()
 
     def trainable_param_count(self) -> int:
         """Number of trainable scalar parameters across all trainable modules."""
@@ -86,44 +85,28 @@ class LatentCoreTrainer:
         answer: str,
         position: ExperimentPosition | None = None,
     ) -> StepResult:
-        """One training step. The model predicts answer tokens from slots alone.
+        """Run one decoder-aligned, teacher-forced training step.
 
-        The forward pass feeds only the slot vectors as inputs_embeds.
-        Logits at positions [N-T, N-1] predict the T answer tokens.
-        No answer token embeddings are concatenated, so the model
-        cannot shortcut by attending to previous answer tokens.
+        Slots predict the first answer token. Answer prefixes predict the
+        remaining tokens and EOS, matching ``SlotDecoder.decode``.
         """
         self.optimizer.zero_grad()
 
-        question_ids = self.tokenizer(question, return_tensors="pt")["input_ids"]
-        context_embeds = self.latent_loop.embed_tokens(question_ids)
+        prepared = prepare_training_example(self.tokenizer, question, answer)
+        context_embeds = self.latent_loop.embed_tokens(prepared.context_input_ids)
 
         slots = self.encoder.encode(question)
         self.workspace.write_slots(slots)
-        self.latent_loop.run(self.workspace, context_embeds=context_embeds)
+        for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
+            self.latent_loop.run(self.workspace, context_embeds=context_embeds)
         loop_slots = self.workspace.read_slots()
 
-        answer_ids = self.tokenizer(answer, return_tensors="pt")["input_ids"].to(
-            self.device
-        )
-        num_answer_tokens = answer_ids.shape[1]
-        num_slots = loop_slots.shape[0]
-
-        outputs = self.latent_loop.model(inputs_embeds=loop_slots.unsqueeze(0))
-        logits = outputs.logits.squeeze(0)  # (N, vocab)
-
-        answer_id = answer_ids.squeeze(0)
-        if num_answer_tokens == 1:
-            target = answer_id.expand(num_slots)
-            lm_loss = self.loss_fn(logits, target)
-        else:
-            predict_positions = num_slots - num_answer_tokens
-            if predict_positions < 0:
-                predict_positions = 0
-            answer_logits = logits[
-                predict_positions : predict_positions + num_answer_tokens
-            ]
-            lm_loss = self.loss_fn(answer_logits, answer_id)
+        lm_loss = decoder_aligned_answer_loss(
+            self.latent_loop.model,
+            loop_slots,
+            prepared.answer_ids.to(self.device),
+            getattr(self.tokenizer, "eos_token_id", None),
+        ).mean()
         vicreg_loss = self.vicreg(slots)
         total_objective = lm_loss + vicreg_loss
         total_objective.backward()

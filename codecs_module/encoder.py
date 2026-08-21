@@ -1,14 +1,33 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
+
 import torch
 from sentence_transformers import SentenceTransformer
 from torch import nn
 
+from eval.stage0_identity import load_minilm_model
 from workspace.concept_slots import SLOT_DIM, Workspace
 
 MINILM_DIM = 384
 MINILM_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 NUM_ATTENTION_HEADS = 8
+MINILM_TOKEN_LIMIT = 256
+
+
+def _load_sentence_transformer(
+    repository: str,
+    *,
+    revision: str,
+    trust_remote_code: bool,
+    use_safetensors: bool,
+) -> object:
+    return SentenceTransformer(
+        repository,
+        revision=revision,
+        trust_remote_code=trust_remote_code,
+        model_kwargs={"use_safetensors": use_safetensors},
+    )
 
 
 class SlotEncoder(nn.Module):
@@ -22,12 +41,29 @@ class SlotEncoder(nn.Module):
     the mean.
     """
 
-    def __init__(self, slot_count: int = 16, device: str = "cpu") -> None:
+    def __init__(
+        self,
+        slot_count: int = 16,
+        device: str = "cpu",
+        sentence_model: object | None = None,
+        manifest_verifier: Callable[
+            [str, str, Mapping[str, Mapping[str, str]]], None
+        ]
+        | None = None,
+    ) -> None:
         super().__init__()
         self.slot_count = slot_count
         self.device = device
 
-        self._sentence_model = SentenceTransformer(MINILM_MODEL_NAME, device=device)
+        self._sentence_model = (
+            load_minilm_model(
+                model_loader=_load_sentence_transformer,
+                manifest_verifier=manifest_verifier,
+            )
+            if sentence_model is None
+            else sentence_model
+        )
+        self._sentence_model.to(device)
         for param in self._sentence_model.parameters():
             param.requires_grad = False
         self._sentence_model.eval()
@@ -43,8 +79,16 @@ class SlotEncoder(nn.Module):
         transformer = self._sentence_model[0]
         tokenizer = transformer.tokenizer
         features = tokenizer(
-            [text], return_tensors="pt", padding=True, truncation=True
+            [text], return_tensors="pt", padding=False, truncation=False
         )
+        input_ids = features.get("input_ids")
+        if not isinstance(input_ids, torch.Tensor) or input_ids.ndim != 2:
+            raise ValueError("MiniLM tokenizer must return input_ids with shape (1, tokens)")
+        if input_ids.shape[1] > MINILM_TOKEN_LIMIT:
+            raise ValueError(
+                "MiniLM input exceeds the 256-token Stage 0 limit: "
+                f"actual {input_ids.shape[1]}"
+            )
         features = {key: value.to(self.device) for key, value in features.items()}
         with torch.no_grad():
             output = transformer.auto_model(**features)

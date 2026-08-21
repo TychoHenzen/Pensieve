@@ -2,7 +2,7 @@
 
 Uses low-rank perturbations with antithetic sampling to estimate
 parameter gradients without backpropagation. This bypasses gradient
-attenuation through the frozen Pythia backbone, which kills standard
+attenuation through the frozen Qwen backbone, which weakens standard
 gradient descent for the latent loop's trainable wrappers.
 
 Based on: https://eshyperscale.github.io/
@@ -15,18 +15,19 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-import torch.nn.functional as F
 from torch import nn
-from transformers import AutoTokenizer
 
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
+from train.answer_objective import (
+    SUBJECT_LATENT_RUNS_PER_ANSWER,
+    decoder_aligned_answer_loss,
+    prepare_training_example,
+)
 from train.training_results import ExperimentPosition, StepResult
 from train.training_state import TrainingState
 from train.vicreg import post_loop_slot_variance
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
-
-TOKENIZER_NAME = "EleutherAI/pythia-160m"
 
 DEFAULT_POP_SIZE = 128
 DEFAULT_SIGMA = 0.02
@@ -84,10 +85,7 @@ class EggrollTrainer:
         self.encoder = self.state.encoder
         self.latent_loop = self.state.latent_loop
         self.latent_loop.model.eval()
-        self.tokenizer = getattr(self.state, "tokenizer", None)
-        if self.tokenizer is None:
-            self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.tokenizer = self.state.tokenizer
 
         self.trainable_params = list(self.state.parameters())
         self.optimizer = self.state.create_optimizer(lr)
@@ -134,6 +132,7 @@ class EggrollTrainer:
         context_embeds: torch.Tensor,
         answer_ids: torch.Tensor,
         perturbations: list[list[torch.Tensor]],
+        eos_token_id: int | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate several perturbed candidates in each frozen-model pass."""
         params = [
@@ -162,59 +161,75 @@ class EggrollTrainer:
         layer_norm_weight = self.latent_loop.layer_norm.weight.unsqueeze(0) + params[8]
         layer_norm_bias = self.latent_loop.layer_norm.bias.unsqueeze(0) + params[9]
 
-        loop_slots = self._batched_layer_norm(
-            slots,
-            layer_norm_weight,
-            layer_norm_bias,
-            self.latent_loop.layer_norm.eps,
-        )
+        loop_slots = slots
         batched_context = context_embeds.unsqueeze(0).expand(batch_size, -1, -1)
-        for _ in range(self.latent_loop.num_steps):
-            combined = torch.cat([batched_context, loop_slots], dim=1)
-            outputs = self.latent_loop.model(
-                inputs_embeds=combined,
-                output_hidden_states=True,
-            )
-            hidden = outputs.hidden_states[self.latent_loop.tap_layer]
-            slot_hidden = hidden[:, context_embeds.shape[0] :]
-            transformed = torch.bmm(
-                slot_hidden, loop_projection_weight.transpose(1, 2)
-            ) + loop_projection_bias.unsqueeze(1)
-            transformed = self._batched_layer_norm(
-                transformed,
-                proj_norm_weight,
-                proj_norm_bias,
-                self.latent_loop.proj_norm.eps,
-            )
+        for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
             loop_slots = self._batched_layer_norm(
-                transformed + self.latent_loop.residual_weight * loop_slots,
+                loop_slots,
                 layer_norm_weight,
                 layer_norm_bias,
                 self.latent_loop.layer_norm.eps,
             )
+            for _ in range(self.latent_loop.num_steps):
+                combined = torch.cat([batched_context, loop_slots], dim=1)
+                sequence_length = combined.shape[1]
+                attention_mask = torch.ones(
+                    (batch_size, sequence_length),
+                    dtype=torch.long,
+                    device=combined.device,
+                )
+                position_ids = torch.arange(
+                    sequence_length,
+                    dtype=torch.long,
+                    device=combined.device,
+                ).unsqueeze(0).expand(batch_size, -1)
+                outputs = self.latent_loop.model(
+                    inputs_embeds=combined,
+                    attention_mask=attention_mask,
+                    position_ids=position_ids,
+                    output_hidden_states=True,
+                )
+                hidden_states = outputs.hidden_states
+                if len(hidden_states) <= self.latent_loop.tap_layer:
+                    raise ValueError(
+                        "expected hidden-state tuple with index "
+                        f"{self.latent_loop.tap_layer}, actual length "
+                        f"{len(hidden_states)}"
+                    )
+                hidden = hidden_states[self.latent_loop.tap_layer]
+                expected_shape = (
+                    batch_size,
+                    sequence_length,
+                    loop_slots.shape[-1],
+                )
+                if tuple(hidden.shape) != expected_shape:
+                    raise ValueError(
+                        f"expected hidden state shape {expected_shape}, actual "
+                        f"{tuple(hidden.shape)}"
+                    )
+                slot_hidden = hidden[:, -loop_slots.shape[1] :, :]
+                transformed = torch.bmm(
+                    slot_hidden, loop_projection_weight.transpose(1, 2)
+                ) + loop_projection_bias.unsqueeze(1)
+                transformed = self._batched_layer_norm(
+                    transformed,
+                    proj_norm_weight,
+                    proj_norm_bias,
+                    self.latent_loop.proj_norm.eps,
+                )
+                loop_slots = self._batched_layer_norm(
+                    transformed + self.latent_loop.residual_weight * loop_slots,
+                    layer_norm_weight,
+                    layer_norm_bias,
+                    self.latent_loop.layer_norm.eps,
+                )
 
-        outputs = self.latent_loop.model(inputs_embeds=loop_slots)
-        logits = outputs.logits
-
-        num_answer_tokens = answer_ids.shape[1]
-        num_slots = loop_slots.shape[1]
-        answer_id = answer_ids.expand(batch_size, -1)
-
-        if num_answer_tokens == 1:
-            target = answer_id.expand(-1, num_slots)
-            lm_loss = F.cross_entropy(
-                logits.reshape(-1, logits.shape[-1]),
-                target.reshape(-1),
-                reduction="none",
-            ).reshape(batch_size, num_slots).mean(dim=1)
-        else:
-            pos = max(0, num_slots - num_answer_tokens)
-            answer_logits = logits[:, pos : pos + num_answer_tokens]
-            lm_loss = F.cross_entropy(
-                answer_logits.reshape(-1, answer_logits.shape[-1]),
-                answer_id.reshape(-1),
-                reduction="none",
-            ).reshape(batch_size, num_answer_tokens).mean(dim=1)
+        lm_loss = decoder_aligned_answer_loss(
+            self.latent_loop.model,
+            loop_slots,
+            answer_ids,
+            eos_token_id,
+        )
 
         variance = torch.stack(
             [post_loop_slot_variance(candidate_slots) for candidate_slots in loop_slots]
@@ -231,13 +246,9 @@ class EggrollTrainer:
     ) -> StepResult:
         with torch.no_grad():
             token_embeddings = self.encoder._token_embeddings(question)
-            question_ids = self.tokenizer(question, return_tensors="pt")[
-                "input_ids"
-            ]
-            context_embeds = self.latent_loop.embed_tokens(question_ids)
-            answer_ids = self.tokenizer(answer, return_tensors="pt")[
-                "input_ids"
-            ].to(self.device)
+            prepared = prepare_training_example(self.tokenizer, question, answer)
+            context_embeds = self.latent_loop.embed_tokens(prepared.context_input_ids)
+            answer_ids = prepared.answer_ids.to(self.device)
 
         base_seed = int(torch.randint(0, 2**31, (1,)).item())
 
@@ -266,6 +277,7 @@ class EggrollTrainer:
                         context_embeds,
                         answer_ids,
                         perturbations,
+                        getattr(self.tokenizer, "eos_token_id", None),
                     )
                 )
                 fitnesses.extend(batch_fitness.tolist())

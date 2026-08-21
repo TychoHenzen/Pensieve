@@ -269,10 +269,14 @@ def test_qwen_and_minilm_loaders_pin_revisions_and_disable_unsafe_loading():
     qwen_loader = Mock(return_value=object())
     tokenizer_loader = Mock(return_value=object())
     minilm_loader = Mock(return_value=object())
+    minilm_manifest_verifier = Mock()
 
     stage0.load_qwen_model(model_loader=qwen_loader)
     stage0.load_qwen_tokenizer(tokenizer_loader=tokenizer_loader)
-    stage0.load_minilm_model(model_loader=minilm_loader)
+    stage0.load_minilm_model(
+        model_loader=minilm_loader,
+        manifest_verifier=minilm_manifest_verifier,
+    )
 
     qwen_loader.assert_called_once_with(
         QWEN_MODEL,
@@ -291,6 +295,27 @@ def test_qwen_and_minilm_loaders_pin_revisions_and_disable_unsafe_loading():
         trust_remote_code=False,
         use_safetensors=True,
     )
+    minilm_manifest_verifier.assert_called_once_with(
+        MINILM_MODEL,
+        MINILM_REVISION,
+        stage0.MINILM_MANIFEST,
+    )
+
+
+def test_failed_minilm_manifest_verification_names_pinned_coordinates():
+    stage0 = _subject()
+    model_loader = Mock(return_value=object())
+    manifest_verifier = Mock(side_effect=ValueError("digest mismatch"))
+
+    with pytest.raises(RuntimeError) as error:
+        stage0.load_minilm_model(
+            model_loader=model_loader,
+            manifest_verifier=manifest_verifier,
+        )
+
+    assert MINILM_MODEL in str(error.value)
+    assert MINILM_REVISION in str(error.value)
+    model_loader.assert_not_called()
 
 
 @pytest.mark.parametrize(
@@ -306,8 +331,12 @@ def test_unavailable_model_revision_error_names_model_and_revision(
     stage0 = _subject()
     model_loader = Mock(side_effect=OSError("revision not found"))
 
+    kwargs = {"model_loader": model_loader}
+    if loader_name == "load_minilm_model":
+        kwargs["manifest_verifier"] = Mock()
+
     with pytest.raises(RuntimeError) as error:
-        getattr(stage0, loader_name)(model_loader=model_loader)
+        getattr(stage0, loader_name)(**kwargs)
 
     message = str(error.value)
     assert repository in message
