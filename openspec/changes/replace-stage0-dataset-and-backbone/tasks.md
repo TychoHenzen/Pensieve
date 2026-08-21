@@ -27,7 +27,8 @@
 
 ## 2. Frozen Qwen backbone and 896-dimensional workspace
 
-- [ ] 2.1 Add fake-model tests for revision reuse across model and tokenizer assets, pinned manifest verification, disabled remote code, safetensors, evaluation mode, complete freezing, public input embeddings, width 896, tuple tap 12, shared ownership, and `CUBLAS_WORKSPACE_CONFIG=:4096:8` before CUDA initialization.
+- [x] 2.1 Add fake-model tests for revision reuse across model and tokenizer assets, pinned manifest verification, disabled remote code, safetensors, evaluation mode, complete freezing, public input embeddings, width 896, tuple tap 12, shared ownership, and `CUBLAS_WORKSPACE_CONFIG=:4096:8` before CUDA initialization.
+  <!-- status: completed -->
   <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: selected tap layer unavailable -->
   <!-- covers: core/latent-loop :: Model-neutral token embedding access :: Qwen context embedding -->
   <!-- covers: train/stage0-training :: Shared frozen Qwen backbone :: Backbone parameters remain frozen -->
