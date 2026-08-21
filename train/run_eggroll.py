@@ -1,4 +1,4 @@
-"""CLI entry point: trains the latent core using EGGROLL evolution strategies.
+"""CLI entry point for EGGROLL training on the Stage 0 Calc-MAWPS order.
 
 Same dataset and architecture as run_training.py, but replaces gradient
 descent with evolution strategies. Low-rank perturbations with antithetic
@@ -14,7 +14,6 @@ import time
 
 import torch
 
-from eval.stream.generators.gsm8k import _extract_answer, _load_split
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_LR,
@@ -26,6 +25,7 @@ from train.eggroll_trainer import (
     EggrollTrainer,
     StepResult,
 )
+from train.stage0_data import load_stage0_dataset, training_examples
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
@@ -84,21 +84,22 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Limit GSM8K train problems. Default uses the full split.",
+        help="Limit Calc-MAWPS train problems. Default uses all 1,089.",
     )
     parser.add_argument("--log-every", type=int, default=10)
     return parser.parse_args()
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
-    _log("loading GSM8K train split...")
+    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
     t0 = time.monotonic()
-    problems = _load_split("train")
-    if problem_count is not None:
-        problems = problems[:problem_count]
-    dataset = [
-        (item["question"], _extract_answer(item["answer"])) for item in problems
-    ]
+    stage0_dataset = load_stage0_dataset()
+    dataset = training_examples(
+        stage0_dataset,
+        mode="eggroll",
+        epoch=1,
+        problem_count=problem_count,
+    )
     _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
     return dataset
 

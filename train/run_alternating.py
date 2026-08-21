@@ -13,8 +13,8 @@ from typing import Any, TextIO
 
 import torch
 
+from eval.stage0_identity import CALC_MAWPS_DATASET, CALC_MAWPS_REVISION
 from train.alternating_config import validate_scheduler_config
-from eval.stream.generators.gsm8k import _extract_answer, _load_split
 from train.alternating_checkpoint import (
     AlternatingCheckpoint,
     CheckpointSchedule,
@@ -49,6 +49,7 @@ from train.eggroll_trainer import (
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
 from train.training_state import TrainingState
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
+from train.stage0_data import load_stage0_dataset, training_examples
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
@@ -245,13 +246,13 @@ def _build_parser() -> argparse.ArgumentParser:
         "--eval-problem-count",
         type=int,
         default=DEFAULT_EVAL_PROBLEM_COUNT,
-        help="Number of held-out GSM8K test problems used at each evaluation.",
+        help="Number of held-out Calc-MAWPS validation problems used at each evaluation.",
     )
     parser.add_argument(
         "--problem-count",
         type=int,
         default=None,
-        help="Limit GSM8K training problems. Default uses the full split.",
+        help="Limit Calc-MAWPS training problems. Default uses all 1,089.",
     )
     parser.add_argument(
         "--device",
@@ -279,7 +280,13 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def _run_config(args: argparse.Namespace) -> dict[str, object]:
     return {
-        "dataset_selection": {"split": "train", "count": args.problem_count},
+        "dataset_selection": {
+            "dataset": CALC_MAWPS_DATASET,
+            "revision": CALC_MAWPS_REVISION,
+            "split": "train",
+            "seed": 0,
+            "count": args.problem_count,
+        },
         "epochs": args.epochs,
         "phase_steps": args.phase_steps,
         "model_shape": {"slot_count": args.slot_count, "num_steps": args.num_steps},
@@ -293,7 +300,13 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
             "eval_batch_size": args.eval_batch_size,
             "use_amp": args.use_amp,
         },
-        "held_out_selection": {"split": "test", "count": args.eval_problem_count},
+        "held_out_selection": {
+            "dataset": CALC_MAWPS_DATASET,
+            "revision": CALC_MAWPS_REVISION,
+            "split": "validation",
+            "seed": 0,
+            "count": args.eval_problem_count,
+        },
         "logging_frequency": args.log_every,
     }
 
@@ -323,16 +336,19 @@ def main(argv: Sequence[str] | None = None) -> None:
             completed_epochs=resumed.schedule.epoch,
         )
 
-    rows = _load_split("train")
-    if args.problem_count is not None:
-        rows = rows[: args.problem_count]
-    examples = [
-        (row["question"], _extract_answer(row["answer"])) for row in rows
-    ]
+    stage0_dataset = load_stage0_dataset()
+    examples = training_examples(
+        stage0_dataset,
+        mode="alternating",
+        epoch=1,
+        problem_count=args.problem_count,
+    )
     held_out = (
         resumed.held_out_selection
         if resumed is not None
-        else load_held_out_problems(args.eval_problem_count)
+        else load_held_out_problems(
+            stage0_dataset.held_out_records(), args.eval_problem_count
+        )
     )
 
     state = TrainingState(args.slot_count, args.num_steps, args.device)

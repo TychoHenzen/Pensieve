@@ -11,7 +11,7 @@ import json
 import random
 import re
 import unicodedata
-from typing import Any
+from typing import Any, Callable
 
 from eval.gate.answer_scoring import _TOLERANCE
 from eval.stage0_identity import (
@@ -201,6 +201,51 @@ def load_calc_mawps_records(
 ) -> dict[str, tuple[CalcMawpsRecord, ...]]:
     """Normalize raw Calc-MAWPS rows and enforce the pinned split contract."""
     return _load_calc_mawps_records(rows_by_split, strict_raw_counts=True)
+
+
+def normalize_calc_mawps_split(
+    split: str,
+    rows: Sequence[Mapping[str, Any]],
+) -> tuple[CalcMawpsRecord, ...]:
+    """Normalize one already filtered pinned split without loading other splits."""
+    if split not in _SPLITS:
+        raise ValueError(f"unknown Calc-MAWPS split {split!r}")
+    expected_count = CALC_MAWPS_RAW_COUNTS[split]
+    if split == "validation":
+        expected_count -= 1
+    if len(rows) != expected_count:
+        raise ValueError(
+            f"Calc-MAWPS {split} filtered count mismatch: expected "
+            f"{expected_count}, found {len(rows)}"
+        )
+
+    normalized: list[CalcMawpsRecord] = []
+    seen_ids: set[str] = set()
+    seen_fingerprints: set[str] = set()
+    for position, row in enumerate(rows):
+        record = _normalize_row(split, position, row)
+        fingerprint = _fingerprint(record)
+        if record.id in seen_ids:
+            raise _row_error(split, position, row, "duplicate source id")
+        if fingerprint in seen_fingerprints:
+            raise _row_error(
+                split, position, row, "duplicate canonical question and target"
+            )
+        seen_ids.add(record.id)
+        seen_fingerprints.add(fingerprint)
+        normalized.append(record)
+    return tuple(normalized)
+
+
+def load_calc_mawps_record_split(
+    split: str,
+    dataset_loader: Callable[..., Any] | None = None,
+) -> tuple[CalcMawpsRecord, ...]:
+    """Load and normalize one pinned split without accessing unrelated splits."""
+    from eval.stage0_identity import load_calc_mawps_split
+
+    rows = load_calc_mawps_split(split, dataset_loader=dataset_loader)
+    return normalize_calc_mawps_split(split, rows)
 
 
 def calc_mawps_selection_identity(

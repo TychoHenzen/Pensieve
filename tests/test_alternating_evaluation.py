@@ -9,6 +9,7 @@ import pytest
 import torch
 from torch import nn
 
+from eval.stream.generators.calc_mawps import CalcMawpsRecord
 from train.alternating_evaluation import (
     HeldOutProblem,
     evaluate_unperturbed,
@@ -24,24 +25,17 @@ from train.alternating_scheduler import (
 from train.training_results import ExperimentPosition
 
 
-def test_held_out_loader_selects_a_deterministic_test_prefix(monkeypatch: pytest.MonkeyPatch) -> None:
-    loaded_splits: list[str] = []
+def test_held_out_loader_uses_only_canonical_validation_records() -> None:
+    records = [
+        CalcMawpsRecord(id="one", split="validation", question="first", target="1"),
+        CalcMawpsRecord(id="two", split="validation", question="second", target="2"),
+        CalcMawpsRecord(id="three", split="validation", question="third", target="3"),
+    ]
 
-    def load_split(split: str) -> list[dict[str, str]]:
-        loaded_splits.append(split)
-        return [
-            {"question": "first", "answer": "work #### 1"},
-            {"question": "second", "answer": "work #### 2"},
-            {"question": "third", "answer": "work #### 3"},
-        ]
-
-    monkeypatch.setattr("train.alternating_evaluation._load_split", load_split)
-
-    assert load_held_out_problems(2) == [
+    assert load_held_out_problems(records, 2) == [
         HeldOutProblem("first", "1"),
         HeldOutProblem("second", "2"),
     ]
-    assert loaded_splits == ["test"]
 
 
 def test_unperturbed_evaluation_averages_metrics_without_changing_model() -> None:

@@ -3,6 +3,7 @@ from __future__ import annotations
 from io import StringIO
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -187,7 +188,7 @@ def test_invalid_log_every_is_rejected_before_production_loading(
     def reject_production_loading(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("production loading was attempted")
 
-    monkeypatch.setattr(run_alternating, "_load_split", reject_production_loading)
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", reject_production_loading)
     monkeypatch.setattr(run_alternating, "TrainingState", reject_production_loading)
 
     with pytest.raises(ValueError, match="--log-every"):
@@ -198,7 +199,7 @@ def test_non_integer_log_every_is_rejected_by_cli_before_production_loading(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     monkeypatch.setattr(
-        run_alternating, "_load_split", lambda *_args: pytest.fail("production loading was attempted")
+        run_alternating, "load_stage0_dataset", lambda *_args: pytest.fail("production loading was attempted")
     )
 
     with pytest.raises(SystemExit):
@@ -220,7 +221,7 @@ def test_invalid_schedule_is_rejected_before_production_loading(
         raise AssertionError("production loading was attempted")
 
     monkeypatch.setattr(
-        "eval.stream.generators.gsm8k._load_split", reject_production_loading
+        "train.stage0_data.load_stage0_dataset", reject_production_loading
     )
     monkeypatch.setattr(
         "train.training_state.TrainingState.__init__", reject_production_loading
@@ -238,11 +239,17 @@ def test_main_builds_shared_production_run_and_executes_schedule(
     gradient = type("Gradient", (), {"optimizer": object()})()
     eggroll = type("Eggroll", (), {"optimizer": object()})()
 
-    monkeypatch.setattr(run_alternating, "_load_split", lambda split: [
-        {"question": "q", "answer": "work #### 1"}
-    ])
+    stage0_dataset = SimpleNamespace(held_out_records=lambda: ["validation-record"])
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", lambda: stage0_dataset)
     monkeypatch.setattr(
-        run_alternating, "load_held_out_problems", lambda count: ["held-out"]
+        run_alternating,
+        "training_examples",
+        lambda *_args, **_kwargs: [("q", "1")],
+    )
+    monkeypatch.setattr(
+        run_alternating,
+        "load_held_out_problems",
+        lambda records, count: ["held-out"],
     )
     monkeypatch.setattr(
         run_alternating, "TrainingState", lambda *args: shared_state

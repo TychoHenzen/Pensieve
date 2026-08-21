@@ -6,7 +6,14 @@ from eval.stream.generators.calc_mawps import (
     CalcMawpsRecord,
     select_calc_mawps_records,
 )
-from train.stage0_data import build_stage0_dataset
+from eval.stage0_identity import (
+    CALC_MAWPS_CONFIGURATION,
+    CALC_MAWPS_DATASET,
+    CALC_MAWPS_RAW_COUNTS,
+    CALC_MAWPS_REVISION,
+    CALC_MAWPS_VALIDATION_EXCLUDED_ID,
+)
+from train.stage0_data import build_stage0_dataset, load_stage0_dataset
 
 
 TRAIN_COUNT = 1_089
@@ -67,3 +74,40 @@ def test_held_out_selection_persists_only_the_seed_zero_validation_prefix() -> N
     assert stage0_data.held_out_selection.ordered_item_ids == expected_validation.ordered_item_ids[:HELD_OUT_COUNT]
     assert stage0_data.held_out_records() == expected_validation.records[:HELD_OUT_COUNT]
     assert all(record.split == "validation" for record in stage0_data.held_out_records())
+
+
+def test_runtime_loader_uses_pinned_train_and_validation_without_test() -> None:
+    loaded_splits: list[str] = []
+
+    def dataset_loader(
+        dataset: str,
+        configuration: str,
+        *,
+        split: str,
+        revision: str,
+        trust_remote_code: bool,
+    ) -> list[dict[str, object]]:
+        assert dataset == CALC_MAWPS_DATASET
+        assert configuration == CALC_MAWPS_CONFIGURATION
+        assert revision == CALC_MAWPS_REVISION
+        assert trust_remote_code is False
+        assert split != "test"
+        loaded_splits.append(split)
+        rows = [
+            {
+                "id": f"mawps__{split}_{index}",
+                "question": f"{split} question {index}",
+                "result": str(index + 1),
+                "result_float": float(index + 1),
+            }
+            for index in range(CALC_MAWPS_RAW_COUNTS[split])
+        ]
+        if split == "validation":
+            rows[-1]["id"] = CALC_MAWPS_VALIDATION_EXCLUDED_ID
+        return rows
+
+    stage0_data = load_stage0_dataset(dataset_loader)
+
+    assert loaded_splits == ["train", "validation"]
+    assert len(stage0_data.train_selection.records) == TRAIN_COUNT
+    assert len(stage0_data.held_out_records()) == HELD_OUT_COUNT

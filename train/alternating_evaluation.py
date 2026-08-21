@@ -1,4 +1,4 @@
-"""Held-out GSM8K evaluation for the alternating training experiment.
+"""Held-out Calc-MAWPS evaluation for the alternating training experiment.
 
 The evaluator is deliberately separate from either update engine.  It uses
 the shared model objects in read-only mode and returns the common evaluation
@@ -14,7 +14,7 @@ from typing import Protocol
 import torch
 from torch import nn
 
-from eval.stream.generators.gsm8k import _extract_answer, _load_split
+from eval.stream.generators.calc_mawps import CalcMawpsRecord
 from train.training_results import EvaluationResult, ExperimentPosition
 from train.vicreg import post_loop_slot_variance
 
@@ -23,7 +23,7 @@ DEFAULT_EVAL_PROBLEM_COUNT = 128
 
 @dataclass(frozen=True)
 class HeldOutProblem:
-    """One fixed GSM8K question and its normalized numerical answer."""
+    """One fixed Calc-MAWPS question and its normalized numerical answer."""
 
     question: str
     answer: str
@@ -39,19 +39,27 @@ class SharedModel(Protocol):
 
 
 def load_held_out_problems(
+    records: Sequence[CalcMawpsRecord],
     problem_count: int = DEFAULT_EVAL_PROBLEM_COUNT,
 ) -> list[HeldOutProblem]:
-    """Load the deterministic prefix of the cached GSM8K test split.
+    """Convert the persisted seed-0 validation prefix into evaluator inputs.
 
-    Call this once when a run starts, then retain its returned list for every
-    phase and epoch evaluation in that run.
+    The caller supplies canonical records from ``Stage0Dataset``. This keeps
+    evaluation isolated from the test split and from dataset loading details.
     """
     if problem_count < 1:
         raise ValueError(f"problem_count must be at least 1, got {problem_count}")
+    if problem_count > len(records):
+        raise ValueError(
+            f"problem_count must not exceed the {len(records)} persisted "
+            "validation records"
+        )
+    if any(record.split != "validation" for record in records):
+        raise ValueError("held-out evaluation accepts only validation records")
 
     return [
-        HeldOutProblem(item["question"], _extract_answer(item["answer"]))
-        for item in _load_split("test")[:problem_count]
+        HeldOutProblem(record.question, record.target)
+        for record in records[:problem_count]
     ]
 
 
@@ -65,7 +73,7 @@ def evaluate_unperturbed(
 
     Loss uses the same answer-token rule as gradient training.  Variance uses
     the canonical post-loop metric.  Generated answers are compared directly
-    with GSM8K's normalized numerical targets.
+    with Calc-MAWPS's normalized numerical targets.
     """
     if not problems:
         return EvaluationResult(position, 0.0, 0.0, 0.0)

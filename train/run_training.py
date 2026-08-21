@@ -1,10 +1,7 @@
-"""CLI entry point: trains the latent-core subject's learned parameters on GSM8K.
+"""CLI entry point for gradient training on the Stage 0 Calc-MAWPS order.
 
-Loads the GSM8K train split (~7.5k problems), runs `LatentCoreTrainer` for a
-configurable number of epochs, and after each epoch logs the average loss,
-trainable parameter count, and the workspace's collapse-detection stats
-(variance/covariance, see `Workspace.collapse_stats`). A checkpoint of the
-trainable state dicts is saved after every epoch.
+Loads the pinned filtered Calc-MAWPS train split, runs `LatentCoreTrainer` for
+a configurable number of epochs, and saves a checkpoint after every epoch.
 """
 
 from __future__ import annotations
@@ -17,7 +14,7 @@ import time
 
 import torch
 
-from eval.stream.generators.gsm8k import _extract_answer, _load_split
+from train.stage0_data import load_stage0_dataset, training_examples
 from train.trainer import DEFAULT_LR, DEFAULT_NUM_STEPS, LatentCoreTrainer, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
@@ -42,7 +39,9 @@ def _format_duration(seconds: float) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train the latent-core subject on GSM8K.")
+    parser = argparse.ArgumentParser(
+        description="Train the latent-core subject on filtered Calc-MAWPS."
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
@@ -57,7 +56,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Number of GSM8K train problems to use; default uses the full split.",
+        help="Number of Calc-MAWPS train problems to use; default uses all 1,089.",
     )
     parser.add_argument(
         "--log-every",
@@ -112,12 +111,15 @@ def _load_checkpoint(trainer: LatentCoreTrainer, path: str, device: str) -> int:
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
-    _log("loading GSM8K train split...")
+    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
     t0 = time.monotonic()
-    problems = _load_split("train")
-    if problem_count is not None:
-        problems = problems[:problem_count]
-    dataset = [(item["question"], _extract_answer(item["answer"])) for item in problems]
+    stage0_dataset = load_stage0_dataset()
+    dataset = training_examples(
+        stage0_dataset,
+        mode="gradient",
+        epoch=1,
+        problem_count=problem_count,
+    )
     _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
     return dataset
 
