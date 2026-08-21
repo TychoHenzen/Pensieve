@@ -12,7 +12,8 @@
   <!-- covers: eval/stage0-gate :: Numerical answer equivalence :: Equivalent fraction and decimal -->
   <!-- covers: eval/stage0-gate :: Numerical answer equivalence :: Repeating decimal tolerance -->
   <!-- covers: eval/stage0-gate :: Numerical answer equivalence :: Non-finite answer -->
-- [ ] 1.4 Extend the existing answer scorer with finite numerical normalization, exact rational comparison, and `1e-6` relative and absolute tolerance.
+- [x] 1.4 Extend the existing answer scorer with finite numerical normalization, exact rational comparison, and `1e-6` relative and absolute tolerance.
+  <!-- status: completed -->
 - [ ] 1.5 Add injected-row tests for exact Unicode and whitespace normalization, source identifiers, the one pinned validation exclusion, all other cross-split duplicate rejection, `Decimal(str(result_float))` target agreement, pinned split counts, omitted-count normalization, deterministic selection identities and limits, and v1 truth isolation.
   <!-- covers: eval/generators/calc-mawps :: Canonical math problem records :: Valid row normalization -->
   <!-- covers: eval/generators/calc-mawps :: Canonical math problem records :: Malformed row rejected -->
