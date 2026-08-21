@@ -5,7 +5,8 @@
   <!-- covers: eval/generators/calc-mawps :: Filtered Calc-MAWPS split binding :: Default filtered splits load -->
   <!-- covers: eval/generators/calc-mawps :: Filtered Calc-MAWPS split binding :: Dataset revision unavailable -->
   <!-- covers: train/stage0-training :: Stage 0 identity accompanies training artifacts :: New checkpoint identity -->
-- [ ] 1.2 Implement the shared Stage 0 identity and official Qwen math-prompt module, replacing duplicated Stage 0 constants without changing runtime entry points yet.
+- [x] 1.2 Implement the shared Stage 0 identity and official Qwen math-prompt module, replacing duplicated Stage 0 constants without changing runtime entry points yet.
+  <!-- status: completed -->
 - [ ] 1.3 Add parser and scorer tests for the final delimiter, multiple numbers, signed integers, valid and invalid commas, exact fractions, equivalent decimals, inclusive tolerance boundaries, zero, division by zero, length limits, missing values, NaN, infinity, percentages, and scientific notation.
   <!-- covers: eval/stage0-gate :: Numerical answer equivalence :: Equivalent fraction and decimal -->
   <!-- covers: eval/stage0-gate :: Numerical answer equivalence :: Repeating decimal tolerance -->
