@@ -35,7 +35,8 @@
   <!-- covers: train/stage0-training :: Shared frozen Qwen backbone :: Shared model instance -->
 - [x] 2.2 Implement the model-neutral frozen Qwen loader and route subject and training state construction through it.
   <!-- status: completed -->
-- [ ] 2.3 Update workspace, encoder, decoder, and narration shape tests from 768 to 896, including explicit decoder mismatch errors and unchanged slot-count ablations.
+- [x] 2.3 Update workspace, encoder, decoder, and narration shape tests from 768 to 896, including explicit decoder mismatch errors and unchanged slot-count ablations.
+  <!-- status: completed -->
   <!-- covers: workspace/concept-slots :: Workspace holds a configurable number of concept slots :: default slot count -->
   <!-- covers: workspace/concept-slots :: Workspace holds a configurable number of concept slots :: configurable slot count -->
   <!-- covers: workspace/concept-slots :: Workspace holds a configurable number of concept slots :: ablation sweep values accepted -->
