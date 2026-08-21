@@ -96,7 +96,7 @@
 - [x] 5.5 Add gate-cache tests for typed schema validation, checkpoint digest, `rendered_inputs_sha256`, complete inference and runtime identity, exact compatible reuse, per-item coverage, recomputed aggregates, atomic writes, and rejection of absent or changed fields.
   <!-- covers: eval/stage0-gate :: Result compatibility identity :: Matching cached baseline -->
   <!-- covers: eval/stage0-gate :: Result compatibility identity :: Stale cached baseline -->
-- [ ] 5.6 Add gate-report tests for the exact 26-of-520 floor, exactly seeds `[0,1,2,3,4]`, RNG initialization, missing or extra seed invalidation, and latent-mean comparison.
+- [x] 5.6 Add gate-report tests for the exact 26-of-520 floor, exactly seeds `[0,1,2,3,4]`, RNG initialization, missing or extra seed invalidation, and latent-mean comparison.
   <!-- covers: eval/stage0-gate :: Stage 0 pass condition :: Baseline below floor -->
   <!-- covers: eval/stage0-gate :: Stage 0 pass condition :: Too few latent seeds -->
   <!-- covers: eval/stage0-gate :: Stage 0 pass condition :: Latent result meets baseline -->
