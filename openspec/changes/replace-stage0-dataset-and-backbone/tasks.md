@@ -22,7 +22,8 @@
   <!-- covers: eval/generators/calc-mawps :: Calc-MAWPS stream follows the v1 schema :: Truth remains isolated -->
   <!-- covers: eval/generators/calc-mawps :: Selection identity is deterministic :: Repeated selection -->
   <!-- covers: eval/generators/calc-mawps :: Selection identity is deterministic :: Selection input changes -->
-- [ ] 1.6 Implement the shared Calc-MAWPS record adapter, register its stream generator, and preserve the unrelated GSM8K generator.
+- [x] 1.6 Implement the shared Calc-MAWPS record adapter, register its stream generator, and preserve the unrelated GSM8K generator.
+  <!-- status: completed -->
 
 ## 2. Frozen Qwen backbone and 896-dimensional workspace
 
