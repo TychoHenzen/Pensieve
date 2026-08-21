@@ -69,7 +69,7 @@
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within a phase -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count -->
-- [ ] 3.6 Update human-readable descriptions and defaults in the standalone and alternating CLIs to name filtered Calc-MAWPS and frozen Qwen.
+- [x] 3.6 Update human-readable descriptions and defaults in the standalone and alternating CLIs to name filtered Calc-MAWPS and frozen Qwen.
 
 ## 4. Checkpoint and result compatibility
 

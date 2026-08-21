@@ -1,9 +1,9 @@
-"""CLI entry point for EGGROLL training on the Stage 0 Calc-MAWPS order.
+"""EGGROLL training on filtered Calc-MAWPS with the frozen Qwen backbone.
 
 Same dataset and architecture as run_training.py, but replaces gradient
 descent with evolution strategies. Low-rank perturbations with antithetic
 sampling estimate the parameter update direction without backpropagation,
-bypassing gradient attenuation through the frozen Pythia backbone.
+through the frozen Qwen/Qwen2.5-0.5B-Instruct backbone and frozen MiniLM.
 """
 
 from __future__ import annotations
@@ -50,7 +50,10 @@ def _format_duration(seconds: float) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train the latent core using EGGROLL evolution strategies."
+        description=(
+            "Train the latent core on filtered Calc-MAWPS using EGGROLL and "
+            "the frozen Qwen/Qwen2.5-0.5B-Instruct backbone."
+        )
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
@@ -84,7 +87,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Limit Calc-MAWPS train problems. Default uses all 1,089.",
+        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
     )
     parser.add_argument("--log-every", type=int, default=10)
     return parser.parse_args()
@@ -141,7 +144,10 @@ def main() -> None:
 
     dataset = _load_dataset(args.problem_count)
 
-    _log("building trainer (loading Pythia-160M + MiniLM)...")
+    _log(
+        "building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct "
+        "+ frozen MiniLM)..."
+    )
     t0 = time.monotonic()
     trainer = EggrollTrainer(
         slot_count=args.slot_count,

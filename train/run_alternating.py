@@ -1,4 +1,4 @@
-"""CLI entry point for fixed-budget alternating training experiments."""
+"""Alternating training on filtered Calc-MAWPS with frozen Qwen and MiniLM."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import random
 import sys
+import time
 from typing import Any, TextIO
 
 import torch
@@ -55,6 +56,23 @@ from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 DEFAULT_EPOCHS = 5
 DEFAULT_PHASE_STEPS = 500
+
+
+def _ts() -> str:
+    t = time.localtime()
+    return f"[{t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d}]"
+
+
+def _log(message: str, output: TextIO = sys.stdout) -> None:
+    print(f"{_ts()} {message}", file=output, flush=True)
+
+
+def _format_duration(seconds: float) -> str:
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f}min"
+    return f"{int(seconds // 3600)}h{int((seconds % 3600) // 60):02d}m"
 
 
 class _TrainerEngine:
@@ -138,6 +156,7 @@ def _run_schedule(
     evaluator: PhaseEvaluator[EvaluationResult],
     save_boundary: Callable[..., Sequence[str | Path]],
     output: TextIO = sys.stdout,
+    log_output: TextIO | None = None,
     resume: CheckpointSchedule | None = None,
 ) -> CheckpointSchedule | None:
     """Run injected alternating components without loading production dependencies."""
@@ -165,8 +184,12 @@ def _run_schedule(
             next_example_position = 0
 
     latest_schedule = resume
+    training_start = time.monotonic()
     for epoch in range(next_epoch, epochs + 1):
         first_position = next_example_position if epoch == next_epoch else 0
+        epoch_start = time.monotonic()
+        recent_losses: list[float] = []
+        recent_vars: list[float] = []
         for example_position in range(first_position, len(examples)):
             evaluation_count = len(scheduler.evaluation_results)
             result = scheduler.train_step(
@@ -174,8 +197,26 @@ def _run_schedule(
                 epoch=epoch,
                 example_position=example_position,
             )
+            recent_losses.append(result.language_model_loss)
+            recent_vars.append(result.shared_variance)
             if result.position.global_step > 0 and result.position.global_step % log_every == 0:
                 _write_progress_record(_training_record(result), output)
+                if log_output is not None:
+                    elapsed = time.monotonic() - epoch_start
+                    completed = example_position - first_position + 1
+                    remaining = len(examples) - example_position - 1
+                    per_example = elapsed / completed
+                    _log(
+                        f"  {result.position.update_method} epoch {epoch}/{epochs} "
+                        f"[{example_position + 1}/{len(examples)}] "
+                        f"step={result.position.global_step} "
+                        f"loss={result.language_model_loss:.4f} "
+                        f"avg_loss={sum(recent_losses) / len(recent_losses):.4f} "
+                        f"var={result.shared_variance:.6f} "
+                        f"avg_var={sum(recent_vars) / len(recent_vars):.6f} "
+                        f"ETA {_format_duration(per_example * remaining)}",
+                        log_output,
+                    )
 
             phase_boundary = result.position.phase_step == phase_steps
             epoch_boundary = example_position == len(examples) - 1
@@ -187,6 +228,15 @@ def _run_schedule(
             for record in scheduler.evaluation_results[evaluation_count:]:
                 if "epoch" in record.boundaries:
                     _write_progress_record(_evaluation_record(record), output)
+                    if log_output is not None:
+                        _log(
+                            f"  evaluation epoch={record.position.epoch} "
+                            f"step={record.position.global_step} "
+                            f"loss={record.result.language_model_loss:.4f} "
+                            f"variance={record.result.shared_variance:.6f} "
+                            f"exact_match={record.result.answer_exact_match:.3f}",
+                            log_output,
+                        )
 
             if phase_boundary or epoch_boundary:
                 latest_schedule = _checkpoint_schedule(result.position, phase_steps)
@@ -197,6 +247,22 @@ def _run_schedule(
                 )
                 if epoch_boundary:
                     _write_progress_record(_checkpoint_record(paths), output)
+                    if log_output is not None:
+                        _log(f"saved: {', '.join(str(path) for path in paths)}", log_output)
+
+        if log_output is not None:
+            _log(
+                f"epoch {epoch}/{epochs} done "
+                f"({_format_duration(time.monotonic() - epoch_start)})",
+                log_output,
+            )
+            epochs_left = epochs - epoch
+            if epochs_left:
+                _log(
+                    f"  ETA {_format_duration((time.monotonic() - training_start) / epoch * epochs_left)} "
+                    f"for remaining {epochs_left} epochs",
+                    log_output,
+                )
 
     return latest_schedule
 
@@ -216,7 +282,11 @@ def _checkpoint_schedule(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Train one shared latent core with alternating Eggroll and gradient phases."
+        description=(
+            "Train one shared latent core on filtered Calc-MAWPS with alternating "
+            "Eggroll and gradient phases through the frozen "
+            "Qwen/Qwen2.5-0.5B-Instruct backbone."
+        )
     )
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--phase-steps", type=int, default=DEFAULT_PHASE_STEPS)
@@ -246,13 +316,16 @@ def _build_parser() -> argparse.ArgumentParser:
         "--eval-problem-count",
         type=int,
         default=DEFAULT_EVAL_PROBLEM_COUNT,
-        help="Number of held-out Calc-MAWPS validation problems used at each evaluation.",
+        help=(
+            "Number of filtered Calc-MAWPS validation records used at each "
+            "held-out evaluation. Default uses 128 validation records."
+        ),
     )
     parser.add_argument(
         "--problem-count",
         type=int,
         default=None,
-        help="Limit Calc-MAWPS training problems. Default uses all 1,089.",
+        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
     )
     parser.add_argument(
         "--device",
@@ -324,6 +397,17 @@ def main(argv: Sequence[str] | None = None) -> None:
     run_config = _run_config(args)
     save_dir = Path(args.save_dir)
 
+    _log(f"device={args.device}")
+    _log(
+        f"config: epochs={args.epochs} phase_steps={args.phase_steps} "
+        f"slots={args.slot_count} steps={args.num_steps} "
+        f"pop={args.pop_size} sigma={args.sigma} "
+        f"gradient_lr={args.gradient_lr} eggroll_lr={args.eggroll_lr} "
+        f"rank={args.rank} var_weight={args.variance_weight} "
+        f"eval_batch={args.eval_batch_size} amp={args.use_amp}"
+    )
+
+    load_start = time.monotonic()
     resumed: AlternatingCheckpoint | None = None
     if args.resume is not None:
         resume_path = latest_checkpoint(save_dir) if args.resume == "latest" else Path(args.resume)
@@ -343,6 +427,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         epoch=1,
         problem_count=args.problem_count,
     )
+    _log(f"loaded {len(examples)} training problems ({_format_duration(time.monotonic() - load_start)})")
     held_out = (
         resumed.held_out_selection
         if resumed is not None
@@ -351,6 +436,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
     )
 
+    _log(
+        "building shared trainer (loading frozen "
+        "Qwen/Qwen2.5-0.5B-Instruct + frozen MiniLM)..."
+    )
+    build_start = time.monotonic()
     state = TrainingState(args.slot_count, args.num_steps, args.device)
     gradient = LatentCoreTrainer(
         lr=args.gradient_lr, device=args.device, state=state
@@ -366,6 +456,20 @@ def main(argv: Sequence[str] | None = None) -> None:
         device=args.device,
         state=state,
     )
+    parameters = getattr(state, "parameters", None)
+    trainable_params = (
+        f"{sum(parameter.numel() for parameter in parameters()):,}"
+        if callable(parameters)
+        else "unknown"
+    )
+    _log(
+        f"trainers ready ({_format_duration(time.monotonic() - build_start)}), "
+        f"trainable_params={trainable_params}"
+    )
+    _log("=" * 60)
+    _log(f"  alternating training: {args.epochs} epochs x {len(examples)} examples")
+    _log(f"  phase budget={args.phase_steps} steps (eggroll / gradient)")
+    _log("=" * 60)
     evaluator = _Evaluator(gradient, held_out)
 
     if resumed is not None:
@@ -406,6 +510,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         gradient_engine=_TrainerEngine(gradient),
         evaluator=evaluator,
         save_boundary=save_boundary,
+        log_output=sys.stdout,
         resume=resumed.schedule if resumed is not None else None,
     )
 

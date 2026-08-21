@@ -1,7 +1,7 @@
-"""CLI entry point for gradient training on the Stage 0 Calc-MAWPS order.
+"""Gradient training on filtered Calc-MAWPS with the frozen Qwen backbone.
 
-Loads the pinned filtered Calc-MAWPS train split, runs `LatentCoreTrainer` for
-a configurable number of epochs, and saves a checkpoint after every epoch.
+Loads all 1,089 records in the pinned filtered Calc-MAWPS train order. The
+trainer uses the frozen Qwen/Qwen2.5-0.5B-Instruct backbone and frozen MiniLM.
 """
 
 from __future__ import annotations
@@ -40,7 +40,10 @@ def _format_duration(seconds: float) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Train the latent-core subject on filtered Calc-MAWPS."
+        description=(
+            "Train the latent-core subject on filtered Calc-MAWPS with the "
+            "frozen Qwen/Qwen2.5-0.5B-Instruct backbone."
+        )
     )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
@@ -56,7 +59,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Number of Calc-MAWPS train problems to use; default uses all 1,089.",
+        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
     )
     parser.add_argument(
         "--log-every",
@@ -149,7 +152,10 @@ def main() -> None:
 
     dataset = _load_dataset(args.problem_count)
 
-    _log("building trainer (loading Pythia-160M + MiniLM)...")
+    _log(
+        "building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct "
+        "+ frozen MiniLM)..."
+    )
     t0 = time.monotonic()
     trainer = LatentCoreTrainer(
         slot_count=args.slot_count,
