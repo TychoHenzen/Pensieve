@@ -100,6 +100,15 @@ def canonicalize_numerical_target(value: str) -> str:
     return canonical
 
 
+def _parse_source_target(value: object) -> tuple[str, Fraction]:
+    """Parse pinned Calc-MAWPS grouping underscores through the canonical grammar."""
+    if isinstance(value, str) and "_" in value:
+        if "," in value:
+            raise ValueError("result is not a bounded integer, decimal, or fraction")
+        value = value.replace("_", ",")
+    return _parse_target(value)
+
+
 def _validate_result_float(value: object, target: Fraction) -> None:
     if isinstance(value, bool):
         raise ValueError("result_float is not finite")
@@ -128,7 +137,7 @@ def _normalize_row(split: str, position: int, row: object) -> CalcMawpsRecord:
     if not question:
         raise _row_error(split, position, row, "question is empty after normalization")
     try:
-        target, rational = _parse_target(row.get("result"))
+        target, rational = _parse_source_target(row.get("result"))
         _validate_result_float(row.get("result_float"), rational)
     except ValueError as error:
         raise _row_error(split, position, row, str(error)) from error

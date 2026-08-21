@@ -191,6 +191,54 @@ def test_official_qwen_prompt_template_and_greedy_generation_are_exact() -> None
     ]
 
 
+def test_pinned_multi_eos_config_selects_the_tokenizer_eos_deterministically() -> None:
+    tokenizer = _FakeTokenizer()
+    model = _FakeModel()
+
+    def load_backbone(*args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        return SimpleNamespace(
+            tokenizer=tokenizer,
+            model=model,
+            config=SimpleNamespace(hidden_size=896),
+            generation_config=SimpleNamespace(eos_token_id=[151_645, 151_643]),
+        )
+
+    result = baseline.run_baseline(
+        device="cpu",
+        development_limit=1,
+        records=_records(),
+        backbone_loader=load_backbone,
+    )
+
+    _, generation = model.generate_calls[0]
+    assert generation["eos_token_id"] == EOS_TOKEN_ID
+    assert generation["pad_token_id"] == EOS_TOKEN_ID
+    assert result["identity"]["token_generation"]["eos_token_id"] == EOS_TOKEN_ID
+    assert result["identity"]["token_generation"]["pad_token_id"] == EOS_TOKEN_ID
+
+
+def test_multi_eos_config_must_contain_the_tokenizer_eos() -> None:
+    tokenizer = _FakeTokenizer()
+
+    def load_backbone(*args: Any, **kwargs: Any) -> Any:
+        del args, kwargs
+        return SimpleNamespace(
+            tokenizer=tokenizer,
+            model=_FakeModel(),
+            config=SimpleNamespace(hidden_size=896),
+            generation_config=SimpleNamespace(eos_token_id=[151_643]),
+        )
+
+    with pytest.raises(ValueError, match=r"tokenizer.*generation config.*EOS"):
+        baseline.run_baseline(
+            device="cpu",
+            development_limit=1,
+            records=_records(),
+            backbone_loader=load_backbone,
+        )
+
+
 def test_context_over_512_tokens_is_rejected_without_generation() -> None:
     tokenizer = _FakeTokenizer(prompt_length=513)
     model = _FakeModel()

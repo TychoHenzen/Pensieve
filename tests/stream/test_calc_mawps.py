@@ -169,6 +169,59 @@ def test_result_float_agrees_via_its_decimal_string_and_target_is_canonical():
     assert record.target == "0.1000005"
 
 
+@pytest.mark.parametrize(
+    ("source", "result_float", "canonical"),
+    [
+        ("1_092", 1092.0, "1092"),
+        ("14_760.869565", 14760.86956521739, "14760.869565"),
+        ("3_381/1_450", 2.3317241379310345, "3381/1450"),
+    ],
+)
+def test_pinned_source_grouping_underscores_feed_the_canonical_target_rules(
+    source: str, result_float: float, canonical: str
+) -> None:
+    rows = _pinned_rows()
+    rows["train"][0] = _row(
+        "pinned-grouping-underscore",
+        result=source,
+        result_float=result_float,
+    )
+
+    record = load_calc_mawps_records(rows)["train"][0]
+
+    assert record.target == canonical
+
+
+def test_pinned_test_row_with_grouping_underscore_remains_in_the_usable_split() -> None:
+    rows = _pinned_rows()
+    rows["test"][23] = _row(
+        "mawps__o9pVzcOuilWtN2Mi",
+        result="1_092",
+        result_float=1092.0,
+    )
+
+    records = load_calc_mawps_records(rows)
+
+    assert len(records["test"]) == 520
+    assert records["test"][23].id == "mawps__o9pVzcOuilWtN2Mi"
+    assert records["test"][23].target == "1092"
+
+
+@pytest.mark.parametrize("source", ["10_92", "1__092", "1,_092", "_1092", "1092_"])
+def test_source_grouping_underscores_must_form_strict_three_digit_groups(
+    source: str,
+) -> None:
+    rows = _pinned_rows()
+    rows["train"][0] = _row(
+        "malformed-grouping-underscore",
+        result=source,
+        result_float=1092.0,
+    )
+
+    with pytest.raises(ValueError, match=r"train.*0.*malformed-grouping-underscore"):
+        load_calc_mawps_records(rows)
+
+
 # covers: eval/generators/calc-mawps::Filtered Calc-MAWPS split binding::Default filtered splits load
 def test_pinned_raw_counts_are_required_and_only_pinned_validation_id_is_removed():
     records = _records()

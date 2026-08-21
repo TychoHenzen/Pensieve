@@ -189,6 +189,23 @@ def _select_records(
     )
 
 
+def _validated_eos_token_id(tokenizer: Any, generation_config: Any) -> int:
+    tokenizer_eos = getattr(tokenizer, "eos_token_id", None)
+    if isinstance(tokenizer_eos, bool) or not isinstance(tokenizer_eos, int):
+        raise ValueError("Qwen tokenizer must define an integer EOS token")
+    configured = getattr(generation_config, "eos_token_id", None)
+    configured_ids = configured if isinstance(configured, list) else [configured]
+    if (
+        not configured_ids
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in configured_ids)
+        or len(set(configured_ids)) != len(configured_ids)
+    ):
+        raise ValueError("Qwen generation config must define unique integer EOS tokens")
+    if tokenizer_eos not in configured_ids:
+        raise ValueError("Qwen tokenizer and generation config EOS tokens must match")
+    return tokenizer_eos
+
+
 def prepare_baseline_request(
     *,
     device: str,
@@ -208,15 +225,7 @@ def prepare_baseline_request(
     if getattr(backbone.config, "hidden_size", None) != 896:
         raise ValueError("Qwen backbone hidden_size must be 896")
     tokenizer = backbone.tokenizer
-    eos_token_id = getattr(backbone.generation_config, "eos_token_id", None)
-    if isinstance(eos_token_id, list):
-        if len(eos_token_id) != 1:
-            raise ValueError("Qwen generation config must define one EOS token")
-        eos_token_id = eos_token_id[0]
-    if isinstance(eos_token_id, bool) or not isinstance(eos_token_id, int):
-        raise ValueError("Qwen generation config must define an integer EOS token")
-    if getattr(tokenizer, "eos_token_id", None) != eos_token_id:
-        raise ValueError("Qwen tokenizer and generation config EOS tokens must match")
+    eos_token_id = _validated_eos_token_id(tokenizer, backbone.generation_config)
 
     rendered_values: list[Mapping[str, Any]] = []
     rendered_inputs: list[dict[str, Any]] = []
