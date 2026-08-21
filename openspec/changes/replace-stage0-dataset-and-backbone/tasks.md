@@ -73,7 +73,7 @@
 
 ## 4. Checkpoint and result compatibility
 
-- [ ] 4.1 Add checkpoint tests for a `ZIP_STORED` `.ckpt` containing exactly bounded `metadata.json` and `tensors.safetensors` members, with no pickle or `torch.load` path. Cover duplicate, compressed, traversing, missing, extra, oversized, malformed, and unknown-version members.
+- [x] 4.1 Add checkpoint tests for a `ZIP_STORED` `.ckpt` containing exactly bounded `metadata.json` and `tensors.safetensors` members, with no pickle or `torch.load` path. Cover duplicate, compressed, traversing, missing, extra, oversized, malformed, and unknown-version members.
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume within an epoch -->
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary -->
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration -->
