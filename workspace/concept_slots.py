@@ -4,13 +4,13 @@ import torch
 
 from eval.instrumentation import InstrumentationFields
 
-SLOT_DIM = 768
+SLOT_DIM = 896
 ABLATION_SLOT_COUNTS = (1, 4, 8, 16, 32, 64)
 DEFAULT_SLOT_COUNT = 16
 
 
 class Workspace:
-    """Holds a configurable number of concept slots, each of dimension 768."""
+    """Holds a configurable number of concept slots, each of dimension 896."""
 
     def __init__(self, slot_count: int = DEFAULT_SLOT_COUNT) -> None:
         if slot_count not in ABLATION_SLOT_COUNTS:
@@ -43,7 +43,7 @@ class Workspace:
     def collapse_stats(self) -> dict[str, float]:
         """Per-dimension variance and inter-slot covariance, for collapse detection.
 
-        Variance is the mean, across the 768 feature dimensions, of the
+        Variance is the mean, across the slot feature dimensions, of the
         variance of that dimension's values across slots. It is near zero
         when all slots hold (nearly) the same vector, and grows as slots
         diverge from one another.
@@ -57,7 +57,7 @@ class Workspace:
             return {"variance": 0.0, "covariance": 0.0}
         variance = self.slots.var(dim=0).mean().item()
         centered = self.slots - self.slots.mean(dim=0, keepdim=True)
-        cov = (centered @ centered.T) / max(SLOT_DIM - 1, 1)
+        cov = (centered @ centered.T) / max(self.slots.shape[-1] - 1, 1)
         off_diag = cov - torch.diag(torch.diag(cov))
         covariance = off_diag.abs().mean().item()
         return {"variance": variance, "covariance": covariance}

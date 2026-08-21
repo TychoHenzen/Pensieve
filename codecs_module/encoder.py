@@ -16,7 +16,7 @@ class SlotEncoder(nn.Module):
 
     A frozen pretrained sentence encoder (all-MiniLM-L6-v2) produces
     token-level embeddings. A learned linear layer projects those
-    embeddings from 384 to 768 dimensions. Each output slot is a
+    embeddings from 384 to 896 dimensions. Each output slot is a
     learned query vector plus the mean projected embedding, giving
     inter-slot diversity from the queries and input dependence from
     the mean.
@@ -51,7 +51,7 @@ class SlotEncoder(nn.Module):
         return output.last_hidden_state
 
     def encode(self, text: str) -> torch.Tensor:
-        """Encode `text` into `slot_count` vectors of dimension 768.
+        """Encode `text` into `slot_count` vectors of dimension 896.
 
         Each slot query attends directly to the projected token embeddings
         via scaled dot-product attention. Different queries attend to
@@ -59,11 +59,11 @@ class SlotEncoder(nn.Module):
         of the input text.
         """
         token_embeddings = self._token_embeddings(text)  # (1, tokens, 384)
-        projected = self.projection(token_embeddings).squeeze(0)  # (tokens, 768)
+        projected = self.projection(token_embeddings).squeeze(0)  # (tokens, 896)
         scale = self.attn_log_temp.exp()
         attn_logits = self.slot_queries @ projected.T / scale  # (slots, tokens)
         attn_weights = torch.softmax(attn_logits, dim=-1)  # (slots, tokens)
-        return attn_weights @ projected  # (slots, 768)
+        return attn_weights @ projected  # (slots, 896)
 
     def encode_to_workspace(self, text: str, workspace: Workspace) -> None:
         """Encode `text` and write the result into `workspace`'s slots."""

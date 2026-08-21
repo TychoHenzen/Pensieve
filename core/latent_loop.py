@@ -5,13 +5,13 @@ from torch import nn
 from transformers import AutoModelForCausalLM
 
 from eval.subject import CostCounters
-from eval.stage0_identity import LATENT_TAP_LAYER, WORKSPACE_DIMENSION
+from eval.stage0_identity import LATENT_TAP_LAYER, QWEN_MODEL, WORKSPACE_DIMENSION
 from workspace.concept_slots import SLOT_DIM, Workspace
 
-DEFAULT_MODEL_NAME = "EleutherAI/pythia-160m"
+DEFAULT_MODEL_NAME = QWEN_MODEL
 DEFAULT_NUM_STEPS = 2
 DEFAULT_RESIDUAL_WEIGHT = 0.5
-DEFAULT_TAP_LAYER = 6
+DEFAULT_TAP_LAYER = LATENT_TAP_LAYER
 
 
 class LatentLoop(nn.Module):
@@ -54,6 +54,10 @@ class LatentLoop(nn.Module):
             param.requires_grad_(False)
 
         self.hidden_dim = self.model.config.hidden_size
+        if self.hidden_dim != SLOT_DIM:
+            raise ValueError(
+                f"expected workspace width {SLOT_DIM}, actual model hidden width {self.hidden_dim}"
+            )
         if backbone is not None:
             self._validate_qwen_shape()
         self.projection = nn.Linear(self.hidden_dim, SLOT_DIM)

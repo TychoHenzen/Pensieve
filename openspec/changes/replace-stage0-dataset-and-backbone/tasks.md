@@ -45,7 +45,8 @@
   <!-- covers: codecs/decoder :: Decoder maps workspace slots to text :: slots decoded to text -->
   <!-- covers: codecs/decoder :: Decoder maps workspace slots to text :: different slot states produce different text -->
   <!-- covers: codecs/decoder :: Decoder maps workspace slots to text :: incompatible slot width -->
-- [ ] 2.4 Change the workspace and connected projections to 896 dimensions, remove Pythia-specific shape assumptions, and derive collapse-stat normalization from actual width.
+- [x] 2.4 Change the workspace and connected projections to 896 dimensions, remove Pythia-specific shape assumptions, and derive collapse-stat normalization from actual width.
+  <!-- status: completed -->
 - [ ] 2.5 Add latent-loop tests proving one unpadded `[chat_context, slots]` batch, complete hidden-state shape validation, the exact `outputs.hidden_states[12][0, -slot_count:, :]` slice, feedback through the declared projection and LayerNorm equation, no token sampling, and clear incompatible-shape failure.
   <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: hidden state feedback -->
   <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: no intermediate tokens -->
