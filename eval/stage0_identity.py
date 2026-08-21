@@ -9,9 +9,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any
+
+import torch
 
 
 CALC_MAWPS_DATASET = "MU-NLPC/Calc-mawps"
@@ -212,6 +217,112 @@ def apply_qwen_chat_template(tokenizer: Any, question: str) -> Any:
 def _load_failure(repository: str, revision: str, error: Exception) -> RuntimeError:
     return RuntimeError(
         f"Could not load repository {repository} at pinned revision {revision}: {error}"
+    )
+
+
+@dataclass(frozen=True)
+class FrozenQwenBackbone:
+    """Pinned Qwen assets shared by one Stage 0 runtime."""
+
+    model: Any
+    tokenizer: Any
+    config: Any
+    generation_config: Any
+
+
+def verify_huggingface_manifest(
+    repository: str,
+    revision: str,
+    manifest: Mapping[str, Mapping[str, str]],
+) -> None:
+    """Download and verify every asset allowed by a pinned manifest."""
+    try:
+        from huggingface_hub import hf_hub_download
+
+        for path, expected in manifest.items():
+            local_path = hf_hub_download(
+                repository,
+                filename=path,
+                revision=revision,
+            )
+            actual = digest_bytes(Path(local_path).read_bytes(), expected["algorithm"])
+            if actual != expected["digest"]:
+                raise ValueError(
+                    f"{path}: expected {expected['digest']}, actual {actual}"
+                )
+    except Exception as error:
+        raise _load_failure(repository, revision, error) from error
+
+
+def load_frozen_qwen_backbone(
+    *,
+    device: str | torch.device = "cpu",
+    model_loader: Callable[..., Any] | None = None,
+    tokenizer_loader: Callable[..., Any] | None = None,
+    config_loader: Callable[..., Any] | None = None,
+    generation_config_loader: Callable[..., Any] | None = None,
+    manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None]
+    | None = None,
+) -> FrozenQwenBackbone:
+    """Load one pinned, verified Qwen model and freeze it for Stage 0."""
+    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+
+    if manifest_verifier is None:
+        manifest_verifier = verify_huggingface_manifest
+    if model_loader is None or tokenizer_loader is None or config_loader is None or generation_config_loader is None:
+        from transformers import (
+            AutoConfig,
+            AutoModelForCausalLM,
+            AutoTokenizer,
+            GenerationConfig,
+        )
+
+        model_loader = model_loader or AutoModelForCausalLM.from_pretrained
+        tokenizer_loader = tokenizer_loader or AutoTokenizer.from_pretrained
+        config_loader = config_loader or AutoConfig.from_pretrained
+        generation_config_loader = (
+            generation_config_loader or GenerationConfig.from_pretrained
+        )
+
+    try:
+        manifest_verifier(QWEN_MODEL, QWEN_REVISION, QWEN_MANIFEST)
+        config = config_loader(
+            QWEN_MODEL,
+            revision=QWEN_REVISION,
+            trust_remote_code=False,
+        )
+        generation_config = generation_config_loader(
+            QWEN_MODEL,
+            revision=QWEN_REVISION,
+            trust_remote_code=False,
+        )
+        tokenizer = tokenizer_loader(
+            QWEN_MODEL,
+            revision=QWEN_REVISION,
+            trust_remote_code=False,
+        )
+        model = model_loader(
+            QWEN_MODEL,
+            revision=QWEN_REVISION,
+            trust_remote_code=False,
+            use_safetensors=True,
+            torch_dtype=torch.float32,
+            attn_implementation="eager",
+            config=config,
+        )
+    except Exception as error:
+        raise _load_failure(QWEN_MODEL, QWEN_REVISION, error) from error
+
+    model.to(device)
+    model.eval()
+    for parameter in model.parameters():
+        parameter.requires_grad_(False)
+    model.generation_config = generation_config
+    return FrozenQwenBackbone(
+        model=model,
+        tokenizer=tokenizer,
+        config=config,
+        generation_config=generation_config,
     )
 
 

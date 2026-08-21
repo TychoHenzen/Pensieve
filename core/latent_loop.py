@@ -5,6 +5,7 @@ from torch import nn
 from transformers import AutoModelForCausalLM
 
 from eval.subject import CostCounters
+from eval.stage0_identity import LATENT_TAP_LAYER, WORKSPACE_DIMENSION
 from workspace.concept_slots import SLOT_DIM, Workspace
 
 DEFAULT_MODEL_NAME = "EleutherAI/pythia-160m"
@@ -29,21 +30,32 @@ class LatentLoop(nn.Module):
         num_steps: int = DEFAULT_NUM_STEPS,
         device: str = "cpu",
         residual_weight: float = DEFAULT_RESIDUAL_WEIGHT,
-        tap_layer: int = DEFAULT_TAP_LAYER,
+        tap_layer: int | None = None,
+        backbone: object | None = None,
     ) -> None:
         super().__init__()
         self.model_name = model_name
         self.num_steps = num_steps
         self.device = device
         self.residual_weight = residual_weight
-        self.tap_layer = tap_layer
+        self.backbone = backbone
+        self.tap_layer = (
+            LATENT_TAP_LAYER if backbone is not None else tap_layer or DEFAULT_TAP_LAYER
+        )
 
-        self.model = AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
+        self.model = (
+            backbone.model
+            if backbone is not None
+            else AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
+        )
         self.model.to(device)
+        self.model.eval()
         for param in self.model.parameters():
-            param.requires_grad = False
+            param.requires_grad_(False)
 
         self.hidden_dim = self.model.config.hidden_size
+        if backbone is not None:
+            self._validate_qwen_shape()
         self.projection = nn.Linear(self.hidden_dim, SLOT_DIM)
         self.projection.to(device)
 
@@ -60,9 +72,23 @@ class LatentLoop(nn.Module):
         self._flops = 0
 
     def embed_tokens(self, token_ids: torch.Tensor) -> torch.Tensor:
-        """Look up token IDs in Pythia's embedding table. Returns (seq_len, hidden_dim)."""
+        """Look up token IDs through the backbone's public embedding interface."""
         with torch.no_grad():
-            return self.model.gpt_neox.embed_in(token_ids.to(self.device)).squeeze(0)
+            return self.model.get_input_embeddings()(token_ids.to(self.device)).squeeze(0)
+
+    def _validate_qwen_shape(self) -> None:
+        actual_width = getattr(self.model.config, "hidden_size", None)
+        if actual_width != WORKSPACE_DIMENSION:
+            raise ValueError(
+                "expected Qwen hidden width "
+                f"{WORKSPACE_DIMENSION}, actual hidden width {actual_width}"
+            )
+        actual_layers = getattr(self.model.config, "num_hidden_layers", None)
+        if not isinstance(actual_layers, int) or actual_layers < LATENT_TAP_LAYER:
+            raise ValueError(
+                "expected Qwen tap layer "
+                f"{LATENT_TAP_LAYER}, actual model exposes {actual_layers} hidden layers"
+            )
 
     def step(
         self, workspace: Workspace, context_embeds: torch.Tensor | None = None

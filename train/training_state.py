@@ -20,10 +20,16 @@ class TrainingState:
         slot_count: int = DEFAULT_SLOT_COUNT,
         num_steps: int = 2,
         device: str = "cpu",
+        backbone: object | None = None,
     ) -> None:
+        self.backbone = backbone
         self.workspace = Workspace(slot_count=slot_count)
         self.encoder = SlotEncoder(slot_count=slot_count, device=device)
-        self.latent_loop = LatentLoop(num_steps=num_steps, device=device)
+        latent_loop_args = {"num_steps": num_steps, "device": device}
+        if backbone is not None:
+            latent_loop_args["backbone"] = backbone
+        self.latent_loop = LatentLoop(**latent_loop_args)
+        self.tokenizer = getattr(backbone, "tokenizer", None)
         self.trainable_params: dict[str, nn.Parameter] = {
             "encoder.projection.weight": self.encoder.projection.weight,
             "encoder.projection.bias": self.encoder.projection.bias,

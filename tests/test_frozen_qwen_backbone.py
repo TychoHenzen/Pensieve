@@ -158,7 +158,7 @@ def test_latent_loop_uses_qwens_public_input_embedding_layer() -> None:
 # covers: train/stage0-training::Shared frozen Qwen backbone::Shared model instance
 def test_shared_state_uses_one_qwen_model_for_both_trainers() -> None:
     backbone = _backbone()
-    state = TrainingState(backbone=backbone, slot_count=2, num_steps=1, device="cpu")
+    state = TrainingState(backbone=backbone, slot_count=4, num_steps=1, device="cpu")
     gradient = LatentCoreTrainer(state=state)
     eggroll = EggrollTrainer(state=state, pop_size=2)
 
@@ -170,7 +170,7 @@ def test_shared_state_uses_one_qwen_model_for_both_trainers() -> None:
 # covers: train/stage0-training::Shared frozen Qwen backbone::Backbone parameters remain frozen
 def test_shared_state_keeps_qwen_parameters_frozen_and_out_of_optimizers() -> None:
     backbone = _backbone()
-    state = TrainingState(backbone=backbone, slot_count=2, num_steps=1, device="cpu")
+    state = TrainingState(backbone=backbone, slot_count=4, num_steps=1, device="cpu")
     gradient = LatentCoreTrainer(state=state)
     eggroll = EggrollTrainer(state=state, pop_size=2)
     qwen_before = [parameter.detach().clone() for parameter in backbone.model.parameters()]
@@ -180,7 +180,10 @@ def test_shared_state_keeps_qwen_parameters_frozen_and_out_of_optimizers() -> No
 
     assert all(
         parameter not in optimizer.state
-        and all(parameter not in group["params"] for group in optimizer.param_groups)
+        and all(
+            all(candidate is not parameter for candidate in group["params"])
+            for group in optimizer.param_groups
+        )
         for optimizer in (gradient.optimizer, eggroll.optimizer)
         for parameter in backbone.model.parameters()
     )

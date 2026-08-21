@@ -84,7 +84,9 @@ class EggrollTrainer:
         self.encoder = self.state.encoder
         self.latent_loop = self.state.latent_loop
         self.latent_loop.model.eval()
-        self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+        self.tokenizer = getattr(self.state, "tokenizer", None)
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
         self.loss_fn = nn.CrossEntropyLoss()
 
         self.trainable_params = list(self.state.parameters())

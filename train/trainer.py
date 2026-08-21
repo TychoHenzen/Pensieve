@@ -66,7 +66,9 @@ class LatentCoreTrainer:
         self.workspace = self.state.workspace
         self.encoder = self.state.encoder
         self.latent_loop = self.state.latent_loop
-        self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+        self.tokenizer = getattr(self.state, "tokenizer", None)
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
         self.vicreg = VICRegLoss()
         self.ema_projection = EMAProjection(self.latent_loop.projection, decay=ema_decay)
 
