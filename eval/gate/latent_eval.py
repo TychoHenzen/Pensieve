@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import copy
 import hashlib
-import json
 import random
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -350,13 +349,6 @@ def run_eval(
     }
 
 
-def _read_token_result(path: Path) -> Mapping[str, Any]:
-    value = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(value, Mapping):
-        raise ValueError("token result root must be an object")
-    return value
-
-
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Stage 0 latent evaluation on persisted Calc-MAWPS/Qwen inputs."
@@ -394,9 +386,24 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    from eval.gate.result_cache import read_token_result, write_gate_result
+    from eval.gate.token_cot_baseline import prepare_baseline_request
+
     configure_deterministic_runtime()
     args = _parse_args()
     seeds = [int(token) for token in args.seeds.split(",") if token.strip()]
+    records = tuple(load_calc_mawps_record_split("test"))
+    prepared = prepare_baseline_request(
+        device=args.device,
+        development_limit=args.development_limit,
+        records=records,
+        runtime_configurer=lambda: None,
+    )
+    token_result = read_token_result(
+        args.token_result,
+        expected_identity=prepared.identity,
+        records=prepared.selection.records,
+    )
     result = run_eval(
         checkpoint_path=args.checkpoint,
         seeds=seeds,
@@ -404,12 +411,12 @@ def main() -> None:
         slot_count=args.slot_count,
         num_steps=args.num_steps,
         device=args.device,
-        token_result=_read_token_result(args.token_result),
-        records=load_calc_mawps_record_split("test"),
+        token_result=token_result,
+        records=records,
+        backbone_loader=lambda **_kwargs: prepared.backbone,
         runtime_configurer=lambda: None,
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    write_gate_result(args.output, result)
     for run in result["runs"]:
         accuracy = run["correct"] / run["total"] if run["total"] else 0.0
         print(f"seed={run['seed']} accuracy={accuracy:.4f} ({run['correct']}/{run['total']})")

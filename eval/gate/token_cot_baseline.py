@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
-import json
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,17 @@ FULL_TEST_COUNT = 520
 
 
 _extract_predicted_number = extract_predicted_number
+
+
+@dataclass(frozen=True)
+class PreparedBaselineRequest:
+    """Current request identity and rendered inputs, prepared without generation."""
+
+    selection: CalcMawpsSelection
+    backbone: Any
+    rendered: tuple[Mapping[str, Any], ...]
+    identity: dict[str, Any]
+    eos_token_id: int
 
 
 def _plain_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
@@ -177,30 +189,25 @@ def _select_records(
     )
 
 
-def run_baseline(
+def prepare_baseline_request(
     *,
     device: str,
     development_limit: int | None = None,
     records: Sequence[CalcMawpsRecord] | None = None,
     backbone_loader: Callable[..., Any] = load_frozen_qwen_backbone,
     runtime_configurer: Callable[[], None] = configure_deterministic_runtime,
-    on_problem: Callable[[int, int, bool, int, int], None] | None = None,
-) -> dict[str, Any]:
-    """Evaluate the persisted seed-0 Calc-MAWPS test selection."""
+) -> PreparedBaselineRequest:
+    """Build the complete current identity and render prompts without generating."""
     runtime_configurer()
     run_identity = runtime_identity()
     source_records = (
-        tuple(records)
-        if records is not None
-        else load_calc_mawps_record_split("test")
+        tuple(records) if records is not None else load_calc_mawps_record_split("test")
     )
     selection = _select_records(source_records, development_limit)
-
     backbone = backbone_loader(device=device)
     if getattr(backbone.config, "hidden_size", None) != 896:
         raise ValueError("Qwen backbone hidden_size must be 896")
     tokenizer = backbone.tokenizer
-    model = backbone.model
     eos_token_id = getattr(backbone.generation_config, "eos_token_id", None)
     if isinstance(eos_token_id, list):
         if len(eos_token_id) != 1:
@@ -211,10 +218,9 @@ def run_baseline(
     if getattr(tokenizer, "eos_token_id", None) != eos_token_id:
         raise ValueError("Qwen tokenizer and generation config EOS tokens must match")
 
-    correct = 0
-    items: list[dict[str, Any]] = []
+    rendered_values: list[Mapping[str, Any]] = []
     rendered_inputs: list[dict[str, Any]] = []
-    for index, record in enumerate(selection.records):
+    for record in selection.records:
         rendered = apply_qwen_chat_template(tokenizer, record.question)
         if not isinstance(rendered, Mapping) or "input_ids" not in rendered:
             raise ValueError("Qwen chat template must return input_ids")
@@ -224,7 +230,55 @@ def run_baseline(
                 "Qwen chat prompt exceeds the 512-token Stage 0 limit: "
                 f"actual {len(token_ids)}"
             )
+        rendered_values.append(rendered)
         rendered_inputs.append({"item_id": record.id, "input_ids": token_ids})
+    identity = _result_identity(
+        selection=selection,
+        rendered_inputs=rendered_inputs,
+        device=device,
+        runtime=run_identity,
+        eos_token_id=eos_token_id,
+        development_only=development_limit is not None,
+    )
+    return PreparedBaselineRequest(
+        selection=selection,
+        backbone=backbone,
+        rendered=tuple(rendered_values),
+        identity=identity,
+        eos_token_id=eos_token_id,
+    )
+
+
+def run_baseline(
+    *,
+    device: str,
+    development_limit: int | None = None,
+    records: Sequence[CalcMawpsRecord] | None = None,
+    backbone_loader: Callable[..., Any] = load_frozen_qwen_backbone,
+    runtime_configurer: Callable[[], None] = configure_deterministic_runtime,
+    on_problem: Callable[[int, int, bool, int, int], None] | None = None,
+    prepared_request: PreparedBaselineRequest | None = None,
+) -> dict[str, Any]:
+    """Evaluate the persisted seed-0 Calc-MAWPS test selection."""
+    prepared = prepared_request or prepare_baseline_request(
+        device=device,
+        development_limit=development_limit,
+        records=records,
+        backbone_loader=backbone_loader,
+        runtime_configurer=runtime_configurer,
+    )
+    selection = prepared.selection
+    backbone = prepared.backbone
+    tokenizer = backbone.tokenizer
+    model = backbone.model
+    eos_token_id = prepared.eos_token_id
+
+    correct = 0
+    items: list[dict[str, Any]] = []
+    for index, (record, rendered) in enumerate(
+        zip(selection.records, prepared.rendered, strict=True)
+    ):
+        token_ids = _rendered_ids(rendered["input_ids"])
         input_ids = rendered["input_ids"].to(device)
         generation_kwargs: dict[str, Any] = {
             "do_sample": False,
@@ -257,14 +311,7 @@ def run_baseline(
 
     return {
         "schema_version": 2,
-        "identity": _result_identity(
-            selection=selection,
-            rendered_inputs=rendered_inputs,
-            device=device,
-            runtime=run_identity,
-            eos_token_id=eos_token_id,
-            development_only=development_limit is not None,
-        ),
+        "identity": copy.deepcopy(prepared.identity),
         "items": items,
         "correct": correct,
         "total": len(items),
@@ -292,6 +339,8 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
+    from eval.gate.result_cache import write_gate_result
+
     configure_deterministic_runtime()
     args = _parse_args()
     result = run_baseline(
@@ -299,8 +348,7 @@ def main() -> None:
         development_limit=args.development_limit,
     )
 
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    write_gate_result(args.output, result)
 
     accuracy = result["correct"] / result["total"] if result["total"] else 0.0
     print(

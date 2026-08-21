@@ -100,7 +100,7 @@
   <!-- covers: eval/stage0-gate :: Stage 0 pass condition :: Baseline below floor -->
   <!-- covers: eval/stage0-gate :: Stage 0 pass condition :: Too few latent seeds -->
   <!-- covers: eval/stage0-gate :: Stage 0 pass condition :: Latent result meets baseline -->
-- [ ] 5.7 Update `run_gate` and the report builder to use a Calc-MAWPS/Qwen result location, enforce identity before reuse, and preserve the existing pass rule.
+- [x] 5.7 Update `run_gate` and the report builder to use a Calc-MAWPS/Qwen result location, enforce identity before reuse, and preserve the existing pass rule.
 
 ## 6. Verification and preflight
 
