@@ -1,0 +1,208 @@
+"""Fake-only contracts for Qwen hidden-state latent-loop feedback."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import Any
+
+import pytest
+import torch
+import torch.nn.functional as functional
+from torch import nn
+
+from core.latent_loop import LatentLoop
+from workspace.concept_slots import Workspace
+
+
+WIDTH = 896
+CONTEXT_LENGTH = 3
+SLOT_COUNT = 4
+SEQUENCE_LENGTH = CONTEXT_LENGTH + SLOT_COUNT
+
+
+class _FakeQwen(nn.Module):
+    """A Qwen-shaped backbone that records only latent-loop operations."""
+
+    def __init__(self, hidden_states: tuple[torch.Tensor, ...]) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=WIDTH, num_hidden_layers=24)
+        self.hidden_states = hidden_states
+        self.calls: list[dict[str, Any]] = []
+        self.generated = 0
+        self.decoded = 0
+        self.embedding_lookups = 0
+
+    def forward(self, **kwargs: Any) -> Any:
+        self.calls.append(
+            {
+                name: value.detach().clone() if isinstance(value, torch.Tensor) else value
+                for name, value in kwargs.items()
+            }
+        )
+        return SimpleNamespace(hidden_states=self.hidden_states)
+
+    def generate(self, *_: Any, **__: Any) -> None:
+        self.generated += 1
+        raise AssertionError("latent steps must not generate tokens")
+
+    def decode(self, *_: Any, **__: Any) -> None:
+        self.decoded += 1
+        raise AssertionError("latent steps must not decode tokens")
+
+    def get_input_embeddings(self) -> nn.Module:
+        self.embedding_lookups += 1
+        raise AssertionError("latent steps must not look up token embeddings")
+
+
+def _hidden_states(
+    hidden_at_tap: torch.Tensor | None = None,
+    *,
+    count: int = 13,
+) -> tuple[torch.Tensor, ...]:
+    default = torch.full((1, SEQUENCE_LENGTH, WIDTH), -3.0)
+    states = [default.clone() for _ in range(count)]
+    if count > 12:
+        states[12] = (
+            hidden_at_tap.clone() if hidden_at_tap is not None else default.clone()
+        )
+    return tuple(states)
+
+
+def _loop(hidden_states: tuple[torch.Tensor, ...], *, num_steps: int = 1) -> LatentLoop:
+    model = _FakeQwen(hidden_states)
+    return LatentLoop(
+        backbone=SimpleNamespace(model=model, tokenizer=object()),
+        num_steps=num_steps,
+        device="cpu",
+    )
+
+
+def _workspace() -> Workspace:
+    workspace = Workspace(slot_count=SLOT_COUNT)
+    values = torch.arange(SLOT_COUNT * WIDTH, dtype=torch.float32).reshape(
+        SLOT_COUNT, WIDTH
+    )
+    workspace.write_slots(values / WIDTH)
+    return workspace
+
+
+def test_qwen_step_uses_one_unpadded_context_and_slot_batch() -> None:
+    loop = _loop(_hidden_states())
+    workspace = _workspace()
+    context = torch.full((CONTEXT_LENGTH, WIDTH), 2.0)
+
+    loop.step(workspace, context)
+
+    call = loop.model.calls[0]
+    assert len(loop.model.calls) == 1
+    assert torch.equal(
+        call["inputs_embeds"], torch.cat((context, _workspace().read_slots())).unsqueeze(0)
+    )
+    assert call["inputs_embeds"].shape == (1, SEQUENCE_LENGTH, WIDTH)
+    assert call["attention_mask"].shape == (1, SEQUENCE_LENGTH)
+    assert torch.all(call["attention_mask"] == 1)
+    assert torch.equal(
+        call["position_ids"], torch.arange(SEQUENCE_LENGTH).unsqueeze(0)
+    )
+    assert call["output_hidden_states"] is True
+    assert "input_ids" not in call
+
+
+# covers: core/latent-loop::Latent loop feeds hidden state back as input::hidden state feedback
+def test_qwen_step_uses_hidden_state_12_final_slot_slice_and_declared_equation() -> None:
+    hidden = torch.arange(
+        SEQUENCE_LENGTH * WIDTH, dtype=torch.float32
+    ).reshape(1, SEQUENCE_LENGTH, WIDTH) / 1000
+    loop = _loop(_hidden_states(hidden))
+    workspace = _workspace()
+    slots = workspace.read_slots().clone()
+    with torch.no_grad():
+        loop.projection.weight.copy_(torch.eye(WIDTH))
+        loop.projection.bias.copy_(torch.linspace(-0.3, 0.3, WIDTH))
+        loop.proj_norm.weight.copy_(torch.linspace(0.2, 0.8, WIDTH))
+        loop.proj_norm.bias.copy_(torch.linspace(-0.1, 0.1, WIDTH))
+        loop.layer_norm.weight.copy_(torch.linspace(0.4, 1.0, WIDTH))
+        loop.layer_norm.bias.copy_(torch.linspace(-0.2, 0.2, WIDTH))
+
+    updated = loop.step(workspace, torch.ones(CONTEXT_LENGTH, WIDTH))
+
+    h = loop.model.hidden_states[12][0, -SLOT_COUNT:, :]
+    u = functional.layer_norm(
+        functional.linear(h, loop.projection.weight, loop.projection.bias),
+        (WIDTH,),
+        loop.proj_norm.weight,
+        loop.proj_norm.bias,
+        eps=1e-5,
+    )
+    expected = functional.layer_norm(
+        u + 0.5 * slots,
+        (WIDTH,),
+        loop.layer_norm.weight,
+        loop.layer_norm.bias,
+        eps=1e-5,
+    )
+    assert loop.proj_norm.eps == loop.layer_norm.eps == 1e-5
+    assert torch.allclose(updated, expected)
+    assert torch.equal(workspace.read_slots(), expected)
+
+
+@pytest.mark.parametrize(
+    ("hidden_states", "expected"),
+    [
+        (_hidden_states(count=12), "expected hidden-state tuple with index 12, actual length 12"),
+        (
+            _hidden_states(torch.zeros(2, SEQUENCE_LENGTH, WIDTH)),
+            f"expected hidden state shape (1, {SEQUENCE_LENGTH}, {WIDTH}), actual (2, {SEQUENCE_LENGTH}, {WIDTH})",
+        ),
+        (
+            _hidden_states(torch.zeros(1, SEQUENCE_LENGTH - 1, WIDTH)),
+            f"expected hidden state shape (1, {SEQUENCE_LENGTH}, {WIDTH}), actual (1, {SEQUENCE_LENGTH - 1}, {WIDTH})",
+        ),
+        (
+            _hidden_states(torch.zeros(1, SEQUENCE_LENGTH, WIDTH - 1)),
+            f"expected hidden state shape (1, {SEQUENCE_LENGTH}, {WIDTH}), actual (1, {SEQUENCE_LENGTH}, {WIDTH - 1})",
+        ),
+    ],
+    ids=("missing-tap", "wrong-batch", "wrong-sequence", "wrong-width"),
+)
+# covers: core/latent-loop::Latent loop feeds hidden state back as input::selected tap layer unavailable
+def test_qwen_step_rejects_each_incompatible_hidden_state_shape(
+    hidden_states: tuple[torch.Tensor, ...], expected: str
+) -> None:
+    loop = _loop(hidden_states)
+
+    with pytest.raises(ValueError, match=expected):
+        loop.step(_workspace(), torch.ones(CONTEXT_LENGTH, WIDTH))
+
+
+# covers: core/latent-loop::Latent loop feeds hidden state back as input::no intermediate tokens
+def test_qwen_run_reuses_updated_slots_without_intermediate_tokens() -> None:
+    hidden = torch.arange(
+        SEQUENCE_LENGTH * WIDTH, dtype=torch.float32
+    ).reshape(1, SEQUENCE_LENGTH, WIDTH)
+    loop = _loop(_hidden_states(hidden), num_steps=3)
+    workspace = _workspace()
+    context = torch.full((CONTEXT_LENGTH, WIDTH), 4.0)
+    initial = workspace.read_slots().clone()
+    first_update = loop.layer_norm(
+        loop.proj_norm(loop.projection(hidden[0, -SLOT_COUNT:, :])) + 0.5 * initial
+    )
+
+    loop.run(workspace, context)
+
+    calls = loop.model.calls
+    assert len(calls) == loop.num_steps == 3
+    for call in calls:
+        assert "input_ids" not in call
+        assert call["inputs_embeds"].shape == (1, SEQUENCE_LENGTH, WIDTH)
+    assert torch.equal(
+        calls[0]["inputs_embeds"][0, -SLOT_COUNT:, :],
+        initial,
+    )
+    assert torch.equal(
+        calls[1]["inputs_embeds"][0, -SLOT_COUNT:, :],
+        first_update,
+    )
+    assert loop.model.generated == 0
+    assert loop.model.decoded == 0
+    assert loop.model.embedding_lookups == 0
