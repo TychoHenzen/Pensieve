@@ -89,7 +89,7 @@
   <!-- covers: eval/stage0-gate :: Frozen Qwen token baseline :: Full token baseline -->
   <!-- covers: eval/stage0-gate :: Frozen Qwen token baseline :: Official prompt format -->
 - [x] 5.2 Route the token baseline through the shared identity, prompt, dataset records, and numerical scorer, and include per-item identities in its JSON.
-- [ ] 5.3 Add latent-evaluation tests proving full and limited runs consume the token path's persisted ordered identifiers, emit the shared `{item_id, prediction, target, correct}` item schema, and bind identity to the canonical ordered `{item_id, input_ids}` digest.
+- [x] 5.3 Add latent-evaluation tests proving full and limited runs consume the token path's persisted ordered identifiers, emit the shared `{item_id, prediction, target, correct}` item schema, and bind identity to the canonical ordered `{item_id, input_ids}` digest.
   <!-- covers: eval/stage0-gate :: Comparable test selection :: Full evaluation identity -->
   <!-- covers: eval/stage0-gate :: Comparable test selection :: Limited evaluation identity -->
 - [ ] 5.4 Route latent evaluation through the shared records and scoring contract without per-seed resampling of selected test items.
