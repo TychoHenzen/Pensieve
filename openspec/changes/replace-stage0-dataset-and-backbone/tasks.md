@@ -85,7 +85,7 @@
 
 ## 5. Comparable Stage 0 gate
 
-- [ ] 5.1 Add token-baseline tests for exact Qwen messages, template arguments, greedy generation settings, all 520 ordered test identifiers, non-gating bounded development selection, and deterministic CUDA runtime identity.
+- [x] 5.1 Add token-baseline tests for exact Qwen messages, template arguments, greedy generation settings, all 520 ordered test identifiers, non-gating bounded development selection, and deterministic CUDA runtime identity.
   <!-- covers: eval/stage0-gate :: Frozen Qwen token baseline :: Full token baseline -->
   <!-- covers: eval/stage0-gate :: Frozen Qwen token baseline :: Official prompt format -->
 - [ ] 5.2 Route the token baseline through the shared identity, prompt, dataset records, and numerical scorer, and include per-item identities in its JSON.
