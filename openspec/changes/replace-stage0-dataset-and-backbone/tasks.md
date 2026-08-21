@@ -108,4 +108,4 @@
 - [x] 6.2 Run `dod-guard cover replace-stage0-dataset-and-backbone` and bind every declared scenario to its named test.
 - [x] 6.3 Run the complete pytest suite and distinguish new failures from unrelated existing worktree changes or storage errors.
 - [x] 6.4 Check available disk space, set `CUBLAS_WORKSPACE_CONFIG=:4096:8` before CUDA initialization, then run a one-problem integration smoke test against both pinned Hugging Face revisions on CUDA.
-- [ ] 6.5 Run the frozen Qwen token baseline across all 520 test items and record whether it clears the unchanged 5% validity floor before any new multi-epoch latent training.
+- [x] 6.5 Run the frozen Qwen token baseline across all 520 test items and record whether it clears the unchanged 5% validity floor before any new multi-epoch latent training.
