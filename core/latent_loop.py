@@ -64,8 +64,8 @@ class LatentLoop(nn.Module):
         self.projection.to(device)
 
         gamma_init = 0.7 / (SLOT_DIM ** 0.5)
-        self.proj_norm = nn.LayerNorm(SLOT_DIM)
-        self.layer_norm = nn.LayerNorm(SLOT_DIM)
+        self.proj_norm = nn.LayerNorm(SLOT_DIM, eps=1e-5)
+        self.layer_norm = nn.LayerNorm(SLOT_DIM, eps=1e-5)
         with torch.no_grad():
             self.proj_norm.weight.fill_(gamma_init)
             self.layer_norm.weight.fill_(gamma_init)
@@ -104,32 +104,49 @@ class LatentLoop(nn.Module):
         to question context as well as to each other.
         """
         slots = workspace.read_slots().to(self.device)
-
-        if context_embeds is not None:
-            combined = torch.cat([context_embeds, slots], dim=0)
-            input_embeds = combined.unsqueeze(0)
-        else:
-            input_embeds = slots.unsqueeze(0)
+        context = (
+            context_embeds.to(self.device)
+            if context_embeds is not None
+            else slots.new_empty((0, self.hidden_dim))
+        )
+        input_embeds = torch.cat([context, slots], dim=0).unsqueeze(0)
+        sequence_length = input_embeds.shape[1]
+        attention_mask = torch.ones(
+            (1, sequence_length), dtype=torch.long, device=self.device
+        )
+        position_ids = torch.arange(
+            sequence_length, dtype=torch.long, device=self.device
+        ).unsqueeze(0)
 
         outputs = self.model(
             inputs_embeds=input_embeds,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
             output_hidden_states=True,
         )
-        all_hidden = outputs.hidden_states[self.tap_layer].squeeze(0)
-
-        if context_embeds is not None:
-            slot_hidden = all_hidden[context_embeds.shape[0] :]
-        else:
-            slot_hidden = all_hidden
-
-        seq_len = input_embeds.shape[1]
+        hidden_states = outputs.hidden_states
+        if len(hidden_states) <= self.tap_layer:
+            raise ValueError(
+                "expected hidden-state tuple with index "
+                f"{self.tap_layer}, actual length {len(hidden_states)}"
+            )
+        expected_shape = (1, sequence_length, WORKSPACE_DIMENSION)
+        tapped_hidden = hidden_states[self.tap_layer]
+        if tuple(tapped_hidden.shape) != expected_shape:
+            expected_shape_text = ", ".join(str(size) for size in expected_shape)
+            actual_shape_text = ", ".join(str(size) for size in tapped_hidden.shape)
+            raise ValueError(
+                f"expected hidden state shape {expected_shape_text}, actual "
+                f"{actual_shape_text}"
+            )
+        slot_hidden = tapped_hidden[0, -workspace.slot_count :, :]
 
         projected = self.proj_norm(self.projection(slot_hidden))
         updated = self.layer_norm(projected + self.residual_weight * slots)
         workspace.write_slots(updated)
 
         self._steps += 1
-        self._flops += self.flops_per_step(seq_len)
+        self._flops += self.flops_per_step(sequence_length)
 
         return updated
 
@@ -142,9 +159,7 @@ class LatentLoop(nn.Module):
         to the slot sequence so slots attend to question context rather
         than only to each other.
         """
-        initial = self.layer_norm(workspace.read_slots().to(self.device))
-        workspace.write_slots(initial)
-        result = initial
+        result = workspace.read_slots().to(self.device)
         for _ in range(self.num_steps):
             result = self.step(workspace, context_embeds)
         return result

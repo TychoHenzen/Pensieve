@@ -51,7 +51,8 @@
   <!-- status: completed -->
   <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: hidden state feedback -->
   <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: no intermediate tokens -->
-- [ ] 2.6 Update the latent loop to tap Qwen layer 12 and feed each normalized 896-dimensional workspace update directly into the next step.
+- [x] 2.6 Update the latent loop to tap Qwen layer 12 and feed each normalized 896-dimensional workspace update directly into the next step.
+  <!-- status: completed -->
 
 ## 3. Stage 0 training integration
 
