@@ -68,4 +68,3 @@ The gate MUST define token accuracy as the exact fraction `correct/520` and requ
 #### Scenario: Latent result meets baseline
 - **WHEN** the token baseline is valid and exactly seeds `[0, 1, 2, 3, 4]` have a mean accuracy equal to or above it
 - **THEN** the Stage 0 accuracy criterion passes
-
