@@ -11,6 +11,9 @@ from typing import Any, Protocol, TypeVar
 
 import numpy as np
 import torch
+from torch.nn import functional as F
+
+from train.eggroll_perturbations import DenseVectorNoise, MatrixFactors
 
 
 class SnapshotWorkspace(Protocol):
@@ -132,6 +135,36 @@ class ReferenceVectorDirection:
 
 ReferenceDirection = ReferenceMatrixDirection | ReferenceVectorDirection
 CandidateResult = TypeVar("CandidateResult")
+
+
+def materialized_linear(
+    inputs: torch.Tensor,
+    weight: torch.Tensor,
+    factors: Sequence[MatrixFactors],
+    signs: Sequence[float] | torch.Tensor,
+    *,
+    bias: torch.Tensor | None = None,
+    bias_noises: Sequence[DenseVectorNoise] | None = None,
+) -> torch.Tensor:
+    """Evaluate candidate linear layers by materializing each dense matrix."""
+    sign_values = torch.as_tensor(signs).tolist()
+    candidate_inputs = inputs.ndim > 2
+    outputs = []
+    for candidate_index, (factor, sign) in enumerate(
+        zip(factors, sign_values, strict=True)
+    ):
+        current_input = inputs[candidate_index] if candidate_inputs else inputs
+        current_bias = bias
+        if bias is not None and bias_noises is not None:
+            current_bias = bias + bias_noises[candidate_index].materialize(sign)
+        outputs.append(
+            F.linear(
+                current_input,
+                weight + factor.materialize(sign),
+                current_bias,
+            )
+        )
+    return torch.stack(outputs)
 
 
 def sample_reference_directions(

@@ -54,8 +54,9 @@
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
 <!-- status: completed -->
 
-- [ ] 4.2 Add a complete-step equivalence test covering candidate fitness, language-model loss, variance, normalized fitness, emitted fields, tensors, Adam state, and final RNG state.
+- [x] 4.2 Add a complete-step equivalence test covering candidate fitness, language-model loss, variance, normalized fitness, emitted fields, tensors, Adam state, and final RNG state.
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
+<!-- status: completed -->
 
 - [ ] 4.3 Add alternating checkpoint-resume equivalence and CLI wiring tests, then make the optimized path the only production path for both training commands.
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Resume stays deterministic -->
