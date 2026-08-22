@@ -4,8 +4,9 @@
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
 <!-- status: completed -->
 
-- [ ] 1.2 Add fixtures that snapshot and restore trainable tensors, Adam state, workspace state, and Python, NumPy, CPU, and CUDA RNG states around one EGGROLL step.
+- [x] 1.2 Add fixtures that snapshot and restore trainable tensors, Adam state, workspace state, and Python, NumPy, CPU, and CUDA RNG states around one EGGROLL step.
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Resume stays deterministic -->
+<!-- status: completed -->
 
 ## 2. Factorized EGGROLL Computation
 
