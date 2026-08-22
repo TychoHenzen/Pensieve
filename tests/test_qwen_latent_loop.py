@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from types import SimpleNamespace
 from typing import Any
 
@@ -201,13 +202,61 @@ def _hidden_states(
     return tuple(states)
 
 
+class _TapAdapterSpy:
+    def __init__(self, model: _FakeQwen) -> None:
+        self.model = model
+        self.prepare_calls: list[torch.Tensor] = []
+        self.cached_calls: list[torch.Tensor] = []
+        self.full_calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+    def prepare_prefix(self, context: torch.Tensor) -> torch.Tensor:
+        self.prepare_calls.append(context.clone())
+        return context.clone()
+
+    def cached_partial(
+        self,
+        prefix: torch.Tensor,
+        slots: torch.Tensor,
+    ) -> torch.Tensor:
+        self.cached_calls.append(slots.clone())
+        return self._selected(prefix.shape[0], slots)
+
+    def full_reference(
+        self,
+        context: torch.Tensor,
+        slots: torch.Tensor,
+    ) -> torch.Tensor:
+        self.full_calls.append((context.clone(), slots.clone()))
+        return self._selected(context.shape[0], slots)
+
+    def _selected(
+        self,
+        context_length: int,
+        slots: torch.Tensor,
+    ) -> torch.Tensor:
+        hidden_states = self.model.hidden_states
+        if len(hidden_states) <= 12:
+            raise ValueError(
+                f"expected hidden-state tuple with index 12, actual length {len(hidden_states)}"
+            )
+        tapped = hidden_states[12]
+        expected = (1, context_length + slots.shape[0], WIDTH)
+        if tuple(tapped.shape) != expected:
+            raise ValueError(
+                f"expected hidden state shape {expected}, actual {tuple(tapped.shape)}"
+            )
+        return tapped[0, -slots.shape[0] :, :]
+
+
 def _loop(hidden_states: tuple[torch.Tensor, ...], *, num_steps: int = 1) -> LatentLoop:
     model = _FakeQwen(hidden_states)
-    return LatentLoop(
+    loop = LatentLoop(
         backbone=SimpleNamespace(model=model, tokenizer=object()),
         num_steps=num_steps,
         device="cpu",
     )
+    loop.tap_adapter = _TapAdapterSpy(model)
+    return loop
 
 
 def _workspace() -> Workspace:
@@ -219,26 +268,37 @@ def _workspace() -> Workspace:
     return workspace
 
 
-def test_qwen_step_uses_one_unpadded_context_and_slot_batch() -> None:
+def test_qwen_step_routes_context_and_slots_through_shared_adapter() -> None:
     loop = _loop(_hidden_states())
     workspace = _workspace()
     context = torch.full((CONTEXT_LENGTH, WIDTH), 2.0)
 
     loop.step(workspace, context)
 
-    call = loop.model.calls[0]
-    assert len(loop.model.calls) == 1
-    assert torch.equal(
-        call["inputs_embeds"], torch.cat((context, _workspace().read_slots())).unsqueeze(0)
-    )
-    assert call["inputs_embeds"].shape == (1, SEQUENCE_LENGTH, WIDTH)
-    assert call["attention_mask"].shape == (1, SEQUENCE_LENGTH)
-    assert torch.all(call["attention_mask"] == 1)
-    assert torch.equal(
-        call["position_ids"], torch.arange(SEQUENCE_LENGTH).unsqueeze(0)
-    )
-    assert call["output_hidden_states"] is True
-    assert "input_ids" not in call
+    adapter = loop.tap_adapter
+    assert len(adapter.prepare_calls) == 1
+    assert len(adapter.cached_calls) == 1
+    assert not adapter.full_calls
+    assert torch.equal(adapter.prepare_calls[0], context)
+    assert torch.equal(adapter.cached_calls[0], _workspace().read_slots())
+    assert not loop.model.calls
+
+
+def test_qwen_step_without_context_uses_adapter_full_reference() -> None:
+    hidden = torch.full((1, SLOT_COUNT, WIDTH), 3.0)
+    loop = _loop(_hidden_states(hidden))
+    workspace = _workspace()
+
+    loop.step(workspace)
+
+    adapter = loop.tap_adapter
+    assert not adapter.prepare_calls
+    assert not adapter.cached_calls
+    assert len(adapter.full_calls) == 1
+    context, slots = adapter.full_calls[0]
+    assert context.shape == (0, WIDTH)
+    assert torch.equal(slots, _workspace().read_slots())
+    assert not loop.model.calls
 
 
 def test_qwen_tap_full_reference_preserves_unbatched_slot_autograd() -> None:
@@ -594,7 +654,7 @@ def test_qwen_step_rejects_each_incompatible_hidden_state_shape(
 ) -> None:
     loop = _loop(hidden_states)
 
-    with pytest.raises(ValueError, match=expected):
+    with pytest.raises(ValueError, match=re.escape(expected)):
         loop.step(_workspace(), torch.ones(CONTEXT_LENGTH, WIDTH))
 
 
@@ -613,19 +673,20 @@ def test_qwen_run_reuses_updated_slots_without_intermediate_tokens() -> None:
 
     loop.run(workspace, context)
 
-    calls = loop.model.calls
+    adapter = loop.tap_adapter
+    calls = adapter.cached_calls
+    assert len(adapter.prepare_calls) == 1
     assert len(calls) == loop.num_steps == 3
-    for call in calls:
-        assert "input_ids" not in call
-        assert call["inputs_embeds"].shape == (1, SEQUENCE_LENGTH, WIDTH)
+    assert not adapter.full_calls
     assert torch.equal(
-        calls[0]["inputs_embeds"][0, -SLOT_COUNT:, :],
+        calls[0],
         initial,
     )
     assert torch.equal(
-        calls[1]["inputs_embeds"][0, -SLOT_COUNT:, :],
+        calls[1],
         first_update,
     )
+    assert not loop.model.calls
     assert loop.model.generated == 0
     assert loop.model.decoded == 0
     assert loop.model.embedding_lookups == 0

@@ -7,18 +7,6 @@ import pytest
 import torch
 from torch import nn
 
-
-class StubAutoTokenizer:
-    @staticmethod
-    def from_pretrained(name: str) -> None:
-        return None
-
-
-transformers = ModuleType("transformers")
-transformers.AutoTokenizer = StubAutoTokenizer
-transformers.AutoModelForCausalLM = object
-sys.modules.setdefault("transformers", transformers)
-
 sentence_transformers = ModuleType("sentence_transformers")
 sentence_transformers.SentenceTransformer = object
 sys.modules.setdefault("sentence_transformers", sentence_transformers)
@@ -40,6 +28,7 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         attn_log_temp=nn.Parameter(torch.tensor(0.0)),
     )
     model = FakeLanguageModel()
+    tap_adapter = FakeTapAdapter()
     trainer.latent_loop = SimpleNamespace(
         projection=nn.Linear(2, 2),
         proj_norm=nn.LayerNorm(2),
@@ -48,6 +37,7 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         num_steps=1,
         tap_layer=0,
         model=model,
+        tap_adapter=tap_adapter,
     )
 
     observed_slots: list[torch.Tensor] = []
@@ -72,7 +62,9 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
     assert fitness.tolist() == pytest.approx(
         (-losses + trainer.variance_weight * variance.clamp_min(1e-10).log()).tolist()
     )
-    assert model.forward_calls == 3
+    assert model.forward_calls == 1
+    assert len(tap_adapter.prepare_calls) == 1
+    assert len(tap_adapter.cached_calls) == 2
 
 
 def test_constructor_accepts_supplied_shared_state(
@@ -101,7 +93,11 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     trainer = EggrollTrainer.__new__(EggrollTrainer)
     trainer.state = object()
     trainer.encoder = SimpleNamespace(_token_embeddings=lambda _: torch.zeros(1, 2))
-    trainer.latent_loop = SimpleNamespace(embed_tokens=lambda _: torch.zeros(1, 2))
+    tap_adapter = FakeTapAdapter()
+    trainer.latent_loop = SimpleNamespace(
+        embed_tokens=lambda _: torch.zeros(1, 2),
+        tap_adapter=tap_adapter,
+    )
     trainer.tokenizer = FakeTokenizer()
     trainer.device = "cpu"
     trainer.use_amp = False
@@ -111,10 +107,12 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     trainer.optimizer = torch.optim.SGD(trainer.trainable_params, lr=0.1)
     trainer._generate_perturbation = lambda seed, sign: [torch.zeros(1)]
     fitness_input: list[torch.Tensor] = []
+    prefixes: list[object] = []
 
     def forward(*args, **kwargs):
         variance = torch.tensor([0.25, 0.75])
         fitness_input.append(variance)
+        prefixes.append(kwargs["context_prefix"])
         return torch.tensor([-3.0, -1.0]), torch.tensor([2.0, 1.0]), variance
 
     monkeypatch.setattr(trainer, "_forward_fitness_batch", forward)
@@ -129,6 +127,8 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     assert result.language_model_loss == pytest.approx(1.5)
     assert result.total_objective == pytest.approx(2.0)
     assert result.regularizer_loss == pytest.approx(0.5)
+    assert len(tap_adapter.prepare_calls) == 1
+    assert prefixes == [tap_adapter.prefix]
 
 
 class FakeLanguageModel(nn.Module):
@@ -144,6 +144,25 @@ class FakeLanguageModel(nn.Module):
         self.forward_calls += 1
         logits = torch.zeros(*inputs_embeds.shape[:-1], 2)
         return SimpleNamespace(logits=logits, hidden_states=[inputs_embeds])
+
+
+class FakeTapAdapter:
+    def __init__(self) -> None:
+        self.prefix = object()
+        self.prepare_calls: list[torch.Tensor] = []
+        self.cached_calls: list[tuple[object, torch.Tensor]] = []
+
+    def prepare_prefix(self, context: torch.Tensor) -> object:
+        self.prepare_calls.append(context.clone())
+        return self.prefix
+
+    def cached_partial(
+        self,
+        prefix: object,
+        slots: torch.Tensor,
+    ) -> torch.Tensor:
+        self.cached_calls.append((prefix, slots.clone()))
+        return slots
 
 
 class FakeTokenizer:

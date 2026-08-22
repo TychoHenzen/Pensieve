@@ -44,8 +44,9 @@
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: Cached latent state matches full execution -->
 <!-- status: completed -->
 
-- [ ] 3.5 Route ordinary and batched latent runs through the shared adapter while preserving the projection, residual, normalization, shape checks, and no-token behavior.
+- [x] 3.5 Route ordinary and batched latent runs through the shared adapter while preserving the projection, residual, normalization, shape checks, and no-token behavior.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: no intermediate tokens -->
+<!-- status: completed -->
 
 ## 4. Trainer Integration and Determinism
 
