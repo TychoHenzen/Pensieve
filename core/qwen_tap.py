@@ -21,6 +21,42 @@ class PreparedQwenPrefix:
 
     context_length: int
     layer_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...]
+    context_embeddings: torch.Tensor | None = None
+
+
+class _CachedPartialReferenceBackward(torch.autograd.Function):
+    """Keep the cached forward while matching combined-sequence slot gradients."""
+
+    @staticmethod
+    def forward(
+        ctx: Any,
+        adapter: QwenTapAdapter,
+        context_embeddings: torch.Tensor,
+        slot_embeddings: torch.Tensor,
+        cached_output: torch.Tensor,
+    ) -> torch.Tensor:
+        ctx.adapter = adapter
+        ctx.save_for_backward(context_embeddings, slot_embeddings)
+        return cached_output
+
+    @staticmethod
+    def backward(
+        ctx: Any,
+        output_gradient: torch.Tensor,
+    ) -> tuple[None, None, torch.Tensor, None]:
+        context_embeddings, slot_embeddings = ctx.saved_tensors
+        with torch.enable_grad():
+            differentiable_slots = slot_embeddings.detach().requires_grad_(True)
+            reference_output = ctx.adapter._combined_partial(
+                context_embeddings,
+                differentiable_slots,
+            )
+            slot_gradient = torch.autograd.grad(
+                reference_output,
+                differentiable_slots,
+                output_gradient,
+            )[0]
+        return None, None, slot_gradient, None
 
 
 class QwenTapAdapter:
@@ -97,6 +133,7 @@ class QwenTapAdapter:
         return PreparedQwenPrefix(
             context_length=context_length,
             layer_key_values=layer_key_values,
+            context_embeddings=batched_context.squeeze(0).detach().clone(),
         )
 
     @staticmethod
@@ -193,7 +230,74 @@ class QwenTapAdapter:
                 f"expected partial hidden state shape {tuple(batched_slots.shape)}, "
                 f"actual {tuple(hidden_states.shape)}"
             )
-        return hidden_states.squeeze(0) if remove_batch else hidden_states
+        selected = hidden_states.squeeze(0) if remove_batch else hidden_states
+        if (
+            torch.is_grad_enabled()
+            and slot_embeddings.requires_grad
+            and prefix.context_embeddings is not None
+        ):
+            selected = _CachedPartialReferenceBackward.apply(
+                self,
+                prefix.context_embeddings,
+                slot_embeddings,
+                selected,
+            )
+        return selected
+
+    def _combined_partial(
+        self,
+        context_embeddings: torch.Tensor,
+        slot_embeddings: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run the combined sequence through blocks 0 through 11 only."""
+        batched_context, batched_slots, remove_batch = self._batch_inputs(
+            context_embeddings,
+            slot_embeddings,
+        )
+        body, layers, layer_types = self._partial_body()
+        combined = torch.cat((batched_context, batched_slots), dim=1)
+        batch_size, sequence_length, _ = combined.shape
+        slot_count = batched_slots.shape[1]
+        attention_mask = torch.ones(
+            (batch_size, sequence_length),
+            dtype=torch.long,
+            device=combined.device,
+        )
+        position_ids = torch.arange(
+            sequence_length,
+            dtype=torch.long,
+            device=combined.device,
+        ).unsqueeze(0).expand(batch_size, -1)
+        mask_arguments = {
+            "config": body.config,
+            "inputs_embeds": combined,
+            "attention_mask": attention_mask,
+            "past_key_values": None,
+            "position_ids": position_ids,
+        }
+        mask_builders = {
+            "full_attention": create_causal_mask,
+            "sliding_attention": create_sliding_window_causal_mask,
+        }
+        causal_masks = {
+            layer_type: mask_builders[layer_type](**mask_arguments)
+            for layer_type in set(layer_types)
+        }
+        position_embeddings = body.rotary_emb(combined, position_ids)
+
+        hidden_states = combined
+        for layer_index in range(LATENT_TAP_LAYER):
+            hidden_states = layers[layer_index](
+                hidden_states,
+                attention_mask=causal_masks[layer_types[layer_index]],
+                position_ids=position_ids,
+                position_embeddings=position_embeddings,
+                past_key_values=None,
+                use_cache=False,
+            )
+
+        selected = hidden_states[:, -slot_count:, :]
+        return selected.squeeze(0) if remove_batch else selected
 
     def full_reference(
         self,
