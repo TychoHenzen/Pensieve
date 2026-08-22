@@ -172,7 +172,9 @@ def _optimizer_checkpoint_state(
         references[parameter_name] = {}
         parameter_state = state["state"].get(parameter_id, {})
         for state_name, value in parameter_state.items():
-            if isinstance(value, torch.Tensor) and value.ndim > 0:
+            if isinstance(value, torch.Tensor) and (
+                value.ndim > 0 or state_name != "step"
+            ):
                 tensor_name = f"optimizer.{method}.{parameter_name}.{state_name}"
                 tensor = value.detach().to(device="cpu").contiguous().clone()
                 tensors[tensor_name] = tensor

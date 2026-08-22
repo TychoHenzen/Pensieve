@@ -131,9 +131,9 @@ def _make_trainer() -> EggrollTrainer:
     trainer.workspace = _TinyWorkspace()
     trainer.tokenizer = _TinyTokenizer()
     trainer.device = "cpu"
-    trainer.pop_size = 4
-    trainer.eval_batch_size = 2
-    trainer.sigma = 0.07
+    trainer.pop_size = 8
+    trainer.eval_batch_size = 4
+    trainer.sigma = 0.2
     trainer.rank = 2
     trainer.variance_weight = 0.35
     trainer.use_amp = False

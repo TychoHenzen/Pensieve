@@ -80,6 +80,7 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Run the focused CPU test suite for perturbations, latent execution, trainer integration, checkpoint resume, command wiring, and benchmark error paths.
+- [x] 6.1 Run the focused CPU test suite for perturbations, latent execution, trainer integration, checkpoint resume, command wiring, and benchmark error paths.
+<!-- status: completed -->
 
 - [ ] 6.2 Run the pinned-Qwen equivalence tests, the full project test suite, strict OpenSpec validation, and `dod-guard cover implement-hardware-efficient-eggroll`; record any environment-limited check as unverified rather than passed.
