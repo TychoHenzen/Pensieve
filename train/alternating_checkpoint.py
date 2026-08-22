@@ -215,6 +215,7 @@ def build_alternating_checkpoint(
     phase_steps: int,
     next_dataset_position: int,
     metrics: Mapping[str, Any],
+    run_config: Mapping[str, Any],
 ) -> AlternatingCheckpoint:
     """Capture complete alternating state from explicit identity and selections."""
     tensors: dict[str, torch.Tensor] = {}
@@ -291,6 +292,7 @@ def build_alternating_checkpoint(
             "pytorch_cpu": {"state_tensor": "rng.pytorch.cpu"},
             "cuda": cuda_metadata,
         },
+        "run_config": dict(run_config),
     }
     return capture_checkpoint(metadata=metadata, tensors=tensors)
 
@@ -360,6 +362,30 @@ def save_boundary_checkpoints(
     return tuple(paths)
 
 
+def resume_config_conflicts(
+    *,
+    checkpoint_config: Mapping[str, Any],
+    resume_config: Mapping[str, Any],
+    completed_epochs: int,
+) -> tuple[str, ...]:
+    """Return canonical paths for settings that cannot change during resume."""
+    conflicts = [
+        f"$.run_config.{setting}"
+        for setting in SCHEDULE_DEFINING_SETTINGS
+        if checkpoint_config.get(setting) != resume_config.get(setting)
+    ]
+
+    epoch_target = resume_config.get("epochs")
+    if (
+        not isinstance(epoch_target, int)
+        or isinstance(epoch_target, bool)
+        or epoch_target < completed_epochs
+    ):
+        conflicts.append("$.run_config.epochs")
+
+    return tuple(dict.fromkeys(conflicts))
+
+
 def validate_resume_config(
     *,
     checkpoint_config: Mapping[str, Any],
@@ -367,15 +393,11 @@ def validate_resume_config(
     completed_epochs: int,
 ) -> None:
     """Reject resume settings that would change the saved training schedule."""
-    conflicts = [
-        setting
-        for setting in SCHEDULE_DEFINING_SETTINGS
-        if checkpoint_config.get(setting) != resume_config.get(setting)
-    ]
-
-    epoch_target = resume_config.get("epochs")
-    if not isinstance(epoch_target, int) or epoch_target < completed_epochs:
-        conflicts.append("epochs")
+    conflicts = resume_config_conflicts(
+        checkpoint_config=checkpoint_config,
+        resume_config=resume_config,
+        completed_epochs=completed_epochs,
+    )
 
     if conflicts:
         raise ValueError(

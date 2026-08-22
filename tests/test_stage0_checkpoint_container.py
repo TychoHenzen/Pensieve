@@ -261,7 +261,6 @@ def test_reader_rejects_tensor_shape_before_calling_loader(tmp_path: Path) -> No
     assert calls == []
 
 
-# covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration
 def test_reader_rejects_unknown_schema_before_loading_tensors(tmp_path: Path) -> None:
     path = tmp_path / "unknown-version.ckpt"
     _write_archive(

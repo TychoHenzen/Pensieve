@@ -20,20 +20,10 @@ from train.alternating_checkpoint import (
     save_boundary_checkpoints,
     save_checkpoint,
 )
-from test_stage0_checkpoint_resume import _metadata, _plain, _tensor_values
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata, _plain, _tensor_values
 
 
-SCHEDULE_CONFIG = {
-    "dataset_selection": "gsm8k-train",
-    "epochs": 5,
-    "phase_steps": 500,
-    "model_shape": {"hidden_size": 64, "num_slots": 8},
-    "gradient_optimizer": {"learning_rate": 1e-4},
-    "eggroll_optimizer": {"learning_rate": 1e-3},
-    "eggroll_population": {"size": 128, "sigma": 0.01, "rank": 4},
-    "held_out_selection": {"split": "test", "count": 128},
-    "logging_frequency": 10,
-}
+SCHEDULE_CONFIG = RUN_CONFIG
 
 
 def test_checkpoint_round_trips_resumption_state(tmp_path) -> None:
@@ -77,6 +67,7 @@ def test_typed_builder_captures_real_model_optimizer_and_rng_state(
         phase_steps=2,
         next_dataset_position=2,
         metrics={"loss": 1.25},
+        run_config=RUN_CONFIG,
     )
     path = tmp_path / "phase-2.ckpt"
     save_checkpoint(path, checkpoint)
@@ -186,8 +177,8 @@ def test_resume_error_names_every_conflicting_setting() -> None:
     resume_config = dict(
         SCHEDULE_CONFIG,
         phase_steps=250,
-        model_shape={"hidden_size": 128, "num_slots": 8},
-        held_out_selection={"split": "test", "count": 64},
+        model_shape={"slot_count": 8, "num_steps": 2},
+        held_out_selection={**RUN_CONFIG["held_out_selection"], "count": 64},
     )
 
     with pytest.raises(ValueError) as error:
@@ -196,6 +187,19 @@ def test_resume_error_names_every_conflicting_setting() -> None:
     assert "phase_steps" in str(error.value)
     assert "model_shape" in str(error.value)
     assert "held_out_selection" in str(error.value)
+
+
+# covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration
+def test_resume_error_uses_canonical_paths_for_every_incompatible_or_missing_setting() -> None:
+    resume_config = dict(SCHEDULE_CONFIG)
+    del resume_config["model_shape"]
+    resume_config["phase_steps"] = 250
+
+    with pytest.raises(ValueError) as error:
+        _validate_then_update(resume_config, completed_epochs=2, updates=[])
+
+    assert "$.run_config.model_shape" in str(error.value)
+    assert "$.run_config.phase_steps" in str(error.value)
 
 
 def test_resume_accepts_matching_schedule_and_display_only_changes() -> None:

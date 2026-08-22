@@ -30,8 +30,8 @@ The training command SHALL process every selected training example exactly once 
 - **THEN** the next epoch starts in the same phase with its remaining phase budget
 
 #### Scenario: Full default run
-- **WHEN** the command runs with five epochs over a dataset containing 7,473 examples
-- **THEN** it performs exactly 37,365 training steps without changing the phase schedule at epoch boundaries
+- **WHEN** the command runs with five epochs over the 1,089-example filtered Calc-MAWPS training split
+- **THEN** it performs exactly 5,445 training steps without changing the phase schedule at epoch boundaries
 
 #### Scenario: Invalid epoch count
 - **WHEN** the user supplies an epoch count below one
@@ -75,19 +75,19 @@ The experiment SHALL evaluate the unperturbed shared model without parameter upd
 - **THEN** model parameters, optimizer states, dataset position, and phase position remain unchanged
 
 ### Requirement: Resumable experiment checkpoints
-The command SHALL save a checkpoint at every phase and epoch boundary. A checkpoint SHALL contain the shared model parameters, both optimizer states, active phase, completed phase steps, global step, epoch position, dataset position, run configuration, and random-number-generator state needed to continue the same schedule.
+The command SHALL save the version-2 JSON-plus-safetensors `.ckpt` container at every phase and epoch boundary. It SHALL contain shared trainable parameters, separate Eggroll and gradient optimizer states and parameter groups, active phase, completed phase steps, phase budget, global step, epoch, next dataset position, fixed per-epoch order identity, complete Stage 0 identity, fixed held-out identifiers, run configuration, and Python, NumPy, PyTorch CPU, every CUDA RNG state, and ordered CUDA device identities. The run configuration SHALL record the complete typed dataset selection, epoch target, phase budget, slot count, latent-step count, both optimizer learning rates, Eggroll population size, sigma, rank, variance weight, evaluation batch size, AMP setting, held-out selection, and logging frequency. The two optimizers SHALL retain independent state over the same declared shared parameters; each step SHALL clear the active optimizer's gradients before its update. Resume SHALL use the safe loading contract and MUST reject a changed CUDA device count or ordering during metadata validation before model construction. Resume MAY change logging frequency and MAY increase the epoch target, but the epoch target MUST NOT be below completed progress. Every other run-configuration mismatch SHALL be rejected with its canonical field path before model construction or state application.
 
 #### Scenario: Resume within an epoch
-- **WHEN** the command resumes from a phase-boundary checkpoint created within an epoch
+- **WHEN** the command resumes from a compatible phase-boundary checkpoint created within an epoch
 - **THEN** it continues with the next unprocessed example and the phase dictated by the saved schedule
 
 #### Scenario: Resume at an epoch boundary
-- **WHEN** the command resumes from an epoch-boundary checkpoint
+- **WHEN** the command resumes from a compatible epoch-boundary checkpoint
 - **THEN** it starts the next epoch without repeating the completed epoch and preserves any unfinished phase budget
 
 #### Scenario: Reject incompatible resume configuration
-- **WHEN** resume arguments change a schedule-defining setting stored in the checkpoint
-- **THEN** the command rejects the resume before applying another training update and identifies the incompatible setting
+- **WHEN** resume arguments or loaded data change a schedule-defining setting, dataset identity, backbone identity, model shape, tap layer, or held-out item identity stored in the checkpoint
+- **THEN** the command rejects the resume before applying another training update and identifies every incompatible or missing setting
 
 ### Requirement: Standalone trainer compatibility
 The existing standalone Eggroll and gradient training commands SHALL remain available with their current single-method behavior.
@@ -142,4 +142,3 @@ The command SHALL filter only structured JSON progress records identified by `re
 #### Scenario: Non-progress output remains independent
 - **WHEN** progress filtering suppresses a structured JSON record
 - **THEN** it does not intercept stderr or writes that are not structured records with `record_type` equal to `training`, `evaluation`, or `checkpoint`
-

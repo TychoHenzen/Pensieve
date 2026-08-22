@@ -32,6 +32,7 @@ from train.alternating_checkpoint import (
     build_alternating_checkpoint,
     latest_checkpoint,
     load_checkpoint,
+    resume_config_conflicts,
     save_boundary_checkpoints,
     stage0_parameter_paths,
 )
@@ -126,8 +127,7 @@ def _validate_resume_metadata(
     *,
     identity: dict[str, object],
     selections: dict[str, object],
-    phase_steps: int,
-    epochs: int,
+    run_config: dict[str, object],
 ) -> None:
     def plain(value: object) -> object:
         if isinstance(value, Mapping):
@@ -136,18 +136,40 @@ def _validate_resume_metadata(
             return [plain(item) for item in value]
         return value
 
+    def different_paths(saved: object, current: object, path: str) -> list[str]:
+        saved = plain(saved)
+        current = plain(current)
+        if isinstance(saved, dict) and isinstance(current, dict):
+            paths: list[str] = []
+            for key in sorted(saved.keys() | current.keys()):
+                if key not in saved or key not in current:
+                    paths.append(f"{path}.{key}")
+                else:
+                    paths.extend(
+                        different_paths(saved[key], current[key], f"{path}.{key}")
+                    )
+            return paths
+        if saved != current:
+            return [path]
+        return []
+
     metadata = checkpoint.metadata
-    conflicts: list[str] = []
-    if plain(metadata["identity"]) != plain(identity):
-        conflicts.append("$.identity")
-    if plain(metadata["selections"]) != plain(selections):
-        conflicts.append("$.selections")
-    if metadata["schedule"]["phase_steps"] != phase_steps:
-        conflicts.append("$.schedule.phase_steps")
-    if epochs < int(metadata["schedule"]["epoch"]):
-        conflicts.append("$.schedule.epoch")
+    conflicts = different_paths(metadata["identity"], identity, "$.identity")
+    conflicts.extend(
+        different_paths(metadata["selections"], selections, "$.selections")
+    )
+    conflicts.extend(
+        resume_config_conflicts(
+            checkpoint_config=metadata["run_config"],
+            resume_config=run_config,
+            completed_epochs=int(metadata["schedule"]["epoch"]),
+        )
+    )
     if conflicts:
-        raise ValueError("incompatible resume configuration: " + ", ".join(conflicts))
+        raise ValueError(
+            "incompatible resume configuration: "
+            + ", ".join(dict.fromkeys(conflicts))
+        )
 
 
 def _ts() -> str:
@@ -592,6 +614,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     configure_deterministic_runtime()
     args = _parse_args(argv)
     save_dir = Path(args.save_dir)
+    run_config = _run_config(args)
 
     _log(f"device={args.device}")
     _log(
@@ -634,8 +657,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             resumed,
             identity=checkpoint_identity,
             selections=selections,
-            phase_steps=args.phase_steps,
-            epochs=args.epochs,
+            run_config=run_config,
         )
     _log(f"loaded {len(examples)} training problems ({_format_duration(time.monotonic() - load_start)})")
     held_out = load_held_out_problems(
@@ -703,6 +725,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 if evaluator.latest is not None
                 else {}
             ),
+            run_config=run_config,
         )
         return save_boundary_checkpoints(
             save_dir,

@@ -109,3 +109,11 @@
 - [x] 6.3 Run the complete pytest suite and distinguish new failures from unrelated existing worktree changes or storage errors.
 - [x] 6.4 Check available disk space, set `CUBLAS_WORKSPACE_CONFIG=:4096:8` before CUDA initialization, then run a one-problem integration smoke test against both pinned Hugging Face revisions on CUDA.
 - [x] 6.5 Run the frozen Qwen token baseline across all 520 test items and record whether it clears the unchanged 5% validity floor before any new multi-epoch latent training.
+
+## 7. Code review repairs
+
+- [x] 7.1 Persist the complete typed alternating run configuration in version-2 checkpoints and reject every incompatible resume setting before model construction or state application.
+  <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration -->
+  <!-- status: completed -->
+- [ ] 7.2 Migrate the slot-count ablation command from the removed GSM8K, `run_seed`, and `.pt` interfaces to the current Calc-MAWPS, persisted-result, and safe `.ckpt` contracts.
+  <!-- status: pending -->

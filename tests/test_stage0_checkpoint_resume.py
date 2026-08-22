@@ -38,6 +38,36 @@ RUNTIME_IDENTITY = {
     "tf32_enabled": False,
     "cudnn_benchmark": False,
 }
+RUN_CONFIG = {
+    "dataset_selection": {
+        "dataset": "MU-NLPC/Calc-mawps",
+        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "split": "train",
+        "seed": 0,
+        "count": 3,
+    },
+    "epochs": 5,
+    "phase_steps": 2,
+    "model_shape": {"slot_count": 16, "num_steps": 2},
+    "gradient_optimizer": {"learning_rate": 0.0001},
+    "eggroll_optimizer": {"learning_rate": 0.001},
+    "eggroll_population": {
+        "size": 128,
+        "sigma": 0.02,
+        "rank": 4,
+        "variance_weight": 1.0,
+        "eval_batch_size": 8,
+        "use_amp": False,
+    },
+    "held_out_selection": {
+        "dataset": "MU-NLPC/Calc-mawps",
+        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "split": "validation",
+        "seed": 0,
+        "count": 2,
+    },
+    "logging_frequency": 50,
+}
 
 
 def _optimizer_manifest(method: str) -> dict[str, object]:
@@ -116,6 +146,8 @@ def _metadata(*, epoch_boundary: bool = False) -> dict[str, object]:
         "epoch": 1,
         "next_dataset_position": 0 if epoch_boundary else 2,
     }
+    run_config = copy.deepcopy(RUN_CONFIG)
+    run_config["phase_steps"] = schedule["phase_steps"]
     return {
         "schema_version": 2,
         "identity": training_identity(
@@ -158,7 +190,24 @@ def _metadata(*, epoch_boundary: bool = False) -> dict[str, object]:
             "pytorch_cpu": {"state_tensor": "rng.pytorch.cpu"},
             "cuda": [],
         },
+        "run_config": run_config,
     }
+
+
+def test_malformed_run_config_is_rejected_before_tensor_loading(tmp_path: Path) -> None:
+    metadata = _metadata()
+    metadata["run_config"]["gradient_optimizer"]["learning_rate"] = "fast"  # type: ignore[index]
+    del metadata["run_config"]["eggroll_population"]["rank"]  # type: ignore[index]
+    path = tmp_path / "malformed-run-config.ckpt"
+    _write_unchecked(path, metadata)
+
+    _assert_rejected_without_exposure(
+        path,
+        expected_paths=(
+            "$.run_config.gradient_optimizer.learning_rate",
+            "$.run_config.eggroll_population.rank",
+        ),
+    )
 
 
 def _tensor_values(metadata: dict[str, object]) -> dict[str, torch.Tensor]:

@@ -62,6 +62,7 @@ _ROOT_FIELDS = frozenset(
         "rng",
     }
 )
+_ALTERNATING_ROOT_FIELDS = _ROOT_FIELDS | {"run_config"}
 _TENSOR_FIELDS = frozenset({"name", "shape", "dtype", "role"})
 _OPTIMIZER_FIELDS = frozenset(
     {
@@ -104,6 +105,27 @@ _RUNTIME_FIELDS = frozenset(
         "tf32_enabled",
         "cudnn_benchmark",
     }
+)
+_RUN_CONFIG_FIELDS = frozenset(
+    {
+        "dataset_selection",
+        "epochs",
+        "phase_steps",
+        "model_shape",
+        "gradient_optimizer",
+        "eggroll_optimizer",
+        "eggroll_population",
+        "held_out_selection",
+        "logging_frequency",
+    }
+)
+_RUN_SELECTION_FIELDS = frozenset(
+    {"dataset", "revision", "split", "seed", "count"}
+)
+_MODEL_SHAPE_FIELDS = frozenset({"slot_count", "num_steps"})
+_OPTIMIZER_CONFIG_FIELDS = frozenset({"learning_rate"})
+_EGGROLL_POPULATION_FIELDS = frozenset(
+    {"size", "sigma", "rank", "variance_weight", "eval_batch_size", "use_amp"}
 )
 _DTYPE_TO_SAFETENSORS = {
     "float32": "F32",
@@ -176,9 +198,10 @@ class ValidatedCheckpointMetadata:
     selections: Mapping[str, Any]
     metrics: Mapping[str, Any]
     rng: Mapping[str, Any]
+    run_config: Mapping[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        result: dict[str, Any] = {
             "schema_version": self.schema_version,
             "identity": _thaw(self.identity),
             "mode": self.mode,
@@ -189,6 +212,9 @@ class ValidatedCheckpointMetadata:
             "metrics": _thaw(self.metrics),
             "rng": _thaw(self.rng),
         }
+        if self.run_config is not None:
+            result["run_config"] = _thaw(self.run_config)
+        return result
 
 
 class _Validator:
@@ -232,6 +258,29 @@ class _Validator:
             return False
         if len(value) > MAX_METADATA_STRING_LENGTH:
             self.add(path, f"exceeds {MAX_METADATA_STRING_LENGTH} characters")
+            return False
+        return True
+
+    def number(
+        self,
+        value: Any,
+        path: str,
+        *,
+        minimum: float | None = None,
+        exclusive_minimum: bool = False,
+    ) -> bool:
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+        ):
+            self.add(path, "must be a finite number")
+            return False
+        if minimum is not None and (
+            value < minimum or (exclusive_minimum and value == minimum)
+        ):
+            comparison = "greater than" if exclusive_minimum else "at least"
+            self.add(path, f"must be {comparison} {minimum}")
             return False
         return True
 
@@ -556,6 +605,126 @@ def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
         )
 
 
+def _validate_run_selection(
+    validator: _Validator,
+    value: Any,
+    path: str,
+    *,
+    expected_split: str,
+    count_may_be_null: bool,
+) -> None:
+    obj = validator.object(value, path)
+    if obj is None:
+        return
+    validator.exact_fields(obj, _RUN_SELECTION_FIELDS, path)
+    for field in ("dataset", "revision"):
+        if field in obj:
+            validator.string(obj[field], f"{path}.{field}")
+    if "split" in obj:
+        if (
+            validator.string(obj["split"], f"{path}.split")
+            and obj["split"] != expected_split
+        ):
+            validator.add(f"{path}.split", f"must equal {expected_split!r}")
+    if "seed" in obj:
+        if (
+            validator.integer(obj["seed"], f"{path}.seed", minimum=0)
+            and obj["seed"] != 0
+        ):
+            validator.add(f"{path}.seed", "must equal 0")
+    if "count" in obj:
+        count = obj["count"]
+        if count is not None or not count_may_be_null:
+            validator.integer(count, f"{path}.count", minimum=0)
+
+
+def _validate_run_config(
+    validator: _Validator, value: Any, mode: Any, schedule: Any
+) -> None:
+    if mode != "alternating":
+        return
+    obj = validator.object(value, "$.run_config")
+    if obj is None:
+        return
+    validator.exact_fields(obj, _RUN_CONFIG_FIELDS, "$.run_config")
+    _validate_run_selection(
+        validator,
+        obj.get("dataset_selection"),
+        "$.run_config.dataset_selection",
+        expected_split="train",
+        count_may_be_null=True,
+    )
+    _validate_run_selection(
+        validator,
+        obj.get("held_out_selection"),
+        "$.run_config.held_out_selection",
+        expected_split="validation",
+        count_may_be_null=False,
+    )
+    for field in ("epochs", "phase_steps", "logging_frequency"):
+        if field in obj:
+            validator.integer(obj[field], f"$.run_config.{field}", minimum=1)
+    if (
+        isinstance(schedule, Mapping)
+        and "phase_steps" in obj
+        and obj["phase_steps"] != schedule.get("phase_steps")
+    ):
+        validator.add(
+            "$.run_config.phase_steps", "must equal $.schedule.phase_steps"
+        )
+
+    model_shape = validator.object(
+        obj.get("model_shape"), "$.run_config.model_shape"
+    )
+    if model_shape is not None:
+        validator.exact_fields(
+            model_shape, _MODEL_SHAPE_FIELDS, "$.run_config.model_shape"
+        )
+        for field in _MODEL_SHAPE_FIELDS & model_shape.keys():
+            validator.integer(
+                model_shape[field], f"$.run_config.model_shape.{field}", minimum=1
+            )
+
+    for optimizer_name in ("gradient_optimizer", "eggroll_optimizer"):
+        path = f"$.run_config.{optimizer_name}"
+        optimizer = validator.object(obj.get(optimizer_name), path)
+        if optimizer is None:
+            continue
+        validator.exact_fields(optimizer, _OPTIMIZER_CONFIG_FIELDS, path)
+        if "learning_rate" in optimizer:
+            validator.number(
+                optimizer["learning_rate"],
+                f"{path}.learning_rate",
+                minimum=0.0,
+                exclusive_minimum=True,
+            )
+
+    population = validator.object(
+        obj.get("eggroll_population"), "$.run_config.eggroll_population"
+    )
+    if population is not None:
+        path = "$.run_config.eggroll_population"
+        validator.exact_fields(population, _EGGROLL_POPULATION_FIELDS, path)
+        for field in ("size", "rank", "eval_batch_size"):
+            if field in population:
+                validator.integer(population[field], f"{path}.{field}", minimum=1)
+        if "sigma" in population:
+            validator.number(
+                population["sigma"],
+                f"{path}.sigma",
+                minimum=0.0,
+                exclusive_minimum=True,
+            )
+        if "variance_weight" in population:
+            validator.number(
+                population["variance_weight"],
+                f"{path}.variance_weight",
+                minimum=0.0,
+            )
+        if "use_amp" in population and not isinstance(population["use_amp"], bool):
+            validator.add(f"{path}.use_amp", "must be a boolean")
+
+
 def _validate_selections(validator: _Validator, selections: Any) -> None:
     obj = validator.object(selections, "$.selections")
     if obj is None:
@@ -732,7 +901,9 @@ def validate_checkpoint_metadata(
     root = validator.object(metadata, "$")
     if root is None:
         raise CheckpointMetadataError("; ".join(validator.errors))
-    validator.exact_fields(root, _ROOT_FIELDS, "$")
+    mode = root.get("mode")
+    root_fields = _ALTERNATING_ROOT_FIELDS if mode == "alternating" else _ROOT_FIELDS
+    validator.exact_fields(root, root_fields, "$")
     version = root.get("schema_version")
     if (
         not isinstance(version, int)
@@ -740,7 +911,6 @@ def validate_checkpoint_metadata(
         or version != CHECKPOINT_SCHEMA_VERSION
     ):
         validator.add("$.schema_version", "must be the integer 2")
-    mode = root.get("mode")
     if mode not in CHECKPOINT_MODES:
         validator.add("$.mode", f"must be one of {sorted(CHECKPOINT_MODES)}")
 
@@ -749,6 +919,9 @@ def validate_checkpoint_metadata(
         validator, root.get("optimizer_manifests"), mode, tensors
     )
     _validate_schedule(validator, root.get("schedule"), mode)
+    _validate_run_config(
+        validator, root.get("run_config"), mode, root.get("schedule")
+    )
     _validate_selections(validator, root.get("selections"))
     _validate_metrics(validator, root.get("metrics"))
     _validate_rng(validator, root.get("rng"), tensors)
@@ -782,6 +955,7 @@ def validate_checkpoint_metadata(
         selections=frozen["selections"],
         metrics=frozen["metrics"],
         rng=frozen["rng"],
+        run_config=frozen.get("run_config"),
     )
 
 

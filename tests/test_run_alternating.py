@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from io import StringIO
 import json
 from pathlib import Path
@@ -31,7 +32,7 @@ from train.eggroll_trainer import (
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
-from test_stage0_checkpoint_resume import _metadata
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 
 
 def _position() -> ExperimentPosition:
@@ -190,6 +191,66 @@ def test_alternating_command_accepts_overrides() -> None:
     }
 
 
+def test_run_config_records_every_typed_alternating_setting() -> None:
+    args = run_alternating._parse_args(
+        ["--problem-count", "3", "--eval-problem-count", "2", "--phase-steps", "2"]
+    )
+
+    assert run_alternating._run_config(args) == RUN_CONFIG
+
+
+def test_incompatible_run_config_is_rejected_before_model_construction(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fixture = _metadata()
+    saved_config = copy.deepcopy(fixture["run_config"])
+    saved_config["model_shape"]["slot_count"] = 8
+    fixture["run_config"] = saved_config
+    checkpoint = SimpleNamespace(metadata=fixture)
+    train_selection = object()
+    held_out_selection = object()
+    stage0_dataset = SimpleNamespace(
+        train_selection=train_selection,
+        held_out_selection=held_out_selection,
+    )
+    constructions: list[object] = []
+
+    monkeypatch.setattr(run_alternating, "load_checkpoint", lambda _path: checkpoint)
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", lambda: stage0_dataset)
+    monkeypatch.setattr(run_alternating, "training_examples", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        run_alternating,
+        "_selection_metadata",
+        lambda selection, _count: fixture["selections"][
+            "train" if selection is train_selection else "held_out"
+        ],
+    )
+    monkeypatch.setattr(
+        run_alternating, "_runtime_identity", lambda: fixture["identity"]["runtime"]
+    )
+    monkeypatch.setattr(
+        run_alternating,
+        "TrainingState",
+        lambda *_args: constructions.append(object()),
+    )
+
+    with pytest.raises(ValueError, match=r"\$\.run_config\.model_shape"):
+        run_alternating.main(
+            [
+                "--resume",
+                str(tmp_path / "phase-2.ckpt"),
+                "--problem-count",
+                "3",
+                "--eval-problem-count",
+                "2",
+                "--phase-steps",
+                "2",
+            ]
+        )
+
+    assert constructions == []
+
+
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_invalid_log_every_is_rejected_before_production_loading(
     value: str, monkeypatch: pytest.MonkeyPatch
@@ -341,6 +402,7 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
         phase_steps=2,
         next_dataset_position=2,
         metrics={"loss": 1.25},
+        run_config=RUN_CONFIG,
     )
     for parameter in parameters.values():
         parameter.data.add_(100.0)

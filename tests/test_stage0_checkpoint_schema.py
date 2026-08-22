@@ -6,6 +6,7 @@ from model, dataset, CUDA, and safetensors availability.
 
 from __future__ import annotations
 
+import copy
 import importlib
 import math
 import re
@@ -27,6 +28,38 @@ ROOT_FIELDS = {
     "selections",
     "metrics",
     "rng",
+}
+ALTERNATING_ROOT_FIELDS = ROOT_FIELDS | {"run_config"}
+
+RUN_CONFIG = {
+    "dataset_selection": {
+        "dataset": "MU-NLPC/Calc-mawps",
+        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "split": "train",
+        "seed": 0,
+        "count": None,
+    },
+    "epochs": 5,
+    "phase_steps": 500,
+    "model_shape": {"slot_count": 16, "num_steps": 2},
+    "gradient_optimizer": {"learning_rate": 0.0001},
+    "eggroll_optimizer": {"learning_rate": 0.001},
+    "eggroll_population": {
+        "size": 128,
+        "sigma": 0.02,
+        "rank": 4,
+        "variance_weight": 1.0,
+        "eval_batch_size": 8,
+        "use_amp": False,
+    },
+    "held_out_selection": {
+        "dataset": "MU-NLPC/Calc-mawps",
+        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "split": "validation",
+        "seed": 0,
+        "count": 128,
+    },
+    "logging_frequency": 50,
 }
 
 ALLOWED_PARAMETER_PATHS = (
@@ -205,6 +238,7 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
                 {"device": "cuda:1", "state_tensor": "rng.pytorch.cuda.1"},
             ],
         },
+        **({"run_config": copy.deepcopy(RUN_CONFIG)} if mode == "alternating" else {}),
     }
 
 
@@ -223,7 +257,9 @@ def test_valid_v2_metadata_for_every_training_mode_is_typed_and_immutable(
 
     validated = module.validate_checkpoint_metadata(metadata)
 
-    assert set(metadata) == ROOT_FIELDS
+    assert set(metadata) == (
+        ALTERNATING_ROOT_FIELDS if mode == "alternating" else ROOT_FIELDS
+    )
     assert validated.schema_version == 2
     assert validated.mode == mode
     assert validated.to_dict() == metadata
@@ -253,12 +289,50 @@ def test_public_schema_constants_pin_modes_roles_and_model_names() -> None:
     assert module.ALLOWED_MODEL_PARAMETER_PATHS == ALLOWED_PARAMETER_PATHS
 
 
-@pytest.mark.parametrize("field", sorted(ROOT_FIELDS))
+@pytest.mark.parametrize("field", sorted(ALTERNATING_ROOT_FIELDS))
 def test_root_rejects_each_missing_field(field: str) -> None:
     metadata = _metadata()
     del metadata[field]
 
     _reject(metadata, f"$.{field}")
+
+
+def test_standalone_root_rejects_alternating_run_config() -> None:
+    metadata = _metadata("gradient")
+    metadata["run_config"] = RUN_CONFIG
+
+    _reject(metadata, "$.run_config")
+
+
+@pytest.mark.parametrize(
+    ("mutation", "path"),
+    [
+        (lambda config: config.pop("model_shape"), "$.run_config.model_shape"),
+        (
+            lambda config: config["model_shape"].update({"legacy_hidden_size": 896}),
+            "$.run_config.model_shape.legacy_hidden_size",
+        ),
+        (
+            lambda config: config["eggroll_population"].update({"sigma": float("nan")}),
+            "$.run_config.eggroll_population.sigma",
+        ),
+        (
+            lambda config: config["eggroll_population"].update({"use_amp": 1}),
+            "$.run_config.eggroll_population.use_amp",
+        ),
+        (
+            lambda config: config["dataset_selection"].update({"seed": True}),
+            "$.run_config.dataset_selection.seed",
+        ),
+    ],
+)
+def test_alternating_run_config_rejects_missing_extra_nonfinite_and_wrong_types(
+    mutation: Callable[[dict[str, Any]], object], path: str
+) -> None:
+    metadata = _metadata()
+    mutation(metadata["run_config"])
+
+    _reject(metadata, path)
 
 
 def test_root_rejects_extra_fields() -> None:
