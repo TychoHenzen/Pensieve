@@ -46,8 +46,10 @@ BenchmarkPath = Literal["reference", "optimized"]
 PATHS: tuple[BenchmarkPath, BenchmarkPath] = ("reference", "optimized")
 WARMUP_RUNS_PER_PATH = 2
 MEASURED_RUNS_PER_PATH = 5
+STATE_PREPARATION_STEPS = 3
 EQUIVALENCE_RTOL = 1e-4
 EQUIVALENCE_ATOL = 1e-4
+MINIMUM_SPEEDUP_RATIO = 3.0
 
 
 class BenchmarkError(RuntimeError):
@@ -60,6 +62,10 @@ class CudaBenchmarkUnavailable(BenchmarkError):
 
 class BenchmarkEquivalenceError(BenchmarkError):
     """Reference and optimized complete-step results differ."""
+
+
+class BenchmarkPerformanceError(BenchmarkError):
+    """The optimized path misses the required speed or memory gate."""
 
 
 class CudaMeasurements(Protocol):
@@ -87,6 +93,35 @@ class PathMeasurements:
 class CompleteStepOutcome:
     result: Any
     state: EggrollStepSnapshot
+    fitnesses: torch.Tensor | None = None
+    gradients: tuple[torch.Tensor, ...] = ()
+
+
+@dataclass
+class _StepTrace:
+    fitnesses: torch.Tensor | None = None
+    gradients: tuple[torch.Tensor, ...] = ()
+
+
+class _FullModelReferenceTap:
+    """Benchmark-only adapter that recomputes the full Qwen sequence."""
+
+    def __init__(self, optimized_adapter: Any) -> None:
+        self.optimized_adapter = optimized_adapter
+
+    @staticmethod
+    def prepare_prefix(context_embeddings: torch.Tensor) -> torch.Tensor:
+        return context_embeddings.detach()
+
+    def cached_partial(
+        self,
+        context_embeddings: torch.Tensor,
+        slot_embeddings: torch.Tensor,
+    ) -> torch.Tensor:
+        return self.optimized_adapter.full_reference(
+            context_embeddings,
+            slot_embeddings,
+        )
 
 
 def _measurement_order() -> tuple[BenchmarkPath, ...]:
@@ -182,15 +217,38 @@ def assert_complete_step_equivalence(
     """Require equivalent complete-step outputs and final mutable state."""
     _assert_close(optimized.result, reference.result, "step_result")
     _assert_close(
-        optimized.state.parameter_values,
-        reference.state.parameter_values,
-        "parameters",
-    )
-    _assert_close(
         optimized.state.optimizer_state,
         reference.state.optimizer_state,
         "optimizer",
     )
+    try:
+        _assert_close(
+            optimized.state.parameter_values,
+            reference.state.parameter_values,
+            "parameters",
+        )
+    except BenchmarkEquivalenceError as error:
+        diagnostics: list[str] = []
+        if reference.fitnesses is not None and optimized.fitnesses is not None:
+            diagnostics.append(
+                "fitness_max_abs_difference="
+                f"{(optimized.fitnesses - reference.fitnesses).abs().max().item():.9g}"
+            )
+        if reference.gradients and optimized.gradients:
+            gradient_difference = (
+                optimized.gradients[0] - reference.gradients[0]
+            ).abs()
+            sign_mismatches = (
+                torch.signbit(optimized.gradients[0])
+                != torch.signbit(reference.gradients[0])
+            ).sum().item()
+            diagnostics.append(
+                f"gradient0_max_abs_difference={gradient_difference.max().item():.9g}"
+            )
+            diagnostics.append(f"gradient0_sign_mismatches={sign_mismatches}")
+        raise BenchmarkEquivalenceError(
+            f"{error}; {'; '.join(diagnostics)}"
+        ) from error
     _assert_close(
         optimized.state.workspace_slots,
         reference.state.workspace_slots,
@@ -216,6 +274,32 @@ def assert_complete_step_equivalence(
         reference.state.torch_cuda_rng_states,
         "rng.torch_cuda",
     )
+
+
+def _performance_gate(
+    measurements: Mapping[BenchmarkPath, PathMeasurements],
+) -> dict[str, Any]:
+    reference = measurements["reference"]
+    optimized = measurements["optimized"]
+    speedup_ratio = reference.median_seconds / optimized.median_seconds
+    memory_passed = (
+        optimized.peak_allocated_bytes <= reference.peak_allocated_bytes
+    )
+    speed_passed = speedup_ratio >= MINIMUM_SPEEDUP_RATIO
+    if not speed_passed or not memory_passed:
+        raise BenchmarkPerformanceError(
+            "performance gate failed: "
+            f"speedup_ratio={speedup_ratio:.6f} "
+            f"minimum={MINIMUM_SPEEDUP_RATIO:.6f}; "
+            f"reference_peak_allocated_bytes={reference.peak_allocated_bytes}; "
+            f"optimized_peak_allocated_bytes={optimized.peak_allocated_bytes}"
+        )
+    return {
+        "passed": True,
+        "minimum_speedup_ratio": MINIMUM_SPEEDUP_RATIO,
+        "speed_passed": speed_passed,
+        "memory_passed": memory_passed,
+    }
 
 
 def run_benchmark_protocol(
@@ -266,23 +350,48 @@ def run_benchmark_protocol(
 
 
 @contextmanager
-def _execution_path(path: BenchmarkPath) -> Any:
+def _execution_path(
+    path: BenchmarkPath,
+    trainer: EggrollTrainer,
+    trace: _StepTrace | None = None,
+) -> Any:
     """Select the benchmark-only materialized path for one complete step."""
-    if path == "optimized":
+    if path not in PATHS:
+        raise ValueError(f"unknown benchmark path {path!r}")
+    if path == "optimized" and trace is None:
         yield
         return
-    if path != "reference":
-        raise ValueError(f"unknown benchmark path {path!r}")
 
     original_linear = trainer_module.factorized_linear
     original_update = trainer_module.apply_factorized_update
-    trainer_module.factorized_linear = materialized_linear
-    trainer_module.apply_factorized_update = apply_reference_pair_loop_update
+    original_adapter = trainer.latent_loop.tap_adapter
+    selected_linear = (
+        materialized_linear if path == "reference" else original_linear
+    )
+    selected_update = (
+        apply_reference_pair_loop_update if path == "reference" else original_update
+    )
+
+    def traced_update(*args: Any, **kwargs: Any) -> Any:
+        if trace is not None:
+            trace.fitnesses = torch.as_tensor(kwargs["fitnesses"]).detach().clone()
+        gradients = selected_update(*args, **kwargs)
+        if trace is not None:
+            trace.gradients = tuple(
+                gradient.detach().clone() for gradient in gradients
+            )
+        return gradients
+
+    trainer_module.factorized_linear = selected_linear
+    trainer_module.apply_factorized_update = traced_update
+    if path == "reference":
+        trainer.latent_loop.tap_adapter = _FullModelReferenceTap(original_adapter)
     try:
         yield
     finally:
         trainer_module.factorized_linear = original_linear
         trainer_module.apply_factorized_update = original_update
+        trainer.latent_loop.tap_adapter = original_adapter
 
 
 def _device_identity(device: torch.device) -> dict[str, Any]:
@@ -344,6 +453,7 @@ def _benchmark_config(device: torch.device) -> dict[str, Any]:
         "warmup_runs_per_path": WARMUP_RUNS_PER_PATH,
         "measured_runs_per_path": MEASURED_RUNS_PER_PATH,
         "measurement_order": list(_measurement_order()),
+        "state_preparation_steps": STATE_PREPARATION_STEPS,
     }
 
 
@@ -369,6 +479,11 @@ def run_cuda_benchmark() -> dict[str, Any]:
     if any(parameter.dtype != torch.float32 for parameter in trainer.trainable_params):
         raise RuntimeError("benchmark trainable parameters must use float32")
 
+    for _ in range(STATE_PREPARATION_STEPS):
+        trainer.train_step(record.question, record.target)
+    for parameter in trainer.trainable_params:
+        parameter.grad = None
+
     initial = capture_eggroll_step_snapshot(
         trainer.trainable_params,
         trainer.optimizer,
@@ -386,13 +501,15 @@ def run_cuda_benchmark() -> dict[str, Any]:
             parameter.grad = None
 
     def run_step(path: BenchmarkPath) -> Any:
-        with _execution_path(path):
+        with _execution_path(path, trainer):
             return trainer.train_step(record.question, record.target)
 
     outcomes: dict[BenchmarkPath, CompleteStepOutcome] = {}
     for path in PATHS:
         restore_state()
-        result = run_step(path)
+        trace = _StepTrace()
+        with _execution_path(path, trainer, trace):
+            result = trainer.train_step(record.question, record.target)
         outcomes[path] = CompleteStepOutcome(
             result=result,
             state=capture_eggroll_step_snapshot(
@@ -400,6 +517,8 @@ def run_cuda_benchmark() -> dict[str, Any]:
                 trainer.optimizer,
                 trainer.workspace,
             ),
+            fitnesses=trace.fitnesses,
+            gradients=trace.gradients,
         )
     assert_complete_step_equivalence(
         outcomes["reference"],
@@ -413,6 +532,7 @@ def run_cuda_benchmark() -> dict[str, Any]:
     )
     reference_median = measurements["reference"].median_seconds
     optimized_median = measurements["optimized"].median_seconds
+    gate = _performance_gate(measurements)
     path_results = {
         path: asdict(measurements[path])
         for path in PATHS
@@ -431,6 +551,7 @@ def run_cuda_benchmark() -> dict[str, Any]:
         },
         "paths": path_results,
         "speedup_ratio": reference_median / optimized_median,
+        "gate": gate,
     }
 
 

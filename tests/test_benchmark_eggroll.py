@@ -63,6 +63,32 @@ def test_benchmark_protocol_restores_and_alternates_complete_steps() -> None:
     assert results["optimized"].peak_allocated_bytes == 300
 
 
+def test_performance_gate_rejects_insufficient_speedup() -> None:
+    measurements = {
+        "reference": benchmark_eggroll.PathMeasurements((2.9,) * 5, 2.9, 400),
+        "optimized": benchmark_eggroll.PathMeasurements((1.0,) * 5, 1.0, 300),
+    }
+
+    with pytest.raises(
+        benchmark_eggroll.BenchmarkPerformanceError,
+        match="speedup_ratio=2.900000",
+    ):
+        benchmark_eggroll._performance_gate(measurements)
+
+
+def test_performance_gate_rejects_peak_memory_increase() -> None:
+    measurements = {
+        "reference": benchmark_eggroll.PathMeasurements((3.0,) * 5, 3.0, 300),
+        "optimized": benchmark_eggroll.PathMeasurements((1.0,) * 5, 1.0, 301),
+    }
+
+    with pytest.raises(
+        benchmark_eggroll.BenchmarkPerformanceError,
+        match="optimized_peak_allocated_bytes=301",
+    ):
+        benchmark_eggroll._performance_gate(measurements)
+
+
 def test_main_writes_one_json_object(monkeypatch: Any, capsys: Any) -> None:
     expected = {"schema_version": 1, "speedup_ratio": 3.5}
     monkeypatch.setattr(benchmark_eggroll, "run_cuda_benchmark", lambda: expected)
