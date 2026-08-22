@@ -40,8 +40,9 @@
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: Latent execution omits unused model work -->
 <!-- status: completed -->
 
-- [ ] 3.4 Compare cached and full-model layer-12 slot states and slot-input gradients on the pinned Qwen assets under the declared tolerance.
+- [x] 3.4 Compare cached and full-model layer-12 slot states and slot-input gradients on the pinned Qwen assets under the declared tolerance.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: Cached latent state matches full execution -->
+<!-- status: completed -->
 
 - [ ] 3.5 Route ordinary and batched latent runs through the shared adapter while preserving the projection, residual, normalization, shape checks, and no-token behavior.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: no intermediate tokens -->
