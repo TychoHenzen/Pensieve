@@ -15,8 +15,9 @@
 <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Vector perturbation remains compatible -->
 <!-- status: completed -->
 
-- [ ] 2.2 Implement shared-base factorized linear evaluation for encoder and latent-loop matrices, with output-equivalence and forbidden-allocation shape tests.
+- [x] 2.2 Implement shared-base factorized linear evaluation for encoder and latent-loop matrices, with output-equivalence and forbidden-allocation shape tests.
 <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Matrix candidate batch uses low-rank residuals -->
+<!-- status: completed -->
 
 - [ ] 2.3 Implement batched factor contraction for matrix pseudo-gradients and weighted reduction for vector pseudo-gradients, then compare gradients and Adam updates with the reference pair loop.
 <!-- covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Factorized matrix update matches reference update -->
