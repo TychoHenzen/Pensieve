@@ -18,6 +18,7 @@ import torch
 from torch import nn
 
 from core.latent_loop import LatentLoop
+from core.qwen_tap import QwenTapAdapter
 from eval import stage0_identity as stage0
 from train.eggroll_trainer import EggrollTrainer
 from train.trainer import LatentCoreTrainer
@@ -140,6 +141,20 @@ def test_latent_loop_rejects_an_incompatible_qwen_shape(
 ) -> None:
     with pytest.raises(ValueError, match=expected):
         LatentLoop(backbone=_backbone(model), num_steps=1, device="cpu")
+
+
+@pytest.mark.parametrize(
+    ("model", "expected"),
+    [
+        (_FakeQwen(hidden_size=768), r"expected.*896.*actual.*768"),
+        (_FakeQwen(hidden_layers=11), r"expected.*12.*actual.*11"),
+    ],
+)
+def test_qwen_tap_adapter_rejects_an_incompatible_model_shape(
+    model: _FakeQwen, expected: str
+) -> None:
+    with pytest.raises(ValueError, match=expected):
+        QwenTapAdapter(model)
 
 
 # covers: core/latent-loop::Model-neutral token embedding access::Qwen context embedding

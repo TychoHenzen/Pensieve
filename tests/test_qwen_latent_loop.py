@@ -11,6 +11,7 @@ import torch.nn.functional as functional
 from torch import nn
 
 from core.latent_loop import LatentLoop
+from core.qwen_tap import QwenTapAdapter
 from workspace.concept_slots import Workspace
 
 
@@ -52,6 +53,19 @@ class _FakeQwen(nn.Module):
     def get_input_embeddings(self) -> nn.Module:
         self.embedding_lookups += 1
         raise AssertionError("latent steps must not look up token embeddings")
+
+
+class _DifferentiableQwen(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=WIDTH, num_hidden_layers=24)
+        self.scale = nn.Parameter(torch.tensor(2.0))
+        self.calls: list[dict[str, Any]] = []
+
+    def forward(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        hidden = kwargs["inputs_embeds"] * self.scale
+        return SimpleNamespace(hidden_states=tuple(hidden for _ in range(25)))
 
 
 def _hidden_states(
@@ -106,6 +120,75 @@ def test_qwen_step_uses_one_unpadded_context_and_slot_batch() -> None:
     )
     assert call["output_hidden_states"] is True
     assert "input_ids" not in call
+
+
+def test_qwen_tap_full_reference_preserves_unbatched_slot_autograd() -> None:
+    model = _DifferentiableQwen()
+    adapter = QwenTapAdapter(model)
+    context = torch.ones(CONTEXT_LENGTH, WIDTH)
+    slots = torch.linspace(-1.0, 1.0, SLOT_COUNT * WIDTH).reshape(
+        SLOT_COUNT, WIDTH
+    )
+    slots.requires_grad_(True)
+
+    selected = adapter.full_reference(context, slots)
+    selected.square().sum().backward()
+
+    assert selected.shape == slots.shape
+    assert torch.equal(selected, slots.detach() * 2.0)
+    assert slots.grad is not None
+    assert torch.count_nonzero(slots.grad).item() > 0
+    assert model.scale.requires_grad is False
+    call = model.calls[0]
+    assert call["inputs_embeds"].shape == (1, SEQUENCE_LENGTH, WIDTH)
+    assert torch.equal(
+        call["position_ids"], torch.arange(SEQUENCE_LENGTH).unsqueeze(0)
+    )
+    assert torch.all(call["attention_mask"] == 1)
+    assert call["output_hidden_states"] is True
+
+
+def test_qwen_tap_full_reference_accepts_candidate_slots_and_shared_context() -> None:
+    candidate_count = 3
+    model = _DifferentiableQwen()
+    adapter = QwenTapAdapter(model)
+    context = torch.ones(CONTEXT_LENGTH, WIDTH)
+    slots = torch.arange(
+        candidate_count * SLOT_COUNT * WIDTH,
+        dtype=torch.float32,
+    ).reshape(candidate_count, SLOT_COUNT, WIDTH)
+
+    selected = adapter.full_reference(context, slots)
+
+    assert selected.shape == slots.shape
+    assert torch.equal(selected, slots * 2.0)
+    assert len(model.calls) == 1
+    call = model.calls[0]
+    assert call["inputs_embeds"].shape == (
+        candidate_count,
+        SEQUENCE_LENGTH,
+        WIDTH,
+    )
+    assert call["attention_mask"].shape == (candidate_count, SEQUENCE_LENGTH)
+    assert call["position_ids"].shape == (candidate_count, SEQUENCE_LENGTH)
+
+
+def test_qwen_tap_full_reference_validates_tapped_hidden_shape() -> None:
+    adapter = QwenTapAdapter(
+        _FakeQwen(_hidden_states(torch.zeros(1, SEQUENCE_LENGTH, WIDTH - 1)))
+    )
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            f"expected hidden state shape \\(1, {SEQUENCE_LENGTH}, {WIDTH}\\), "
+            f"actual \\(1, {SEQUENCE_LENGTH}, {WIDTH - 1}\\)"
+        ),
+    ):
+        adapter.full_reference(
+            torch.ones(CONTEXT_LENGTH, WIDTH),
+            torch.ones(SLOT_COUNT, WIDTH),
+        )
 
 
 # covers: core/latent-loop::Latent loop feeds hidden state back as input::hidden state feedback

@@ -27,9 +27,10 @@
 
 ## 3. Layer-12 Qwen Execution
 
-- [ ] 3.1 Add a shared Qwen tap adapter that validates the pinned hidden width and tap layer, returns the selected layer-12 slot state, and preserves slot autograd.
+- [x] 3.1 Add a shared Qwen tap adapter that validates the pinned hidden width and tap layer, returns the selected layer-12 slot state, and preserves slot autograd.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: hidden state feedback -->
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: selected tap layer unavailable -->
+<!-- status: completed -->
 
 - [ ] 3.2 Add immutable context-prefix preparation and fresh candidate cache views with the reference attention mask and position identifiers.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: Cached context is immutable -->
