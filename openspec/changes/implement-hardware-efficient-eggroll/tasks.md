@@ -10,9 +10,10 @@
 
 ## 2. Factorized EGGROLL Computation
 
-- [ ] 2.1 Add seeded matrix-factor and dense-vector perturbation representations, then prove reconstruction, antithetic signs, scale, and the official `B`-then-`A` generator order against the reference sampler.
+- [x] 2.1 Add seeded matrix-factor and dense-vector perturbation representations, then prove reconstruction, antithetic signs, scale, and the official `B`-then-`A` generator order against the reference sampler.
 <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Antithetic factors share one seed -->
 <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Vector perturbation remains compatible -->
+<!-- status: completed -->
 
 - [ ] 2.2 Implement shared-base factorized linear evaluation for encoder and latent-loop matrices, with output-equivalence and forbidden-allocation shape tests.
 <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Matrix candidate batch uses low-rank residuals -->
