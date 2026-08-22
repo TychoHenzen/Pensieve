@@ -3,7 +3,13 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import numpy as np
+import pytest
+import torch
+
+from tests.eggroll_reference import EggrollStepSnapshot
 from train import benchmark_eggroll
+from train.training_results import ExperimentPosition, StepResult
 
 
 class _FakeCuda:
@@ -66,3 +72,94 @@ def test_main_writes_one_json_object(monkeypatch: Any, capsys: Any) -> None:
     output = capsys.readouterr().out
     assert output.count("\n") == 1
     assert json.loads(output) == expected
+
+
+def _outcome(parameter_value: float) -> benchmark_eggroll.CompleteStepOutcome:
+    result = StepResult(
+        position=ExperimentPosition(
+            update_method="eggroll",
+            cycle=0,
+            global_step=0,
+            epoch=0,
+            example_position=0,
+            phase_step=0,
+        ),
+        language_model_loss=1.0,
+        total_objective=2.0,
+        regularizer_loss=1.0,
+        shared_variance=0.5,
+    )
+    state = EggrollStepSnapshot(
+        parameter_values=(torch.tensor([parameter_value]),),
+        optimizer_state={
+            "state": {0: {"exp_avg": torch.tensor([0.25])}},
+            "param_groups": [{"params": [0], "lr": 1e-3}],
+        },
+        workspace_slots=torch.tensor([[0.75]]),
+        python_rng_state=(3, (1, 2, 3), None),
+        numpy_rng_state=(
+            "MT19937",
+            np.array([1, 2, 3], dtype=np.uint32),
+            2,
+            0,
+            0.0,
+        ),
+        torch_cpu_rng_state=torch.tensor([1, 2, 3], dtype=torch.uint8),
+        torch_cuda_rng_states=(torch.tensor([4, 5], dtype=torch.uint8),),
+    )
+    return benchmark_eggroll.CompleteStepOutcome(result=result, state=state)
+
+
+# covers: train/eggroll-execution::CUDA benchmark proves a material speed improvement::Equivalence failure blocks the benchmark result
+def test_equivalence_failure_exits_without_performance_json(
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    reference = _outcome(1.0)
+    optimized = _outcome(1.1)
+
+    def fail_equivalence() -> dict[str, Any]:
+        benchmark_eggroll.assert_complete_step_equivalence(reference, optimized)
+        raise AssertionError("unreachable")
+
+    monkeypatch.setattr(
+        benchmark_eggroll,
+        "run_cuda_benchmark",
+        fail_equivalence,
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        benchmark_eggroll.main()
+
+    captured = capsys.readouterr()
+    assert raised.value.code == 1
+    assert captured.out == ""
+    assert "numerical equivalence failed at parameters[0]" in captured.err
+
+
+# covers: train/eggroll-execution::CUDA benchmark proves a material speed improvement::CUDA is unavailable
+def test_cuda_rejection_precedes_asset_loading(
+    monkeypatch: Any,
+    capsys: Any,
+) -> None:
+    asset_loads: list[str] = []
+    monkeypatch.setattr(benchmark_eggroll.torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(
+        benchmark_eggroll,
+        "load_stage0_dataset",
+        lambda: asset_loads.append("dataset"),
+    )
+    monkeypatch.setattr(
+        benchmark_eggroll,
+        "EggrollTrainer",
+        lambda **_: asset_loads.append("model"),
+    )
+
+    with pytest.raises(SystemExit) as raised:
+        benchmark_eggroll.main()
+
+    captured = capsys.readouterr()
+    assert raised.value.code == 1
+    assert captured.out == ""
+    assert "CUDA benchmark was not run" in captured.err
+    assert asset_loads == []

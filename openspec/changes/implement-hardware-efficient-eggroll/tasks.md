@@ -69,9 +69,10 @@
 <!-- covers: train/eggroll-execution :: CUDA benchmark proves a material speed improvement :: Performance gate passes -->
 <!-- status: completed -->
 
-- [ ] 5.2 Make the benchmark reject unavailable CUDA and block performance reporting when numerical equivalence fails.
+- [x] 5.2 Make the benchmark reject unavailable CUDA and block performance reporting when numerical equivalence fails.
 <!-- covers: train/eggroll-execution :: CUDA benchmark proves a material speed improvement :: Equivalence failure blocks the benchmark result -->
 <!-- covers: train/eggroll-execution :: CUDA benchmark proves a material speed improvement :: CUDA is unavailable -->
+<!-- status: completed -->
 
 - [ ] 5.3 Run the benchmark on the target CUDA device, retain its JSON evidence, and continue profiling within this change until median speedup is at least 3x with no peak allocated-memory increase.
 <!-- covers: train/eggroll-execution :: CUDA benchmark proves a material speed improvement :: Performance gate passes -->
