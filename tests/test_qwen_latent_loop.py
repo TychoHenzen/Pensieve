@@ -11,7 +11,7 @@ import torch.nn.functional as functional
 from torch import nn
 
 from core.latent_loop import LatentLoop
-from core.qwen_tap import QwenTapAdapter
+from core.qwen_tap import PreparedQwenPrefix, QwenTapAdapter
 from workspace.concept_slots import Workspace
 
 
@@ -94,6 +94,97 @@ class _CacheProducingQwen(nn.Module):
             ).reshape(1, 2, cached_length, 4)
             cache.update(values + layer_index, values - layer_index, layer_index)
         return SimpleNamespace(past_key_values=cache)
+
+
+class _CallSpy(nn.Module):
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self.name = name
+        self.calls = 0
+
+    def forward(self, *_: Any, **__: Any) -> torch.Tensor:
+        self.calls += 1
+        raise AssertionError(f"partial execution must not call {self.name}")
+
+
+class _RotarySpy(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.calls: list[tuple[torch.Tensor, torch.Tensor]] = []
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_ids: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        self.calls.append((hidden_states, position_ids))
+        shape = (*position_ids.shape, 4)
+        return hidden_states.new_ones(shape), hidden_states.new_zeros(shape)
+
+
+class _DecoderBlockSpy(nn.Module):
+    def __init__(self, layer_index: int) -> None:
+        super().__init__()
+        self.layer_index = layer_index
+        self.calls: list[dict[str, Any]] = []
+
+    def forward(self, hidden_states: torch.Tensor, **kwargs: Any) -> torch.Tensor:
+        self.calls.append(kwargs)
+        batch_size, slot_count, _ = hidden_states.shape
+        cache_values = hidden_states.new_full(
+            (batch_size, 2, slot_count, 4),
+            float(self.layer_index),
+        )
+        kwargs["past_key_values"].update(
+            cache_values,
+            -cache_values,
+            layer_idx=self.layer_index,
+        )
+        return hidden_states + self.layer_index + 1
+
+
+class _PartialQwenBody(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(
+            hidden_size=WIDTH,
+            num_hidden_layers=24,
+            layer_types=["full_attention"] * 24,
+            _attn_implementation="eager",
+            is_causal=True,
+        )
+        self.layers = nn.ModuleList(
+            [_DecoderBlockSpy(layer_index) for layer_index in range(24)]
+        )
+        self.rotary_emb = _RotarySpy()
+        self.norm = _CallSpy("final model norm")
+
+
+class _PartialQwen(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=WIDTH, num_hidden_layers=24)
+        self.model = _PartialQwenBody()
+        self.lm_head = _CallSpy("vocabulary head")
+        self.forward_calls = 0
+
+    def forward(self, **_: Any) -> Any:
+        self.forward_calls += 1
+        raise AssertionError("partial execution must bypass the CausalLM forward")
+
+
+def _prepared_prefix() -> PreparedQwenPrefix:
+    layers = tuple(
+        (
+            torch.full((1, 2, CONTEXT_LENGTH, 4), float(layer_index)),
+            torch.full((1, 2, CONTEXT_LENGTH, 4), float(-layer_index)),
+        )
+        for layer_index in range(12)
+    )
+    return PreparedQwenPrefix(
+        context_length=CONTEXT_LENGTH,
+        layer_key_values=layers,
+    )
 
 
 def _hidden_states(
@@ -348,6 +439,96 @@ def test_qwen_tap_prefix_validates_context_and_cache_shapes(
 
     with pytest.raises(ValueError, match=expected):
         adapter.prepare_prefix(context)
+
+
+# covers: core/latent-loop::Latent loop feeds hidden state back as input::Latent execution omits unused model work
+def test_qwen_tap_cached_partial_stops_after_block_11_and_omits_logits() -> None:
+    candidate_count = 3
+    model = _PartialQwen()
+    adapter = QwenTapAdapter(model)
+    slots = torch.arange(
+        candidate_count * SLOT_COUNT * WIDTH,
+        dtype=torch.float32,
+    ).reshape(candidate_count, SLOT_COUNT, WIDTH)
+
+    selected = adapter.cached_partial(_prepared_prefix(), slots)
+
+    assert torch.equal(selected, slots + sum(range(1, 13)))
+    assert model.forward_calls == 0
+    assert model.lm_head.calls == 0
+    assert model.model.norm.calls == 0
+    assert len(model.model.rotary_emb.calls) == 1
+    for layer_index in range(12):
+        block = model.model.layers[layer_index]
+        assert len(block.calls) == 1
+        call = block.calls[0]
+        assert call["use_cache"] is True
+        assert torch.equal(
+            call["position_ids"],
+            torch.arange(CONTEXT_LENGTH, SEQUENCE_LENGTH)
+            .unsqueeze(0)
+            .expand(candidate_count, -1),
+        )
+    assert all(not block.calls for block in model.model.layers[12:])
+
+    causal_mask = model.model.layers[0].calls[0]["attention_mask"]
+    query_positions = torch.arange(CONTEXT_LENGTH, SEQUENCE_LENGTH)
+    key_positions = torch.arange(SEQUENCE_LENGTH)
+    allowed = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
+    expected_mask = torch.where(
+        allowed,
+        torch.tensor(0.0),
+        torch.finfo(slots.dtype).min,
+    ).unsqueeze(0).unsqueeze(0).expand(candidate_count, -1, -1, -1)
+    assert torch.equal(causal_mask, expected_mask)
+
+
+def test_qwen_tap_cached_partial_accepts_unbatched_slots() -> None:
+    model = _PartialQwen()
+    adapter = QwenTapAdapter(model)
+    slots = torch.ones(SLOT_COUNT, WIDTH)
+
+    selected = adapter.cached_partial(_prepared_prefix(), slots)
+
+    assert selected.shape == slots.shape
+    assert torch.equal(selected, slots + sum(range(1, 13)))
+
+
+@pytest.mark.parametrize(
+    ("slots", "expected"),
+    [
+        (
+            torch.ones(SLOT_COUNT, WIDTH - 1),
+            f"expected slot embedding width {WIDTH}, actual {WIDTH - 1}",
+        ),
+        (
+            torch.ones(0, WIDTH),
+            "slot embeddings must contain a candidate and a slot",
+        ),
+    ],
+    ids=("wrong-width", "no-slots"),
+)
+def test_qwen_tap_cached_partial_validates_slot_shape(
+    slots: torch.Tensor,
+    expected: str,
+) -> None:
+    adapter = QwenTapAdapter(_PartialQwen())
+
+    with pytest.raises(ValueError, match=expected):
+        adapter.cached_partial(_prepared_prefix(), slots)
+
+
+def test_qwen_tap_cached_partial_requires_decoder_body_structure() -> None:
+    adapter = QwenTapAdapter(_DifferentiableQwen())
+
+    with pytest.raises(
+        ValueError,
+        match="expected model body with 12 decoder layers, actual None",
+    ):
+        adapter.cached_partial(
+            _prepared_prefix(),
+            torch.ones(SLOT_COUNT, WIDTH),
+        )
 
 
 # covers: core/latent-loop::Latent loop feeds hidden state back as input::hidden state feedback

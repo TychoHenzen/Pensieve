@@ -7,6 +7,10 @@ from typing import Any
 
 import torch
 from transformers.cache_utils import DynamicCache, DynamicLayer
+from transformers.masking_utils import (
+    create_causal_mask,
+    create_sliding_window_causal_mask,
+)
 
 from eval.stage0_identity import LATENT_TAP_LAYER, WORKSPACE_DIMENSION
 
@@ -141,6 +145,56 @@ class QwenTapAdapter:
         ).unsqueeze(0).expand(candidate_batch_size, -1)
         return attention_mask, position_ids
 
+    def cached_partial(
+        self,
+        prefix: PreparedQwenPrefix,
+        slot_embeddings: torch.Tensor,
+    ) -> torch.Tensor:
+        """Run slots through decoder blocks 0 through 11 using a cached prefix."""
+        batched_slots, remove_batch = self._batch_slots(prefix, slot_embeddings)
+        body, layers, layer_types = self._partial_body()
+        batch_size, slot_count, _ = batched_slots.shape
+        cache = self.fresh_candidate_cache(prefix, batch_size)
+        attention_mask, position_ids = self.candidate_layout(
+            prefix,
+            candidate_batch_size=batch_size,
+            slot_count=slot_count,
+        )
+        mask_arguments = {
+            "config": body.config,
+            "inputs_embeds": batched_slots,
+            "attention_mask": attention_mask,
+            "past_key_values": cache,
+            "position_ids": position_ids,
+        }
+        mask_builders = {
+            "full_attention": create_causal_mask,
+            "sliding_attention": create_sliding_window_causal_mask,
+        }
+        causal_masks = {
+            layer_type: mask_builders[layer_type](**mask_arguments)
+            for layer_type in set(layer_types)
+        }
+        position_embeddings = body.rotary_emb(batched_slots, position_ids)
+
+        hidden_states = batched_slots
+        for layer_index in range(LATENT_TAP_LAYER):
+            hidden_states = layers[layer_index](
+                hidden_states,
+                attention_mask=causal_masks[layer_types[layer_index]],
+                position_ids=position_ids,
+                position_embeddings=position_embeddings,
+                past_key_values=cache,
+                use_cache=True,
+            )
+
+        if tuple(hidden_states.shape) != tuple(batched_slots.shape):
+            raise ValueError(
+                f"expected partial hidden state shape {tuple(batched_slots.shape)}, "
+                f"actual {tuple(hidden_states.shape)}"
+            )
+        return hidden_states.squeeze(0) if remove_batch else hidden_states
+
     def full_reference(
         self,
         context_embeddings: torch.Tensor,
@@ -217,6 +271,68 @@ class QwenTapAdapter:
                 f"{batched_context.shape[-1]}"
             )
         return batched_context
+
+    @staticmethod
+    def _batch_slots(
+        prefix: PreparedQwenPrefix,
+        slot_embeddings: torch.Tensor,
+    ) -> tuple[torch.Tensor, bool]:
+        if len(prefix.layer_key_values) != LATENT_TAP_LAYER:
+            raise ValueError(
+                f"expected prepared prefix for {LATENT_TAP_LAYER} layers, actual "
+                f"{len(prefix.layer_key_values)}"
+            )
+        if slot_embeddings.ndim == 2:
+            batched_slots = slot_embeddings.unsqueeze(0)
+            remove_batch = True
+        elif slot_embeddings.ndim == 3:
+            batched_slots = slot_embeddings
+            remove_batch = False
+        else:
+            raise ValueError("slot embeddings must be unbatched or candidate-batched")
+        if batched_slots.shape[0] < 1 or batched_slots.shape[1] < 1:
+            raise ValueError("slot embeddings must contain a candidate and a slot")
+        if batched_slots.shape[-1] != WORKSPACE_DIMENSION:
+            raise ValueError(
+                f"expected slot embedding width {WORKSPACE_DIMENSION}, actual "
+                f"{batched_slots.shape[-1]}"
+            )
+        prefix_key = prefix.layer_key_values[0][0]
+        if batched_slots.device != prefix_key.device:
+            raise ValueError("prefix and slot embeddings must use the same device")
+        if batched_slots.dtype != prefix_key.dtype:
+            raise ValueError("prefix and slot embeddings must use the same dtype")
+        return batched_slots, remove_batch
+
+    def _partial_body(self) -> tuple[Any, Any, tuple[str, ...]]:
+        body = getattr(self.model, "model", self.model)
+        layers = getattr(body, "layers", None)
+        rotary_emb = getattr(body, "rotary_emb", None)
+        config = getattr(body, "config", None)
+        layer_types = getattr(config, "layer_types", None)
+        actual_layer_count = len(layers) if layers is not None else None
+        if actual_layer_count is None or actual_layer_count < LATENT_TAP_LAYER:
+            raise ValueError(
+                f"expected model body with {LATENT_TAP_LAYER} decoder layers, "
+                f"actual {actual_layer_count}"
+            )
+        if not callable(rotary_emb):
+            raise ValueError("expected model body with callable rotary embeddings")
+        if layer_types is None or len(layer_types) < LATENT_TAP_LAYER:
+            actual_type_count = len(layer_types) if layer_types is not None else None
+            raise ValueError(
+                f"expected layer types for {LATENT_TAP_LAYER} decoder layers, "
+                f"actual {actual_type_count}"
+            )
+        selected_types = tuple(layer_types[:LATENT_TAP_LAYER])
+        supported_types = {"full_attention", "sliding_attention"}
+        unsupported_types = set(selected_types) - supported_types
+        if unsupported_types:
+            raise ValueError(
+                "expected full or sliding attention through tap layer, actual "
+                f"{sorted(unsupported_types)}"
+            )
+        return body, layers, selected_types
 
     @staticmethod
     def _clone_prefix_layer(
