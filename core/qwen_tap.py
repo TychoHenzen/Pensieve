@@ -2,11 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import torch
+from transformers.cache_utils import DynamicCache, DynamicLayer
 
 from eval.stage0_identity import LATENT_TAP_LAYER, WORKSPACE_DIMENSION
+
+
+@dataclass(frozen=True)
+class PreparedQwenPrefix:
+    """Detached layer caches for one shared context."""
+
+    context_length: int
+    layer_key_values: tuple[tuple[torch.Tensor, torch.Tensor], ...]
 
 
 class QwenTapAdapter:
@@ -30,6 +40,106 @@ class QwenTapAdapter:
         model.eval()
         for parameter in model.parameters():
             parameter.requires_grad_(False)
+
+    def prepare_prefix(
+        self,
+        context_embeddings: torch.Tensor,
+    ) -> PreparedQwenPrefix:
+        """Prepare detached context keys and values through the tapped layer."""
+        batched_context = self._single_context_batch(context_embeddings)
+        context_length = batched_context.shape[1]
+        attention_mask = torch.ones(
+            (1, context_length),
+            dtype=torch.long,
+            device=batched_context.device,
+        )
+        position_ids = torch.arange(
+            context_length,
+            dtype=torch.long,
+            device=batched_context.device,
+        ).unsqueeze(0)
+        cache = DynamicCache()
+        model_body = getattr(self.model, "model", self.model)
+
+        with torch.no_grad():
+            outputs = model_body(
+                inputs_embeds=batched_context,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                past_key_values=cache,
+                use_cache=True,
+            )
+
+        output_cache = getattr(outputs, "past_key_values", None)
+        if not isinstance(output_cache, DynamicCache):
+            raise ValueError(
+                "expected a DynamicCache from context-prefix preparation, actual "
+                f"{type(output_cache).__name__}"
+            )
+        if len(output_cache.layers) < LATENT_TAP_LAYER:
+            raise ValueError(
+                f"expected cache for {LATENT_TAP_LAYER} layers, actual "
+                f"{len(output_cache.layers)}"
+            )
+
+        layer_key_values = tuple(
+            self._clone_prefix_layer(
+                output_cache.layers[layer_index],
+                layer_index=layer_index,
+                context_length=context_length,
+            )
+            for layer_index in range(LATENT_TAP_LAYER)
+        )
+        return PreparedQwenPrefix(
+            context_length=context_length,
+            layer_key_values=layer_key_values,
+        )
+
+    @staticmethod
+    def fresh_candidate_cache(
+        prefix: PreparedQwenPrefix,
+        candidate_batch_size: int,
+    ) -> DynamicCache:
+        """Create an independent mutable cache for one candidate batch."""
+        if candidate_batch_size < 1:
+            raise ValueError("candidate batch size must be positive")
+
+        cache = DynamicCache()
+        for key, value in prefix.layer_key_values:
+            expanded_key = key.expand(candidate_batch_size, -1, -1, -1)
+            expanded_value = value.expand(candidate_batch_size, -1, -1, -1)
+            layer = DynamicLayer()
+            layer.lazy_initialization(expanded_key, expanded_value)
+            layer.keys = expanded_key
+            layer.values = expanded_value
+            cache.layers.append(layer)
+        return cache
+
+    @staticmethod
+    def candidate_layout(
+        prefix: PreparedQwenPrefix,
+        *,
+        candidate_batch_size: int,
+        slot_count: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Return the visible attention mask and slot position identifiers."""
+        if candidate_batch_size < 1:
+            raise ValueError("candidate batch size must be positive")
+        if slot_count < 1:
+            raise ValueError("slot count must be positive")
+        device = prefix.layer_key_values[0][0].device
+        attention_mask = torch.ones(
+            (candidate_batch_size, prefix.context_length + slot_count),
+            dtype=torch.long,
+            device=device,
+        )
+        position_ids = torch.arange(
+            prefix.context_length,
+            prefix.context_length + slot_count,
+            dtype=torch.long,
+            device=device,
+        ).unsqueeze(0).expand(candidate_batch_size, -1)
+        return attention_mask, position_ids
 
     def full_reference(
         self,
@@ -88,6 +198,57 @@ class QwenTapAdapter:
 
         selected = tapped_hidden[:, -slot_count:, :]
         return selected.squeeze(0) if remove_batch else selected
+
+    @staticmethod
+    def _single_context_batch(context_embeddings: torch.Tensor) -> torch.Tensor:
+        if context_embeddings.ndim == 2:
+            batched_context = context_embeddings.unsqueeze(0)
+        elif context_embeddings.ndim == 3 and context_embeddings.shape[0] == 1:
+            batched_context = context_embeddings
+        else:
+            raise ValueError(
+                "context embeddings must be unbatched or have batch size one"
+            )
+        if batched_context.shape[1] < 1:
+            raise ValueError("context embeddings must contain at least one token")
+        if batched_context.shape[-1] != WORKSPACE_DIMENSION:
+            raise ValueError(
+                f"expected context embedding width {WORKSPACE_DIMENSION}, actual "
+                f"{batched_context.shape[-1]}"
+            )
+        return batched_context
+
+    @staticmethod
+    def _clone_prefix_layer(
+        layer: Any,
+        *,
+        layer_index: int,
+        context_length: int,
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        key = getattr(layer, "keys", None)
+        value = getattr(layer, "values", None)
+        expected_prefix = (1, context_length)
+        if (
+            not isinstance(key, torch.Tensor)
+            or not isinstance(value, torch.Tensor)
+            or key.ndim != 4
+            or value.ndim != 4
+            or key.shape[0] != expected_prefix[0]
+            or value.shape[0] != expected_prefix[0]
+            or key.shape[-2] != expected_prefix[1]
+            or value.shape[-2] != expected_prefix[1]
+            or key.shape != value.shape
+        ):
+            key_shape = tuple(key.shape) if isinstance(key, torch.Tensor) else None
+            value_shape = (
+                tuple(value.shape) if isinstance(value, torch.Tensor) else None
+            )
+            raise ValueError(
+                f"expected layer {layer_index} cache shapes "
+                f"(1, heads, {context_length}, head_dim), actual key "
+                f"{key_shape} and value {value_shape}"
+            )
+        return key.detach().clone(), value.detach().clone()
 
     @staticmethod
     def _batch_inputs(

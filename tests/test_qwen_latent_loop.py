@@ -68,6 +68,34 @@ class _DifferentiableQwen(nn.Module):
         return SimpleNamespace(hidden_states=tuple(hidden for _ in range(25)))
 
 
+class _CacheProducingQwen(nn.Module):
+    def __init__(
+        self,
+        *,
+        cache_layer_count: int = 24,
+        cached_sequence_delta: int = 0,
+    ) -> None:
+        super().__init__()
+        self.config = SimpleNamespace(hidden_size=WIDTH, num_hidden_layers=24)
+        self.cache_layer_count = cache_layer_count
+        self.cached_sequence_delta = cached_sequence_delta
+        self.calls: list[dict[str, Any]] = []
+
+    def forward(self, **kwargs: Any) -> Any:
+        self.calls.append(kwargs)
+        context = kwargs["inputs_embeds"]
+        cache = kwargs["past_key_values"]
+        cached_length = context.shape[1] + self.cached_sequence_delta
+        for layer_index in range(self.cache_layer_count):
+            values = torch.arange(
+                2 * cached_length * 4,
+                dtype=context.dtype,
+                device=context.device,
+            ).reshape(1, 2, cached_length, 4)
+            cache.update(values + layer_index, values - layer_index, layer_index)
+        return SimpleNamespace(past_key_values=cache)
+
+
 def _hidden_states(
     hidden_at_tap: torch.Tensor | None = None,
     *,
@@ -189,6 +217,137 @@ def test_qwen_tap_full_reference_validates_tapped_hidden_shape() -> None:
             torch.ones(CONTEXT_LENGTH, WIDTH),
             torch.ones(SLOT_COUNT, WIDTH),
         )
+
+
+# covers: core/latent-loop::Latent loop feeds hidden state back as input::Cached context is immutable
+def test_qwen_tap_prefix_is_detached_and_candidate_caches_are_independent() -> None:
+    model = _CacheProducingQwen()
+    adapter = QwenTapAdapter(model)
+    context = torch.arange(
+        CONTEXT_LENGTH * WIDTH,
+        dtype=torch.float32,
+    ).reshape(CONTEXT_LENGTH, WIDTH)
+    context.requires_grad_(True)
+
+    prefix = adapter.prepare_prefix(context)
+    original = tuple(
+        (key.clone(), value.clone()) for key, value in prefix.layer_key_values
+    )
+    first_cache = adapter.fresh_candidate_cache(prefix, candidate_batch_size=3)
+
+    assert prefix.context_length == CONTEXT_LENGTH
+    assert len(prefix.layer_key_values) == 12
+    assert all(
+        not tensor.requires_grad and tensor.grad_fn is None
+        for layer in prefix.layer_key_values
+        for tensor in layer
+    )
+    assert context.grad is None
+    call = model.calls[0]
+    assert call["use_cache"] is True
+    assert torch.equal(
+        call["attention_mask"], torch.ones(1, CONTEXT_LENGTH, dtype=torch.long)
+    )
+    assert torch.equal(
+        call["position_ids"], torch.arange(CONTEXT_LENGTH).unsqueeze(0)
+    )
+    for layer_index, (stored_key, stored_value) in enumerate(
+        prefix.layer_key_values
+    ):
+        assert torch.equal(
+            first_cache.layers[layer_index].keys,
+            stored_key.expand(3, -1, -1, -1),
+        )
+        assert torch.equal(
+            first_cache.layers[layer_index].values,
+            stored_value.expand(3, -1, -1, -1),
+        )
+        assert (
+            first_cache.layers[layer_index].keys.untyped_storage().data_ptr()
+            == stored_key.untyped_storage().data_ptr()
+        )
+        assert (
+            first_cache.layers[layer_index].values.untyped_storage().data_ptr()
+            == stored_value.untyped_storage().data_ptr()
+        )
+
+    appended_key = torch.zeros(3, 2, 1, 4)
+    appended_value = torch.ones(3, 2, 1, 4)
+    first_cache.update(appended_key, appended_value, layer_idx=0)
+    second_cache = adapter.fresh_candidate_cache(prefix, candidate_batch_size=3)
+
+    assert first_cache.layers[0].keys.shape[-2] == CONTEXT_LENGTH + 1
+    assert (
+        first_cache.layers[0].keys.untyped_storage().data_ptr()
+        != prefix.layer_key_values[0][0].untyped_storage().data_ptr()
+    )
+    for layer_index, (original_key, original_value) in enumerate(original):
+        stored_key, stored_value = prefix.layer_key_values[layer_index]
+        assert torch.equal(stored_key, original_key)
+        assert torch.equal(stored_value, original_value)
+        assert torch.equal(
+            second_cache.layers[layer_index].keys,
+            original_key.expand(3, -1, -1, -1),
+        )
+        assert torch.equal(
+            second_cache.layers[layer_index].values,
+            original_value.expand(3, -1, -1, -1),
+        )
+
+
+def test_qwen_tap_candidate_layout_uses_full_visibility_and_slot_positions() -> None:
+    adapter = QwenTapAdapter(_CacheProducingQwen())
+    prefix = adapter.prepare_prefix(torch.ones(CONTEXT_LENGTH, WIDTH))
+
+    attention_mask, position_ids = adapter.candidate_layout(
+        prefix,
+        candidate_batch_size=3,
+        slot_count=SLOT_COUNT,
+    )
+
+    assert attention_mask.shape == (3, SEQUENCE_LENGTH)
+    assert torch.all(attention_mask == 1)
+    assert torch.equal(
+        position_ids,
+        torch.arange(CONTEXT_LENGTH, SEQUENCE_LENGTH).unsqueeze(0).expand(3, -1),
+    )
+
+
+@pytest.mark.parametrize(
+    ("context", "model", "expected"),
+    [
+        (
+            torch.ones(2, CONTEXT_LENGTH, WIDTH),
+            _CacheProducingQwen(),
+            "context embeddings must be unbatched or have batch size one",
+        ),
+        (
+            torch.ones(CONTEXT_LENGTH, WIDTH - 1),
+            _CacheProducingQwen(),
+            f"expected context embedding width {WIDTH}, actual {WIDTH - 1}",
+        ),
+        (
+            torch.ones(CONTEXT_LENGTH, WIDTH),
+            _CacheProducingQwen(cache_layer_count=11),
+            "expected cache for 12 layers, actual 11",
+        ),
+        (
+            torch.ones(CONTEXT_LENGTH, WIDTH),
+            _CacheProducingQwen(cached_sequence_delta=-1),
+            "expected layer 0 cache shapes",
+        ),
+    ],
+    ids=("candidate-context", "wrong-width", "missing-layer", "wrong-cache-shape"),
+)
+def test_qwen_tap_prefix_validates_context_and_cache_shapes(
+    context: torch.Tensor,
+    model: _CacheProducingQwen,
+    expected: str,
+) -> None:
+    adapter = QwenTapAdapter(model)
+
+    with pytest.raises(ValueError, match=expected):
+        adapter.prepare_prefix(context)
 
 
 # covers: core/latent-loop::Latent loop feeds hidden state back as input::hidden state feedback

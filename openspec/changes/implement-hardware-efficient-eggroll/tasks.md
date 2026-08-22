@@ -32,8 +32,9 @@
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: selected tap layer unavailable -->
 <!-- status: completed -->
 
-- [ ] 3.2 Add immutable context-prefix preparation and fresh candidate cache views with the reference attention mask and position identifiers.
+- [x] 3.2 Add immutable context-prefix preparation and fresh candidate cache views with the reference attention mask and position identifiers.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: Cached context is immutable -->
+<!-- status: completed -->
 
 - [ ] 3.3 Stop latent-only execution after decoder block 11 and bypass the final model work and vocabulary head, with call-spy tests for omitted layers and logits.
 <!-- covers: core/latent-loop :: Latent loop feeds hidden state back as input :: Latent execution omits unused model work -->
