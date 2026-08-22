@@ -58,9 +58,10 @@
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
 <!-- status: completed -->
 
-- [ ] 4.3 Add alternating checkpoint-resume equivalence and CLI wiring tests, then make the optimized path the only production path for both training commands.
+- [x] 4.3 Add alternating checkpoint-resume equivalence and CLI wiring tests, then make the optimized path the only production path for both training commands.
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Resume stays deterministic -->
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Existing commands select the optimized path -->
+<!-- status: completed -->
 
 ## 5. CUDA Performance Gate
 
