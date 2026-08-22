@@ -10,7 +10,6 @@ Based on: https://eshyperscale.github.io/
 
 from __future__ import annotations
 
-import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -20,6 +19,13 @@ from torch import nn
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
 from core.qwen_tap import PreparedQwenPrefix
+from train.eggroll_factorized import factorized_linear
+from train.eggroll_perturbations import (
+    DenseVectorNoise,
+    MatrixFactors,
+    SignedPerturbationSet,
+    sample_antithetic_pair,
+)
 from train.answer_objective import (
     SUBJECT_LATENT_RUNS_PER_ANSWER,
     decoder_aligned_answer_loss,
@@ -27,6 +33,7 @@ from train.answer_objective import (
 )
 from train.training_results import ExperimentPosition, StepResult
 from train.training_state import TrainingState
+from train.eggroll_updates import apply_factorized_update
 from train.vicreg import post_loop_slot_variance
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
@@ -94,27 +101,6 @@ class EggrollTrainer:
     def trainable_param_count(self) -> int:
         return sum(p.numel() for p in self.trainable_params)
 
-    def _generate_perturbation(
-        self, seed: int, sign: float
-    ) -> list[torch.Tensor]:
-        gen = torch.Generator(device="cpu")
-        gen.manual_seed(seed)
-        deltas = []
-        for p in self.trainable_params:
-            if p.ndim == 2:
-                a, b = p.shape
-                noise = torch.randn(
-                    a + b, self.rank, generator=gen, device="cpu"
-                )
-                big = noise[:a]
-                small = noise[a:]
-                delta = (big @ small.T) * (sign * self.sigma / math.sqrt(self.rank))
-            else:
-                noise = torch.randn(p.shape, generator=gen, device="cpu")
-                delta = noise * (sign * self.sigma)
-            deltas.append(delta.to(self.device))
-        return deltas
-
     @staticmethod
     def _batched_layer_norm(
         inputs: torch.Tensor,
@@ -132,36 +118,69 @@ class EggrollTrainer:
         token_embeddings: torch.Tensor,
         context_embeds: torch.Tensor,
         answer_ids: torch.Tensor,
-        perturbations: list[list[torch.Tensor]],
+        perturbations: list[SignedPerturbationSet],
         eos_token_id: int | None = None,
         context_prefix: PreparedQwenPrefix | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Evaluate several perturbed candidates in each frozen-model pass."""
-        params = [
-            torch.stack([d[param_index] for d in perturbations])
-            for param_index in range(len(self.trainable_params))
-        ]
         batch_size = len(perturbations)
+        signs = [candidate.sign for candidate in perturbations]
+        matrix_directions = lambda index: self._matrix_directions(
+            perturbations, index
+        )
+        dense_directions = lambda index: self._dense_directions(
+            perturbations, index
+        )
+        expected_token_width = self.encoder.projection.weight.shape[1]
+        if (
+            token_embeddings.ndim != 3
+            or token_embeddings.shape[0] != 1
+            or token_embeddings.shape[1] < 1
+            or token_embeddings.shape[2] != expected_token_width
+        ):
+            raise ValueError(
+                "expected encoder token embeddings shape "
+                f"(1, tokens, {expected_token_width}) with nonempty tokens, "
+                f"actual {tuple(token_embeddings.shape)}"
+            )
+        shared_token_embeddings = token_embeddings.squeeze(0)
 
-        projection_weight = self.encoder.projection.weight.unsqueeze(0) + params[0]
-        projection_bias = self.encoder.projection.bias.unsqueeze(0) + params[1]
-        slot_queries = self.encoder.slot_queries.unsqueeze(0) + params[2]
-        attn_log_temp = self.encoder.attn_log_temp.unsqueeze(0) + params[3]
-
-        tokens = token_embeddings.expand(batch_size, -1, -1)
-        projected = torch.bmm(tokens, projection_weight.transpose(1, 2))
-        projected = projected + projection_bias.unsqueeze(1)
+        projected = factorized_linear(
+            shared_token_embeddings,
+            self.encoder.projection.weight,
+            matrix_directions(0),
+            signs,
+            bias=self.encoder.projection.bias,
+            bias_noises=dense_directions(1),
+        )
+        attention_projection = factorized_linear(
+            projected,
+            self.encoder.slot_queries,
+            matrix_directions(2),
+            signs,
+        )
+        attn_log_temp = self._signed_dense_parameter(
+            self.encoder.attn_log_temp,
+            dense_directions(3),
+            signs,
+        )
         scale = attn_log_temp.exp().view(batch_size, 1, 1)
-        attn_logits = torch.bmm(slot_queries, projected.transpose(1, 2)) / scale
+        attn_logits = attention_projection.transpose(1, 2) / scale
         attn_weights = torch.softmax(attn_logits, dim=-1)
         slots = torch.bmm(attn_weights, projected)
 
-        loop_projection_weight = self.latent_loop.projection.weight.unsqueeze(0) + params[4]
-        loop_projection_bias = self.latent_loop.projection.bias.unsqueeze(0) + params[5]
-        proj_norm_weight = self.latent_loop.proj_norm.weight.unsqueeze(0) + params[6]
-        proj_norm_bias = self.latent_loop.proj_norm.bias.unsqueeze(0) + params[7]
-        layer_norm_weight = self.latent_loop.layer_norm.weight.unsqueeze(0) + params[8]
-        layer_norm_bias = self.latent_loop.layer_norm.bias.unsqueeze(0) + params[9]
+        proj_norm_weight = self._signed_dense_parameter(
+            self.latent_loop.proj_norm.weight, dense_directions(6), signs
+        )
+        proj_norm_bias = self._signed_dense_parameter(
+            self.latent_loop.proj_norm.bias, dense_directions(7), signs
+        )
+        layer_norm_weight = self._signed_dense_parameter(
+            self.latent_loop.layer_norm.weight, dense_directions(8), signs
+        )
+        layer_norm_bias = self._signed_dense_parameter(
+            self.latent_loop.layer_norm.bias, dense_directions(9), signs
+        )
 
         loop_slots = slots
         tap_adapter = self.latent_loop.tap_adapter
@@ -184,9 +203,14 @@ class EggrollTrainer:
                         f"expected slot hidden shape {tuple(loop_slots.shape)}, "
                         f"actual {tuple(slot_hidden.shape)}"
                     )
-                transformed = torch.bmm(
-                    slot_hidden, loop_projection_weight.transpose(1, 2)
-                ) + loop_projection_bias.unsqueeze(1)
+                transformed = factorized_linear(
+                    slot_hidden,
+                    self.latent_loop.projection.weight,
+                    matrix_directions(4),
+                    signs,
+                    bias=self.latent_loop.projection.bias,
+                    bias_noises=dense_directions(5),
+                )
                 transformed = self._batched_layer_norm(
                     transformed,
                     proj_norm_weight,
@@ -214,6 +238,41 @@ class EggrollTrainer:
         fitness = -lm_loss + self.variance_weight * log_var
         return fitness, lm_loss, variance
 
+    @staticmethod
+    def _matrix_directions(
+        candidates: list[SignedPerturbationSet],
+        parameter_index: int,
+    ) -> list[MatrixFactors]:
+        directions = [candidate.directions[parameter_index] for candidate in candidates]
+        if not all(isinstance(direction, MatrixFactors) for direction in directions):
+            raise TypeError("matrix parameter received non-matrix direction")
+        return directions  # type: ignore[return-value]
+
+    @staticmethod
+    def _dense_directions(
+        candidates: list[SignedPerturbationSet],
+        parameter_index: int,
+    ) -> list[DenseVectorNoise]:
+        directions = [candidate.directions[parameter_index] for candidate in candidates]
+        if not all(isinstance(direction, DenseVectorNoise) for direction in directions):
+            raise TypeError("non-matrix parameter received matrix direction")
+        return directions  # type: ignore[return-value]
+
+    @staticmethod
+    def _signed_dense_parameter(
+        parameter: torch.Tensor,
+        directions: list[DenseVectorNoise],
+        signs: list[float],
+    ) -> torch.Tensor:
+        noises = torch.stack([direction.noise for direction in directions])
+        coefficients = torch.tensor(
+            [sign * direction.scale for sign, direction in zip(signs, directions, strict=True)],
+            device=parameter.device,
+            dtype=parameter.dtype,
+        )
+        coefficient_shape = (len(directions),) + (1,) * parameter.ndim
+        return parameter.unsqueeze(0) + noises * coefficients.reshape(coefficient_shape)
+
     def train_step(
         self,
         question: str,
@@ -235,20 +294,25 @@ class EggrollTrainer:
         lm_losses = []
         variances = []
 
-        with torch.no_grad(), torch.autocast(
+        candidates = []
+        for pair_index in range(self.pop_size // 2):
+            candidates.extend(
+                sample_antithetic_pair(
+                    self.trainable_params,
+                    seed=base_seed + pair_index,
+                    sigma=self.sigma,
+                    rank=self.rank,
+                )
+            )
+
+        with torch.inference_mode(), torch.autocast(
             device_type=torch.device(self.device).type,
             dtype=torch.float16,
             enabled=self.use_amp,
         ):
             for start in range(0, self.pop_size, self.eval_batch_size):
                 stop = min(start + self.eval_batch_size, self.pop_size)
-                perturbations = []
-                for i in range(start, stop):
-                    pair_seed = base_seed + (i // 2)
-                    sign = 1.0 if i % 2 == 0 else -1.0
-                    perturbations.append(
-                        self._generate_perturbation(pair_seed, sign)
-                    )
+                perturbations = candidates[start:stop]
 
                 batch_fitness, batch_losses, batch_variances = (
                     self._forward_fitness_batch(
@@ -264,30 +328,14 @@ class EggrollTrainer:
                 lm_losses.extend(batch_losses.tolist())
                 variances.extend(batch_variances.tolist())
 
-        fitnesses_t = torch.tensor(fitnesses, device=self.device)
-        normalized = (fitnesses_t - fitnesses_t.mean()) / (
-            fitnesses_t.std() + 1e-5
+        apply_factorized_update(
+            self.trainable_params,
+            self.optimizer,
+            base_seed=base_seed,
+            fitnesses=fitnesses,
+            sigma=self.sigma,
+            rank=self.rank,
         )
-
-        self.optimizer.zero_grad()
-        for pair_index in range(self.pop_size // 2):
-            deltas = self._generate_perturbation(
-                base_seed + pair_index, sign=1.0
-            )
-            positive_score = -normalized[2 * pair_index].item()
-            negative_score = -normalized[2 * pair_index + 1].item()
-            score = positive_score - negative_score
-            for p, d in zip(self.trainable_params, deltas):
-                if p.grad is None:
-                    p.grad = torch.zeros_like(p)
-                p.grad.add_(d, alpha=score)
-
-        scale = math.sqrt(self.pop_size) / self.pop_size
-        for p in self.trainable_params:
-            if p.grad is not None:
-                p.grad.mul_(scale)
-
-        self.optimizer.step()
 
         language_model_loss = sum(lm_losses) / len(lm_losses)
         total_objective = -sum(fitnesses) / len(fitnesses)

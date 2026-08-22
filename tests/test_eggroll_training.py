@@ -12,6 +12,7 @@ sentence_transformers.SentenceTransformer = object
 sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
 from train.eggroll_trainer import EggrollTrainer
+from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
 from train.training_results import ExperimentPosition, StepResult
 from train.vicreg import post_loop_slot_variance
 
@@ -21,7 +22,6 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
 ) -> None:
     trainer = EggrollTrainer.__new__(EggrollTrainer)
     trainer.variance_weight = 2.0
-    trainer.trainable_params = [nn.Parameter(torch.zeros(1)) for _ in range(10)]
     trainer.encoder = SimpleNamespace(
         projection=nn.Linear(2, 2),
         slot_queries=nn.Parameter(torch.zeros(2, 2)),
@@ -39,6 +39,36 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         model=model,
         tap_adapter=tap_adapter,
     )
+    trainer.trainable_params = [
+        trainer.encoder.projection.weight,
+        trainer.encoder.projection.bias,
+        trainer.encoder.slot_queries,
+        trainer.encoder.attn_log_temp,
+        trainer.latent_loop.projection.weight,
+        trainer.latent_loop.projection.bias,
+        trainer.latent_loop.proj_norm.weight,
+        trainer.latent_loop.proj_norm.bias,
+        trainer.latent_loop.layer_norm.weight,
+        trainer.latent_loop.layer_norm.bias,
+    ]
+    perturbations = list(
+        sample_antithetic_pair(
+            trainer.trainable_params,
+            seed=41,
+            sigma=0.02,
+            rank=1,
+        )
+    )
+    factorized_calls: list[tuple[object, ...]] = []
+    from train import eggroll_trainer as trainer_module
+
+    original_factorized_linear = trainer_module.factorized_linear
+
+    def observe_factorized(*args, **kwargs):
+        factorized_calls.append(args)
+        return original_factorized_linear(*args, **kwargs)
+
+    monkeypatch.setattr(trainer_module, "factorized_linear", observe_factorized)
 
     observed_slots: list[torch.Tensor] = []
 
@@ -49,10 +79,10 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
     monkeypatch.setattr("train.eggroll_trainer.post_loop_slot_variance", observe_variance)
 
     fitness, losses, variance = trainer._forward_fitness_batch(
-        token_embeddings=torch.tensor([[1.0, 0.0]]),
+        token_embeddings=torch.tensor([[[1.0, 0.0]]]),
         context_embeds=torch.zeros(1, 2),
         answer_ids=torch.tensor([[0]]),
-        perturbations=[[torch.zeros_like(parameter) for parameter in trainer.trainable_params]],
+        perturbations=perturbations,
         eos_token_id=1,
     )
 
@@ -65,6 +95,25 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
     assert model.forward_calls == 1
     assert len(tap_adapter.prepare_calls) == 1
     assert len(tap_adapter.cached_calls) == 2
+    assert len(factorized_calls) == 4
+    assert factorized_calls[0][0].shape == (1, 2)
+    assert all(
+        isinstance(direction, MatrixFactors)
+        for call in factorized_calls
+        for direction in call[2]
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="expected encoder token embeddings shape",
+    ):
+        trainer._forward_fitness_batch(
+            token_embeddings=torch.ones(2, 1, 2),
+            context_embeds=torch.zeros(1, 2),
+            answer_ids=torch.tensor([[0]]),
+            perturbations=perturbations,
+            eos_token_id=1,
+        )
 
 
 def test_constructor_accepts_supplied_shared_state(
@@ -105,17 +154,27 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     trainer.eval_batch_size = 2
     trainer.trainable_params = [nn.Parameter(torch.zeros(1))]
     trainer.optimizer = torch.optim.SGD(trainer.trainable_params, lr=0.1)
-    trainer._generate_perturbation = lambda seed, sign: [torch.zeros(1)]
+    trainer.sigma = 0.02
+    trainer.rank = 1
     fitness_input: list[torch.Tensor] = []
     prefixes: list[object] = []
+    candidate_batches: list[list[object]] = []
+    inference_flags: list[bool] = []
+    update_calls: list[dict[str, object]] = []
 
     def forward(*args, **kwargs):
         variance = torch.tensor([0.25, 0.75])
         fitness_input.append(variance)
         prefixes.append(kwargs["context_prefix"])
+        candidate_batches.append(args[3])
+        inference_flags.append(torch.is_inference_mode_enabled())
         return torch.tensor([-3.0, -1.0]), torch.tensor([2.0, 1.0]), variance
 
     monkeypatch.setattr(trainer, "_forward_fitness_batch", forward)
+    monkeypatch.setattr(
+        "train.eggroll_trainer.apply_factorized_update",
+        lambda parameters, optimizer, **kwargs: update_calls.append(kwargs),
+    )
     position = ExperimentPosition("eggroll", 1, 2, 3, 4, 5)
 
     result = trainer.train_step("question", "0", position)
@@ -129,6 +188,14 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     assert result.regularizer_loss == pytest.approx(0.5)
     assert len(tap_adapter.prepare_calls) == 1
     assert prefixes == [tap_adapter.prefix]
+    assert inference_flags == [True]
+    positive, negative = candidate_batches[0]
+    assert positive.sign == 1.0
+    assert negative.sign == -1.0
+    assert positive.directions is negative.directions
+    assert len(update_calls) == 1
+    assert update_calls[0]["fitnesses"] == [-3.0, -1.0]
+    assert update_calls[0]["base_seed"] >= 0
 
 
 class FakeLanguageModel(nn.Module):

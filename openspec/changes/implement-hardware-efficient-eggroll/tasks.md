@@ -50,8 +50,9 @@
 
 ## 4. Trainer Integration and Determinism
 
-- [ ] 4.1 Route EGGROLL candidate evaluation and pseudo-gradient assembly through the factorized components and run candidate evaluation under inference mode.
+- [x] 4.1 Route EGGROLL candidate evaluation and pseudo-gradient assembly through the factorized components and run candidate evaluation under inference mode.
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
+<!-- status: completed -->
 
 - [ ] 4.2 Add a complete-step equivalence test covering candidate fitness, language-model loss, variance, normalized fitness, emitted fields, tensors, Adam state, and final RNG state.
 <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
