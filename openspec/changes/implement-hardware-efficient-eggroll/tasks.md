@@ -65,8 +65,9 @@
 
 ## 5. CUDA Performance Gate
 
-- [ ] 5.1 Add `python -m train.benchmark_eggroll` with pinned configuration, state restoration, two warm-ups, five alternating measurements, CUDA synchronization, peak-memory measurement, and one JSON result.
+- [x] 5.1 Add `python -m train.benchmark_eggroll` with pinned configuration, state restoration, two warm-ups, five alternating measurements, CUDA synchronization, peak-memory measurement, and one JSON result.
 <!-- covers: train/eggroll-execution :: CUDA benchmark proves a material speed improvement :: Performance gate passes -->
+<!-- status: completed -->
 
 - [ ] 5.2 Make the benchmark reject unavailable CUDA and block performance reporting when numerical equivalence fails.
 <!-- covers: train/eggroll-execution :: CUDA benchmark proves a material speed improvement :: Equivalence failure blocks the benchmark result -->
