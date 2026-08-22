@@ -19,10 +19,11 @@
 <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Matrix candidate batch uses low-rank residuals -->
 <!-- status: completed -->
 
-- [ ] 2.3 Implement batched factor contraction for matrix pseudo-gradients and weighted reduction for vector pseudo-gradients, then compare gradients and Adam updates with the reference pair loop.
+- [x] 2.3 Implement batched factor contraction for matrix pseudo-gradients and weighted reduction for vector pseudo-gradients, then compare gradients and Adam updates with the reference pair loop.
 <!-- covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Factorized matrix update matches reference update -->
 <!-- covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Assembly has one dense matrix result -->
 <!-- covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Update follows fitness ascent -->
+<!-- status: completed -->
 
 ## 3. Layer-12 Qwen Execution
 
