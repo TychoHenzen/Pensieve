@@ -294,3 +294,108 @@ def test_pre_existing_output_rejected_before_model_loading(
         ])
 
     assert not model_load_called, "Model loading should not occur when path exists"
+
+
+def test_progress_record_schema_required_fields() -> None:
+    """Progress records have all required schema fields."""
+    from train.stage0_trainability import TrainabilityProgressRecord
+
+    record = TrainabilityProgressRecord(
+        schema_version=1,
+        sequence_number=0,
+        kind="arm_checkpoint",
+        probe_or_arm="gradient_only",
+        consumed_examples=8,
+        optimizer_call_count=8,
+        elapsed_seconds=1.0,
+        eta_seconds=2.0,
+    )
+    data = record.to_dict()
+    assert "schema_version" in data
+    assert "sequence_number" in data
+    assert "kind" in data
+    assert "probe_or_arm" in data
+    assert "consumed_examples" in data
+    assert "optimizer_call_count" in data
+    assert "elapsed_seconds" in data
+    assert "eta_seconds" in data
+
+
+def test_progress_record_eta_field_validation() -> None:
+    """Progress records validate ETA fields (must be non-negative or None)."""
+    from train.stage0_trainability import TrainabilityProgressRecord
+
+    with pytest.raises(ValueError, match="eta_seconds must be finite"):
+        TrainabilityProgressRecord(
+            schema_version=1,
+            sequence_number=0,
+            kind="arm_checkpoint",
+            probe_or_arm="gradient_only",
+            consumed_examples=8,
+            optimizer_call_count=8,
+            elapsed_seconds=1.0,
+            eta_seconds=float("inf"),
+        )
+
+
+def test_final_report_schema_required_fields() -> None:
+    """Final reports have all required schema fields."""
+    from train.stage0_trainability import (
+        TrainabilityReport,
+        TrainabilityConfiguration,
+        TrainabilityAssetIdentity,
+        ImplementationIdentity,
+        OverfitProbeResult,
+    )
+
+    report = TrainabilityReport(
+        schema_version=1,
+        configuration=TrainabilityConfiguration(
+            asset_identity=TrainabilityAssetIdentity(
+                stability_report_digest="a" * 64,
+                held_out_record_identifiers=(("id1", "hash1"),),
+                training_record_identifiers_overfit=(("id2", "hash2"),),
+                training_record_identifiers_32=(("id3", "hash3"),),
+            ),
+            implementation=ImplementationIdentity(
+                sha256="b" * 64,
+                sources=(("test_source.py", "c" * 64),),
+            ),
+            stability_configuration={},
+        ),
+        asset_identity_digest="d" * 64,
+        initial_state_digest="e" * 64,
+        overall_status="inconclusive",
+        overfit_probe=OverfitProbeResult(
+            status="inconclusive",
+            attempts=(),
+            failed_conditions=("test",),
+        ),
+        causal_probes=(),
+        arms=(),
+        elapsed_seconds=1.0,
+    )
+    data = report.to_dict()
+    assert "schema_version" in data
+    assert "overall_status" in data
+    assert "elapsed_seconds" in data
+    assert "overfit_probe" in data
+    assert "causal_probes" in data
+    assert "arms" in data
+
+
+def test_final_report_exit_code_mapping() -> None:
+    """Exit code mapping covers all classification statuses."""
+    statuses = [
+        "bounded_trainability_observed",
+        "shared_loss_behavior_conflict",
+        "objective_untrainable",
+        "method_specific_failure",
+        "inconclusive",
+    ]
+    for status in statuses:
+        code = run_stage0_trainability._compute_exit_code(status)
+        if status == "bounded_trainability_observed":
+            assert code == 0, f"Status {status} should map to exit code 0"
+        else:
+            assert code == 1, f"Status {status} should map to exit code 1"
