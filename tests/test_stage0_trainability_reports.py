@@ -766,3 +766,93 @@ class TestOverfitProbeClassification:
         result = classify_overfit_probe((attempt,))
 
         assert result.status == "objective_untrainable"
+
+
+class TestOverfitAttemptDeterminism:
+    """Test determinism properties and non-emission of recommendations."""
+
+    def test_overfit_learning_rates_are_diagnostic_only(self) -> None:
+        """Test that diagnostic learning rates are never recommended as production."""
+        from train.stage0_trainability import OVERFIT_LEARNING_RATES
+
+        for lr in OVERFIT_LEARNING_RATES:
+            assert isinstance(lr, float), f"learning rate {lr} must be float"
+            assert lr > 0, f"learning rate {lr} must be positive"
+            assert lr in (0.0001, 0.001, 0.01), (
+                f"learning rate {lr} must be diagnostic value, not production"
+            )
+
+    def test_overfit_checkpoint_structure_deterministic(self) -> None:
+        """Test that checkpoint structure is deterministically defined."""
+        from train.stage0_trainability import OVERFIT_CHECKPOINTS
+
+        assert isinstance(OVERFIT_CHECKPOINTS, tuple), "checkpoints must be tuple"
+        assert len(OVERFIT_CHECKPOINTS) > 0, "must have at least one checkpoint"
+        assert OVERFIT_CHECKPOINTS[0] == 0, "first checkpoint must be 0 (baseline)"
+        assert OVERFIT_CHECKPOINTS[-1] == 64, "final checkpoint must be 64"
+
+        for i in range(len(OVERFIT_CHECKPOINTS) - 1):
+            assert OVERFIT_CHECKPOINTS[i] < OVERFIT_CHECKPOINTS[i + 1], (
+                "checkpoints must be strictly increasing"
+            )
+
+    def test_overfit_attempt_result_keys_documented(self) -> None:
+        """Test that overfit attempt results have consistent documented keys."""
+        expected_keys_by_status = {
+            "passed": {"status", "learning_rate", "baseline_loss", "checkpoints"},
+            "failed": {"status", "learning_rate", "baseline_loss", "checkpoints"},
+            "non_finite": {"status", "learning_rate", "failed_reason"},
+        }
+
+        for status, expected in expected_keys_by_status.items():
+            assert isinstance(expected, set), (
+                f"expected keys for {status} must be set"
+            )
+            for key in expected:
+                assert isinstance(key, str), f"key {key} must be string"
+
+    def test_overfit_attempt_no_recommendation_fields(self) -> None:
+        """Test that function signature excludes recommendation-emission capabilities."""
+        from train.stage0_trainability import run_overfit_attempt
+        import inspect
+
+        sig = inspect.signature(run_overfit_attempt)
+        params = list(sig.parameters.keys())
+
+        forbidden_params = ["recommend", "recommendation", "production_lr"]
+        for forbidden in forbidden_params:
+            for param in params:
+                assert forbidden not in param.lower(), (
+                    f"parameter {param} looks like a recommendation parameter"
+                )
+
+    def test_overfit_attempt_accepts_required_parameters(self) -> None:
+        """Test that function requires canonical parameters, no optional recommendation."""
+        from train.stage0_trainability import run_overfit_attempt
+        import inspect
+
+        sig = inspect.signature(run_overfit_attempt)
+        param_names = set(sig.parameters.keys())
+
+        required_params = {"question", "answer", "learning_rate"}
+        for required in required_params:
+            assert required in param_names, (
+                f"function must accept {required} parameter"
+            )
+
+    def test_overfit_attempt_documentation_excludes_recommendations(self) -> None:
+        """Test that function documentation doesn't mention production recommendations."""
+        from train.stage0_trainability import run_overfit_attempt
+
+        doc = run_overfit_attempt.__doc__ or ""
+        lower_doc = doc.lower()
+
+        forbidden_phrases = ["production recommendation", "recommend", "default learning rate"]
+        for forbidden in forbidden_phrases:
+            assert forbidden not in lower_doc, (
+                f"documentation must not mention '{forbidden}' as it's diagnostic-only"
+            )
+
+        assert "overfit" in lower_doc or "memorization" in lower_doc, (
+            "documentation should describe the overfit/memorization purpose"
+        )
