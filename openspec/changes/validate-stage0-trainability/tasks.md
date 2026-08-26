@@ -27,7 +27,7 @@
 - [x] 3.3 Add causal result classification for predicted and observed decreases, including exact `direction_mismatch` evidence.
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Method update has the predicted effect -->
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Update moves against its prediction -->
-- [ ] 3.4 Add held-out separation, relative matrix RMS, finite-state, snapshot restoration, and `unsafe_update` checks for both methods.
+- [x] 3.4 Add held-out separation, relative matrix RMS, finite-state, snapshot restoration, and `unsafe_update` checks for both methods.
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Causal update damages held-out separation -->
 - [ ] 3.5 Run focused gradient and EGGROLL causal tests with known aligned, reversed, oversized, and non-finite updates.
 

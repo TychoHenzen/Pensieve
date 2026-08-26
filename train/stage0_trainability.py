@@ -1072,3 +1072,66 @@ def classify_causal_result(
         return "direction_mismatch", failed_conditions
 
     return "passed", []
+
+
+def validate_causal_safety_checks(
+    baseline_separation: float,
+    post_update_separation: float,
+    max_update_relative_matrix_rms: float,
+    min_separation_ratio: float = MIN_SEPARATION_RATIO,
+    max_rms_change: float = MAX_UPDATE_RELATIVE_MATRIX_RMS,
+) -> tuple[str, list[str]]:
+    """Validate safety checks for causal probe results.
+
+    Args:
+        baseline_separation: Pre-update held-out separation metric
+        post_update_separation: Post-update held-out separation metric
+        max_update_relative_matrix_rms: Maximum relative RMS change in parameters
+        min_separation_ratio: Minimum allowed separation ratio (default 0.95)
+        max_rms_change: Maximum allowed RMS change (default 0.01)
+
+    Returns:
+        Tuple of (status, failed_conditions) where status is one of:
+        - "passed": all safety checks pass
+        - "unsafe_update": separation or RMS violation detected
+        - "non_finite": any value is non-finite
+
+    Raises:
+        ValueError: If baseline separation is zero or negative
+    """
+    failed_conditions = []
+
+    try:
+        baseline_sep_float = float(baseline_separation)
+    except (TypeError, ValueError):
+        raise ValueError("baseline separation must be non-negative and finite")
+
+    if baseline_sep_float <= 0:
+        raise ValueError("baseline separation must be positive for ratio check")
+
+    if not math.isfinite(baseline_separation):
+        raise ValueError("baseline separation must be non-negative and finite")
+
+    if not math.isfinite(post_update_separation):
+        failed_conditions.append("non_finite_separation")
+        return "non_finite", failed_conditions
+
+    if not math.isfinite(max_update_relative_matrix_rms):
+        failed_conditions.append("non_finite_rms")
+        return "non_finite", failed_conditions
+
+    separation_ratio = post_update_separation / baseline_separation
+    if separation_ratio < min_separation_ratio:
+        failed_conditions.append(
+            f"separation_retention_below_floor: {separation_ratio:.4f} < {min_separation_ratio}"
+        )
+
+    if max_update_relative_matrix_rms > max_rms_change:
+        failed_conditions.append(
+            f"relative_matrix_rms_above_ceiling: {max_update_relative_matrix_rms:.4f} > {max_rms_change}"
+        )
+
+    if failed_conditions:
+        return "unsafe_update", failed_conditions
+
+    return "passed", []

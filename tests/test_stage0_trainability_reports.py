@@ -1106,6 +1106,110 @@ class TestCausalResultClassification:
             )
 
 
+class TestCausalSafetyChecks:
+    """Test safety checks for causal probe results."""
+
+    def test_safety_checks_passed(self) -> None:
+        """Test safety checks when all pass."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.76,
+            max_update_relative_matrix_rms=0.005,
+        )
+
+        assert status == "passed"
+        assert len(conditions) == 0
+
+    def test_safety_checks_separation_below_floor(self) -> None:
+        """Test detection of separation retention below 0.95 floor."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.74,
+            max_update_relative_matrix_rms=0.005,
+        )
+
+        assert status == "unsafe_update"
+        assert any("separation" in c for c in conditions)
+
+    def test_safety_checks_rms_above_ceiling(self) -> None:
+        """Test detection of relative matrix RMS above 0.01 ceiling."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.76,
+            max_update_relative_matrix_rms=0.015,
+        )
+
+        assert status == "unsafe_update"
+        assert any("relative_matrix_rms" in c for c in conditions)
+
+    def test_safety_checks_both_violations(self) -> None:
+        """Test detection of multiple safety violations."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.70,
+            max_update_relative_matrix_rms=0.02,
+        )
+
+        assert status == "unsafe_update"
+        assert len(conditions) >= 2
+
+    def test_safety_checks_non_finite_separation(self) -> None:
+        """Test detection of non-finite separation."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=float("nan"),
+            max_update_relative_matrix_rms=0.005,
+        )
+
+        assert status == "non_finite"
+        assert "non_finite_separation" in conditions
+
+    def test_safety_checks_non_finite_rms(self) -> None:
+        """Test detection of non-finite RMS."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.76,
+            max_update_relative_matrix_rms=float("inf"),
+        )
+
+        assert status == "non_finite"
+        assert "non_finite_rms" in conditions
+
+    def test_safety_checks_requires_valid_baseline(self) -> None:
+        """Test that baseline separation must be valid."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        with pytest.raises(ValueError, match="baseline separation"):
+            validate_causal_safety_checks(
+                baseline_separation=float("nan"),
+                post_update_separation=0.76,
+                max_update_relative_matrix_rms=0.005,
+            )
+
+    def test_safety_checks_requires_positive_baseline_for_ratio(self) -> None:
+        """Test that baseline must be positive for ratio calculation."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        with pytest.raises(ValueError, match="positive"):
+            validate_causal_safety_checks(
+                baseline_separation=0.0,
+                post_update_separation=0.0,
+                max_update_relative_matrix_rms=0.005,
+            )
+
+
 class TestCausalProbeEvaluation:
     """Test complete-objective evaluation for causal probes."""
 
