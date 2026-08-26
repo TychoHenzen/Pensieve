@@ -57,7 +57,7 @@
   <!-- covers: train/stage0-trainability-gate :: Recalibration eligibility is method-specific and limited :: Unsupported method remains blocked -->
 - [x] 5.4 Keep trainability evidence distinct from stability and five-seed credentials. Add tests proving it cannot authorize full gradient, EGGROLL, or alternating training.
   <!-- covers: train/stage0-trainability-gate :: Recalibration eligibility is method-specific and limited :: Trainability report is not a training gate -->
-- [ ] 5.5 Run table-driven classification and eligibility tests covering every status and precedence branch.
+- [x] 5.5 Run table-driven classification and eligibility tests covering every status and precedence branch.
 
 ## 6. Add the Diagnostic Command and Progress Artifacts
 
