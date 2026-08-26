@@ -61,7 +61,7 @@
 
 ## 6. Add the Diagnostic Command and Progress Artifacts
 
-- [ ] 6.1 Add `python -m train.run_stage0_trainability` with required stability-report and final-output paths, optional progress path, and validation before model or data loading.
+- [x] 6.1 Add `python -m train.run_stage0_trainability` with required stability-report and final-output paths, optional progress path, and validation before model or data loading.
 - [ ] 6.2 Write exclusive-create JSONL progress after every declared event and flush records so interruption leaves readable evidence.
 - [ ] 6.3 Write one canonical final report for scientific pass or failure, return a nonzero exit for every non-viable outcome, and retain completed progress.
   <!-- covers: train/stage0-trainability-gate :: Reports preserve complete bounded evidence :: Failed investigation retains evidence -->
