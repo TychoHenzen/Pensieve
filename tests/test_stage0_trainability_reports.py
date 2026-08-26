@@ -2186,3 +2186,170 @@ class TestArmIntegration:
                 arm.evaluations[1].example_count
                 <= arm.evaluations[2].example_count
             )
+
+
+class TestArmFixtures:
+    """Method-comparison fixtures for independent arm verification."""
+
+    def test_arms_with_simple_math_questions(self) -> None:
+        """Test all three arms with simple math question fixtures."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+        )
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        no_update_arm = run_no_update_arm(manifest)
+        gradient_arm = run_gradient_only_arm(manifest)
+        eggroll_arm = run_eggroll_only_arm(manifest)
+
+        assert no_update_arm.arm_kind == "no_update"
+        assert gradient_arm.arm_kind == "gradient_only"
+        assert eggroll_arm.arm_kind == "eggroll_only"
+
+        for arm in [no_update_arm, gradient_arm, eggroll_arm]:
+            assert len(arm.evaluations) >= 1
+            assert arm.final_status in ("active", "stopped")
+
+    def test_arms_have_independent_results(self) -> None:
+        """Test that arms produce independent result objects."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+        )
+
+        records = tuple(
+            (f"Question {i}", f"Answer {i}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        no_update_result = run_no_update_arm(manifest)
+        gradient_result = run_gradient_only_arm(manifest)
+        eggroll_result = run_eggroll_only_arm(manifest)
+
+        assert no_update_result is not gradient_result
+        assert gradient_result is not eggroll_result
+        assert no_update_result is not eggroll_result
+
+    def test_all_arms_runnable_without_exceptions(self) -> None:
+        """Test that all three arms complete without exceptions."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+        )
+
+        records = tuple(
+            (f"Q{i}", f"A{i}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        try:
+            no_update_arm = run_no_update_arm(manifest)
+            assert no_update_arm is not None
+        except Exception:
+            pytest.fail("no-update arm raised exception")
+
+        try:
+            gradient_arm = run_gradient_only_arm(manifest)
+            assert gradient_arm is not None
+        except Exception:
+            pytest.fail("gradient arm raised exception")
+
+        try:
+            eggroll_arm = run_eggroll_only_arm(manifest)
+            assert eggroll_arm is not None
+        except Exception:
+            pytest.fail("EGGROLL arm raised exception")
+
+    def test_arms_produce_valid_arm_objects(self) -> None:
+        """Test that all arms produce valid MethodArm objects."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+            MethodArm,
+        )
+
+        records = tuple(
+            (f"Math{i}", f"{i*2}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        arms = [
+            run_no_update_arm(manifest),
+            run_gradient_only_arm(manifest),
+            run_eggroll_only_arm(manifest),
+        ]
+
+        for arm in arms:
+            assert isinstance(arm, MethodArm)
+            assert arm.arm_kind in ("no_update", "gradient_only", "eggroll_only")
+            assert len(arm.training_records) == 32
+            assert arm.final_status in ("active", "stopped")
+
+    def test_arms_with_diverse_fixtures(self) -> None:
+        """Test arms with diverse question/answer pairs."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+        )
+
+        records = tuple([
+            ("What is 2+2?", "4"),
+            ("What is 5+3?", "8"),
+            ("What is 10-5?", "5"),
+            ("What is 3*3?", "9"),
+            ("What is 12/3?", "4"),
+        ] + [
+            (f"Math {i}", f"Result {i}") for i in range(27)
+        ])
+        manifest = FreshStateManifest(training_records=records)
+
+        no_update_arm = run_no_update_arm(manifest)
+        gradient_arm = run_gradient_only_arm(manifest)
+
+        assert len(no_update_arm.training_records) == 32
+        assert len(gradient_arm.training_records) == 32
+
+        for i in range(5):
+            assert no_update_arm.training_records[i] == records[i]
+            assert gradient_arm.training_records[i] == records[i]
+
+    def test_arms_independently_runnable(self) -> None:
+        """Test that each arm can run independently in sequence."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+        )
+
+        records = tuple(
+            (f"Independent{i}", f"Test{i}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        arms_results = []
+        for run_fn, expected_kind in [
+            (run_no_update_arm, "no_update"),
+            (run_gradient_only_arm, "gradient_only"),
+            (run_eggroll_only_arm, "eggroll_only"),
+        ]:
+            arm = run_fn(manifest)
+            assert arm.arm_kind == expected_kind
+            arms_results.append(arm)
+
+        assert len(arms_results) == 3
+        assert all(arm.final_status in ("active", "stopped") for arm in arms_results)
