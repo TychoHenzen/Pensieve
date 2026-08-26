@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 
 import pytest
@@ -69,11 +70,19 @@ def test_typed_builder_captures_real_model_optimizer_and_rng_state(
         model_state=parameters,
         eggroll_optimizer=eggroll,
         gradient_optimizer=gradient,
-        schedule=CheckpointSchedule("gradient", 0, 2, 1, 1),
+        schedule=CheckpointSchedule(
+            "gradient",
+            0,
+            2,
+            1,
+            1,
+            gradient_optimizer_calls=1,
+            eggroll_optimizer_calls=1,
+        ),
         phase_steps=2,
         next_dataset_position=2,
         metrics={"loss": 1.25},
-        run_config=RUN_CONFIG,
+        run_config=_stabilized_run_config(),
     )
     path = tmp_path / "phase-2.ckpt"
     save_checkpoint(path, checkpoint)
@@ -137,15 +146,15 @@ def test_alternating_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) -
         gradient_optimizer=gradient,
         schedule=CheckpointSchedule(
             "gradient",
-            0,
-            24,
             1,
-            23,
-            gradient_optimizer_calls=8,
-            eggroll_optimizer_calls=2,
+            3,
+            1,
+            2,
+            gradient_optimizer_calls=1,
+            eggroll_optimizer_calls=1,
         ),
         phase_steps=2,
-        next_dataset_position=24,
+        next_dataset_position=0,
         metrics={"loss": 1.25},
         run_config=_stabilized_run_config(),
     )
@@ -156,9 +165,9 @@ def test_alternating_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) -
         EGGROLL_MODEL_PARAMETER_PATHS
     )
     assert eggroll_manifest["parameter_groups"][0]["scalars"]["momentum"] == 0.0
-    assert checkpoint.metadata["schedule"]["consumed_examples"] == 24
-    assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 2
-    assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 2
+    assert checkpoint.metadata["schedule"]["consumed_examples"] == 3
+    assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 1
+    assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 1
     assert checkpoint.metadata["run_config"]["eggroll_population"][
         "fitness_batch_size"
     ] == 8
@@ -188,6 +197,11 @@ def test_standalone_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) ->
             "gradient_optimizer",
         }
     }
+    standalone_config["eggroll_population"] = {
+        key: value
+        for key, value in standalone_config["eggroll_population"].items()
+        if key not in {"variance_lower_threshold", "variance_upper_threshold"}
+    }
 
     checkpoint = build_standalone_checkpoint(
         mode="eggroll",
@@ -198,8 +212,8 @@ def test_standalone_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) ->
         metrics={"avg_loss": 1.25},
         schedule={
             "epoch": 1,
-            "consumed_examples": 24,
-            "eggroll_optimizer_calls": 3,
+            "consumed_examples": 3,
+            "eggroll_optimizer_calls": 1,
             "next_dataset_position": 0,
         },
         run_config=standalone_config,
@@ -209,9 +223,9 @@ def test_standalone_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) ->
     assert manifest["optimizer_type"] == "SGD"
     assert list(manifest["parameter_names"]) == list(EGGROLL_MODEL_PARAMETER_PATHS)
     assert manifest["parameter_groups"][0]["scalars"]["momentum"] == 0.0
-    assert checkpoint.metadata["schedule"]["consumed_examples"] == 24
-    assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 3
-    assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 3
+    assert checkpoint.metadata["schedule"]["consumed_examples"] == 3
+    assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 1
+    assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 1
     assert checkpoint.metadata["run_config"]["eggroll_population"][
         "fitness_batch_size"
     ] == 8
@@ -227,9 +241,19 @@ def test_phase_boundary_resume_starts_next_example_in_saved_phase(tmp_path) -> N
         "completed_phase_steps": schedule.completed_phase_steps,
         "phase_steps": 2,
         "global_step": schedule.global_step,
+        "consumed_examples": schedule.global_step,
+        "gradient_optimizer_calls": 0,
+        "eggroll_optimizer_calls": 2,
         "epoch": schedule.epoch,
         "next_dataset_position": schedule.dataset_position + 1,
     }
+    metadata["metrics"].update(
+        {
+            "consumed_examples": schedule.global_step,
+            "gradient_optimizer_calls": 0,
+            "eggroll_optimizer_calls": 2,
+        }
+    )
     checkpoint = capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
     path = tmp_path / "phase-boundary.ckpt"
     save_checkpoint(path, checkpoint)
@@ -265,6 +289,8 @@ def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tm
         global_step=3,
         epoch=1,
         dataset_position=-1,
+        phase_variance_sum=0.045,
+        eggroll_optimizer_calls=1,
     )
     assert resumed_scheduler.calls == [("first", "eggroll", 0, 4)]
     assert resumed_scheduler.resume_positions == [(2, 0, 3)]
@@ -323,15 +349,37 @@ def test_resume_error_names_every_conflicting_setting() -> None:
 
 # covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration
 def test_resume_error_uses_canonical_paths_for_every_incompatible_or_missing_setting() -> None:
-    resume_config = dict(SCHEDULE_CONFIG)
+    resume_config = copy.deepcopy(SCHEDULE_CONFIG)
     del resume_config["model_shape"]
     resume_config["phase_steps"] = 250
+    resume_config["dataset_selection"]["revision"] = "changed"
+    resume_config["gradient_optimizer"]["type"] = "SGD"
+    resume_config["eggroll_optimizer"]["type"] = "Adam"
+    resume_config["eggroll_optimizer"]["parameter_paths"] = [
+        "encoder.projection.weight"
+    ]
+    resume_config["eggroll_population"]["fitness_batch_size"] = 4
+    resume_config["stability_report_identity"] = "d" * 64
+    resume_config["held_out_selection"]["count"] = 1
 
     with pytest.raises(ValueError) as error:
         _validate_then_update(resume_config, completed_epochs=2, updates=[])
 
-    assert "$.run_config.model_shape" in str(error.value)
-    assert "$.run_config.phase_steps" in str(error.value)
+    message = str(error.value)
+    assert all(
+        path in message
+        for path in (
+            "$.run_config.model_shape",
+            "$.run_config.phase_steps",
+            "$.run_config.dataset_selection.revision",
+            "$.run_config.gradient_optimizer.type",
+            "$.run_config.eggroll_optimizer.type",
+            "$.run_config.eggroll_optimizer.parameter_paths[1]",
+            "$.run_config.eggroll_population.fitness_batch_size",
+            "$.run_config.stability_report_identity",
+            "$.run_config.held_out_selection.count",
+        )
+    )
 
 
 def test_resume_accepts_matching_schedule_and_display_only_changes() -> None:
@@ -344,8 +392,8 @@ def test_resume_accepts_matching_schedule_and_display_only_changes() -> None:
 
 
 def test_latest_checkpoint_uses_stored_global_step_not_filename_order(tmp_path) -> None:
-    lower_step = _checkpoint(global_step=9, epoch=100)
-    higher_step = _checkpoint(global_step=10, epoch=2)
+    lower_step = _checkpoint(global_step=2, epoch=1)
+    higher_step = _checkpoint(global_step=3, epoch=1)
     save_checkpoint(tmp_path / "epoch-100.ckpt", lower_step)
     save_checkpoint(tmp_path / "phase-10.ckpt", higher_step)
 
@@ -363,7 +411,7 @@ def test_latest_checkpoint_returns_none_for_empty_directory(tmp_path) -> None:
 def test_coincident_boundaries_serialize_once_and_expose_both_names(
     tmp_path, monkeypatch
 ) -> None:
-    checkpoint = _checkpoint(global_step=12, epoch=3)
+    checkpoint = _checkpoint(global_step=9, epoch=3)
     save_calls = 0
     real_save = alternating_checkpoint.save_checkpoint
 
@@ -381,7 +429,7 @@ def test_coincident_boundaries_serialize_once_and_expose_both_names(
         epoch_boundary=True,
     )
 
-    assert paths == (tmp_path / "phase-12.ckpt", tmp_path / "epoch-3.ckpt")
+    assert paths == (tmp_path / "phase-9.ckpt", tmp_path / "epoch-3.ckpt")
     assert save_calls == 1
     assert all(path.exists() for path in paths)
     assert paths[0].samefile(paths[1])
@@ -392,7 +440,22 @@ def test_coincident_boundaries_serialize_once_and_expose_both_names(
 def _checkpoint(*, global_step: int, epoch: int) -> AlternatingCheckpoint:
     metadata = _metadata()
     metadata["schedule"]["global_step"] = global_step
+    metadata["schedule"]["consumed_examples"] = global_step
     metadata["schedule"]["epoch"] = epoch
+    next_position = global_step % 3
+    metadata["schedule"]["next_dataset_position"] = next_position
+    metadata["schedule"]["completed_phase_steps"] = (
+        global_step % metadata["schedule"]["phase_steps"]
+    )
+    metadata["schedule"]["gradient_optimizer_calls"] = 0
+    metadata["schedule"]["eggroll_optimizer_calls"] = max(1, global_step)
+    metadata["metrics"].update(
+        {
+            "consumed_examples": global_step,
+            "gradient_optimizer_calls": 0,
+            "eggroll_optimizer_calls": max(1, global_step),
+        }
+    )
     return capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
 
 

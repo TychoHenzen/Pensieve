@@ -81,14 +81,17 @@
 - [x] 5.1 Extend standalone and alternating run configuration, optimizer manifests, metrics, and schedules with SGD type, matrix scope, fitness-batch size, consumed-example progress, optimizer-call counts, and stability-report identity.
 <!-- status: completed -->
   <!-- covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Save stabilized Eggroll identity -->
-- [ ] 5.2 Reject legacy Adam EGGROLL state, non-matrix EGGROLL optimizer entries, impossible cursor accounting, and every guarded run-configuration mismatch before applying state.
+- [x] 5.2 Reject legacy Adam EGGROLL state, non-matrix EGGROLL optimizer entries, impossible cursor accounting, and every guarded run-configuration mismatch before applying state.
+<!-- status: completed -->
   <!-- covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Reject legacy Adam Eggroll checkpoint -->
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Reject incompatible resume configuration -->
-- [ ] 5.3 Add uninterrupted-versus-resumed tests at observation and epoch boundaries, including a preceding partial EGGROLL batch and exact next-candidate RNG equivalence.
+- [x] 5.3 Add uninterrupted-versus-resumed tests at observation and epoch boundaries, including a preceding partial EGGROLL batch and exact next-candidate RNG equivalence.
+<!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume within an epoch -->
   <!-- covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary -->
   <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Resume stays deterministic -->
-- [ ] 5.4 Save, inspect, and resume a small real `.ckpt` fixture through the public command. Confirm metadata uses SGD and only the declared matrix paths.
+- [x] 5.4 Save, inspect, and resume a small real `.ckpt` fixture through the public command. Confirm metadata uses SGD and only the declared matrix paths.
+<!-- status: completed -->
 
 ## 6. Build the Absolute Stability Gate
 

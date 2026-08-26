@@ -42,14 +42,29 @@ RUN_CONFIG = {
     "epochs": 5,
     "phase_steps": 500,
     "model_shape": {"slot_count": 16, "num_steps": 2},
-    "gradient_optimizer": {"learning_rate": 0.0001},
-    "eggroll_optimizer": {"learning_rate": 0.001},
+    "gradient_optimizer": {
+        "type": "Adam",
+        "momentum": 0.0,
+        "learning_rate": 0.0001,
+        "parameter_paths": [],
+    },
+    "eggroll_optimizer": {
+        "type": "SGD",
+        "momentum": 0.0,
+        "learning_rate": 0.001,
+        "parameter_paths": [
+            "encoder.projection.weight",
+            "encoder.slot_queries",
+            "latent_loop.projection.weight",
+        ],
+    },
     "eggroll_population": {
         "size": 128,
         "sigma": 0.02,
         "rank": 4,
         "variance_weight": 1.0,
         "eval_batch_size": 8,
+        "fitness_batch_size": 8,
         "use_amp": False,
     },
     "held_out_selection": {
@@ -59,6 +74,7 @@ RUN_CONFIG = {
         "seed": 0,
         "count": 128,
     },
+    "stability_report_identity": "c" * 64,
     "logging_frequency": 50,
 }
 
@@ -73,6 +89,12 @@ ALLOWED_PARAMETER_PATHS = (
     "latent_loop.proj_norm.bias",
     "latent_loop.layer_norm.weight",
     "latent_loop.layer_norm.bias",
+)
+RUN_CONFIG["gradient_optimizer"]["parameter_paths"] = list(ALLOWED_PARAMETER_PATHS)
+EGGROLL_PARAMETER_PATHS = (
+    "encoder.projection.weight",
+    "encoder.slot_queries",
+    "latent_loop.projection.weight",
 )
 
 MODEL_SHAPES = {
@@ -116,31 +138,43 @@ def _tensor(name: str, shape: list[int], dtype: str, role: str) -> dict[str, Any
 
 
 def _optimizer_manifest(method: str) -> dict[str, Any]:
+    parameter_paths = (
+        EGGROLL_PARAMETER_PATHS if method == "eggroll" else ALLOWED_PARAMETER_PATHS
+    )
     tensor_references = {
-        path: {
-            state_name: f"optimizer.{method}.{path}.{state_name}"
-            for state_name in ("exp_avg", "exp_avg_sq")
-        }
-        for path in ALLOWED_PARAMETER_PATHS
+        path: (
+            {}
+            if method == "eggroll"
+            else {
+                state_name: f"optimizer.{method}.{path}.{state_name}"
+                for state_name in ("exp_avg", "exp_avg_sq")
+            }
+        )
+        for path in parameter_paths
     }
     return {
         "method": method,
-        "optimizer_type": "Adam",
-        "parameter_names": list(ALLOWED_PARAMETER_PATHS),
+        "optimizer_type": "SGD" if method == "eggroll" else "Adam",
+        "parameter_names": list(parameter_paths),
         "parameter_groups": [
             {
-                "parameter_names": list(ALLOWED_PARAMETER_PATHS),
+                "parameter_names": list(parameter_paths),
                 "scalars": {
                     "lr": 1e-4 if method == "gradient" else 1e-3,
-                    "beta1": 0.9,
-                    "beta2": 0.999,
-                    "eps": 1e-8,
+                    **(
+                        {"momentum": 0.0}
+                        if method == "eggroll"
+                        else {"beta1": 0.9, "beta2": 0.999, "eps": 1e-8}
+                    ),
                     "weight_decay": 0.0,
-                    "amsgrad": False,
+                    **({} if method == "eggroll" else {"amsgrad": False}),
                 },
             }
         ],
-        "scalar_state": {path: {"step": 7} for path in ALLOWED_PARAMETER_PATHS},
+        "scalar_state": {
+            path: ({} if method == "eggroll" else {"step": 7})
+            for path in parameter_paths
+        },
         "tensor_references": tensor_references,
     }
 
@@ -171,7 +205,14 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
         for path in ALLOWED_PARAMETER_PATHS
     ]
     for method in methods:
-        for path in ALLOWED_PARAMETER_PATHS:
+        parameter_paths = (
+            EGGROLL_PARAMETER_PATHS
+            if method == "eggroll"
+            else ALLOWED_PARAMETER_PATHS
+        )
+        for path in parameter_paths:
+            if method == "eggroll":
+                continue
             for state_name in ("exp_avg", "exp_avg_sq"):
                 manifest.append(
                     _tensor(
@@ -193,12 +234,28 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
     if mode == "alternating":
         schedule = {
             "active_phase": "eggroll",
-            "completed_phase_steps": 7,
+            "completed_phase_steps": 1,
             "phase_steps": 500,
-            "global_step": 1007,
+            "global_step": 1,
+            "consumed_examples": 1,
+            "gradient_optimizer_calls": 0,
+            "eggroll_optimizer_calls": 1,
             "epoch": 1,
-            "next_dataset_position": 1007,
+            "next_dataset_position": 1,
         }
+    elif mode == "eggroll":
+        schedule = {
+            "epoch": 1,
+            "consumed_examples": 2,
+            "eggroll_optimizer_calls": 1,
+            "next_dataset_position": 0,
+        }
+    run_config = copy.deepcopy(RUN_CONFIG)
+    if mode == "eggroll":
+        run_config.pop("phase_steps")
+        run_config.pop("gradient_optimizer")
+        run_config["eggroll_population"].pop("variance_lower_threshold")
+        run_config["eggroll_population"].pop("variance_upper_threshold")
     return {
         "schema_version": 2,
         "identity": training_identity(
@@ -218,6 +275,23 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
             "phase_complete": False,
             "boundary": "phase",
             "recent_losses": [1.5, 1.25],
+            **(
+                {
+                    "consumed_examples": schedule["consumed_examples"],
+                    "eggroll_optimizer_calls": schedule["eggroll_optimizer_calls"],
+                    **(
+                        {
+                            "gradient_optimizer_calls": schedule[
+                                "gradient_optimizer_calls"
+                            ]
+                        }
+                        if mode == "alternating"
+                        else {}
+                    ),
+                }
+                if mode in {"eggroll", "alternating"}
+                else {}
+            ),
         },
         "rng": {
             "python": {
@@ -238,7 +312,7 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
                 {"device": "cuda:1", "state_tensor": "rng.pytorch.cuda.1"},
             ],
         },
-        **({"run_config": copy.deepcopy(RUN_CONFIG)} if mode == "alternating" else {}),
+        **({"run_config": run_config} if mode in {"eggroll", "alternating"} else {}),
     }
 
 
@@ -258,7 +332,7 @@ def test_valid_v2_metadata_for_every_training_mode_is_typed_and_immutable(
     validated = module.validate_checkpoint_metadata(metadata)
 
     assert set(metadata) == (
-        ALTERNATING_ROOT_FIELDS if mode == "alternating" else ROOT_FIELDS
+        ALTERNATING_ROOT_FIELDS if mode in {"eggroll", "alternating"} else ROOT_FIELDS
     )
     assert validated.schema_version == 2
     assert validated.mode == mode
@@ -333,6 +407,28 @@ def test_alternating_run_config_rejects_missing_extra_nonfinite_and_wrong_types(
     mutation(metadata["run_config"])
 
     _reject(metadata, path)
+
+
+@pytest.mark.parametrize("legacy_kind", ["adam", "non_matrix_state"])
+# covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Reject legacy Adam Eggroll checkpoint
+def test_legacy_eggroll_optimizer_state_is_rejected_before_tensor_loading(
+    legacy_kind: str,
+) -> None:
+    metadata = _metadata()
+    eggroll_manifest = metadata["optimizer_manifests"][1]
+    if legacy_kind == "adam":
+        eggroll_manifest["optimizer_type"] = "Adam"
+    else:
+        metadata["tensor_manifest"].append(
+            _tensor(
+                "optimizer.eggroll.encoder.projection.bias.momentum_buffer",
+                MODEL_SHAPES["encoder.projection.bias"],
+                "float32",
+                "optimizer_state",
+            )
+        )
+
+    _reject(metadata, "$.optimizer_manifests[1]")
 
 
 def test_root_rejects_extra_fields() -> None:

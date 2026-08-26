@@ -763,17 +763,27 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
     monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [cuda_rng.clone()])
     fixture = _metadata()
     fixture["identity"]["runtime"]["device_topology"] = ["cuda:0"]
+    run_config = copy.deepcopy(RUN_CONFIG)
+    run_config["eggroll_optimizer"]["learning_rate"] = 0.1
     checkpoint = build_alternating_checkpoint(
         identity=fixture["identity"],
         selections=fixture["selections"],
         model_state=parameters,
         eggroll_optimizer=eggroll,
         gradient_optimizer=gradient,
-        schedule=CheckpointSchedule("gradient", 0, 2, 1, 1),
+        schedule=CheckpointSchedule(
+            "gradient",
+            0,
+            2,
+            1,
+            1,
+            gradient_optimizer_calls=1,
+            eggroll_optimizer_calls=1,
+        ),
         phase_steps=2,
         next_dataset_position=2,
         metrics={"loss": 1.25},
-        run_config=RUN_CONFIG,
+        run_config=run_config,
     )
     for parameter in parameters.values():
         parameter.data.add_(100.0)
@@ -951,7 +961,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "observation_window_examples": 2,
             "records_consumed": 1,
             "batch_size": 1,
-            "optimizer_call_count": 2,
+            "optimizer_call_count": 4,
         },
     ]
     evaluation_records = [

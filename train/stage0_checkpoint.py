@@ -172,6 +172,10 @@ _EGGROLL_POPULATION_FIELDS = frozenset(
         "use_amp",
     }
 )
+_STANDALONE_EGGROLL_POPULATION_FIELDS = _EGGROLL_POPULATION_FIELDS - {
+    "variance_lower_threshold",
+    "variance_upper_threshold",
+}
 _LEGACY_EGGROLL_POPULATION_FIELDS = _EGGROLL_POPULATION_FIELDS - {
     "prompt_alignment_weight",
     "variance_lower_threshold",
@@ -510,14 +514,28 @@ def _validate_optimizer_manifests(
             validator.add(f"{path}.method", f"duplicates method {method!r}")
         else:
             seen.add(method)
-        validator.string(obj.get("optimizer_type"), f"{path}.optimizer_type")
+        optimizer_type = obj.get("optimizer_type")
+        validator.string(optimizer_type, f"{path}.optimizer_type")
+        expected_optimizer_type = {
+            "gradient": "Adam",
+            "eggroll": "SGD",
+        }.get(method)
+        if expected_optimizer_type is not None and optimizer_type != expected_optimizer_type:
+            validator.add(
+                f"{path}.optimizer_type",
+                f"must equal {expected_optimizer_type!r}",
+            )
 
         parameter_names = obj.get("parameter_names")
         if not isinstance(parameter_names, list):
             validator.add(f"{path}.parameter_names", "must be a list")
             parameter_names = []
         else:
-            expected = list(ALLOWED_MODEL_PARAMETER_PATHS)
+            expected = list(
+                EGGROLL_MODEL_PARAMETER_PATHS
+                if method == "eggroll"
+                else ALLOWED_MODEL_PARAMETER_PATHS
+            )
             for position, parameter in enumerate(parameter_names):
                 item_path = f"{path}.parameter_names[{position}]"
                 if not validator.string(parameter, item_path):
@@ -526,15 +544,11 @@ def _validate_optimizer_manifests(
                     validator.add(item_path, "is not an allowed parameter")
                 if parameter in parameter_names[:position]:
                     validator.add(item_path, "duplicates an earlier parameter")
-            canonical_subset = [
-                parameter for parameter in expected if parameter in parameter_names
-            ]
-            if (
-                method == "gradient" and parameter_names != expected
-            ) or (
-                method == "eggroll" and parameter_names != canonical_subset
-            ):
-                validator.add(f"{path}.parameter_names", "must use the canonical order")
+            if parameter_names != expected:
+                validator.add(
+                    f"{path}.parameter_names",
+                    "must use the complete method-specific canonical order",
+                )
             orders.append(parameter_names)
 
         groups = obj.get("parameter_groups")
@@ -628,8 +642,6 @@ def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
             validator.add("$.schedule", "must be empty for a standalone mode")
         return
     if mode == "eggroll":
-        if not obj:
-            return
         validator.exact_fields(obj, _EGGROLL_SCHEDULE_FIELDS, "$.schedule")
         for field, minimum in {
             "epoch": 1,
@@ -722,17 +734,14 @@ def _validate_run_config(
 ) -> None:
     if mode not in {"eggroll", "alternating"}:
         return
-    if mode == "eggroll" and value is None:
-        return
     obj = validator.object(value, "$.run_config")
     if obj is None:
         return
-    if mode == "eggroll":
-        run_config_fields = _STANDALONE_EGGROLL_RUN_CONFIG_FIELDS
-    elif "stability_report_identity" in obj:
-        run_config_fields = _STABILIZED_RUN_CONFIG_FIELDS
-    else:
-        run_config_fields = _RUN_CONFIG_FIELDS
+    run_config_fields = (
+        _STANDALONE_EGGROLL_RUN_CONFIG_FIELDS
+        if mode == "eggroll"
+        else _STABILIZED_RUN_CONFIG_FIELDS
+    )
     validator.exact_fields(obj, run_config_fields, "$.run_config")
     _validate_run_selection(
         validator,
@@ -779,12 +788,7 @@ def _validate_run_config(
         optimizer = validator.object(obj.get(optimizer_name), path)
         if optimizer is None:
             continue
-        optimizer_fields = (
-            _STABILIZED_OPTIMIZER_CONFIG_FIELDS
-            if "type" in optimizer
-            else _OPTIMIZER_CONFIG_FIELDS
-        )
-        validator.exact_fields(optimizer, optimizer_fields, path)
+        validator.exact_fields(optimizer, _STABILIZED_OPTIMIZER_CONFIG_FIELDS, path)
         if "learning_rate" in optimizer:
             validator.number(
                 optimizer["learning_rate"],
@@ -794,8 +798,13 @@ def _validate_run_config(
             )
         if "type" in optimizer:
             validator.string(optimizer["type"], f"{path}.type")
+            expected_type = "Adam" if optimizer_name == "gradient_optimizer" else "SGD"
+            if optimizer["type"] != expected_type:
+                validator.add(f"{path}.type", f"must equal {expected_type!r}")
         if "momentum" in optimizer:
             validator.number(optimizer["momentum"], f"{path}.momentum", minimum=0.0)
+            if optimizer["momentum"] != 0.0:
+                validator.add(f"{path}.momentum", "must equal 0.0")
         parameter_paths = optimizer.get("parameter_paths")
         if "parameter_paths" in optimizer:
             if not isinstance(parameter_paths, list):
@@ -808,25 +817,27 @@ def _validate_run_config(
                         or parameter not in ALLOWED_MODEL_PARAMETER_PATHS
                     ):
                         validator.add(item_path, "is not an allowed parameter")
+                expected_paths = list(
+                    ALLOWED_MODEL_PARAMETER_PATHS
+                    if optimizer_name == "gradient_optimizer"
+                    else EGGROLL_MODEL_PARAMETER_PATHS
+                )
+                if parameter_paths != expected_paths:
+                    validator.add(
+                        f"{path}.parameter_paths",
+                        "must use the complete method-specific canonical order",
+                    )
 
     population = validator.object(
         obj.get("eggroll_population"), "$.run_config.eggroll_population"
     )
     if population is not None:
         path = "$.run_config.eggroll_population"
-        population_fields = _LEGACY_EGGROLL_POPULATION_FIELDS
-        if (
-            "variance_lower_threshold" in population
-            or "variance_upper_threshold" in population
-        ):
-            population_fields = population_fields | {
-                "variance_lower_threshold",
-                "variance_upper_threshold",
-            }
-        if "prompt_alignment_weight" in population:
-            population_fields = population_fields | {"prompt_alignment_weight"}
-        if "fitness_batch_size" in population:
-            population_fields = population_fields | {"fitness_batch_size"}
+        population_fields = (
+            _STANDALONE_EGGROLL_POPULATION_FIELDS
+            if mode == "eggroll"
+            else _EGGROLL_POPULATION_FIELDS
+        )
         validator.exact_fields(population, population_fields, path)
         for field in ("size", "rank", "eval_batch_size", "fitness_batch_size"):
             if field in population:
@@ -1056,6 +1067,147 @@ def _validate_rng_reference(
         validator.add(path, f"must reference a declared {dtype} {role} tensor")
 
 
+def _validate_optimizer_run_config(
+    validator: _Validator,
+    optimizer_manifests: Any,
+    run_config: Any,
+) -> None:
+    if not isinstance(optimizer_manifests, list) or not isinstance(run_config, Mapping):
+        return
+    config_names = {
+        "gradient": "gradient_optimizer",
+        "eggroll": "eggroll_optimizer",
+    }
+    for index, manifest in enumerate(optimizer_manifests):
+        if not isinstance(manifest, Mapping):
+            continue
+        method = manifest.get("method")
+        config_name = config_names.get(method)
+        config = run_config.get(config_name) if config_name is not None else None
+        if not isinstance(config, Mapping):
+            continue
+        manifest_path = f"$.optimizer_manifests[{index}]"
+        comparisons = (
+            ("optimizer_type", "type"),
+            ("parameter_names", "parameter_paths"),
+        )
+        for manifest_field, config_field in comparisons:
+            if manifest.get(manifest_field) != config.get(config_field):
+                validator.add(
+                    f"{manifest_path}.{manifest_field}",
+                    f"must equal $.run_config.{config_name}.{config_field}",
+                )
+        groups = manifest.get("parameter_groups")
+        scalars = (
+            groups[0].get("scalars")
+            if isinstance(groups, list)
+            and len(groups) == 1
+            and isinstance(groups[0], Mapping)
+            else None
+        )
+        if not isinstance(scalars, Mapping):
+            continue
+        scalar_fields = [("lr", "learning_rate")]
+        if method == "eggroll":
+            scalar_fields.append(("momentum", "momentum"))
+        for scalar_name, config_field in scalar_fields:
+            if config_field in config and scalars.get(scalar_name) != config[config_field]:
+                validator.add(
+                    f"{manifest_path}.parameter_groups[0].scalars.{scalar_name}",
+                    f"must equal $.run_config.{config_name}.{config_field}",
+                )
+
+
+def _validate_schedule_accounting(
+    validator: _Validator,
+    *,
+    mode: Any,
+    schedule: Any,
+    selections: Any,
+    metrics: Any,
+) -> None:
+    if mode not in {"eggroll", "alternating"}:
+        return
+    if not isinstance(schedule, Mapping) or not isinstance(selections, Mapping):
+        return
+    train_selection = selections.get("train")
+    if not isinstance(train_selection, Mapping):
+        return
+    problem_count = train_selection.get("problem_count")
+    epoch = schedule.get("epoch")
+    next_position = schedule.get("next_dataset_position")
+    consumed = schedule.get("consumed_examples")
+    if not all(
+        isinstance(value, int) and not isinstance(value, bool)
+        for value in (problem_count, epoch, next_position, consumed)
+    ):
+        return
+    if problem_count <= 0 or epoch < 1 or next_position < 0 or consumed < 0:
+        return
+    if next_position >= problem_count and next_position != 0:
+        validator.add(
+            "$.schedule.next_dataset_position",
+            "must be less than the selected training problem count",
+        )
+        return
+    expected_consumed = (
+        epoch * problem_count
+        if next_position == 0
+        else (epoch - 1) * problem_count + next_position
+    )
+    if consumed != expected_consumed:
+        validator.add(
+            "$.schedule.consumed_examples",
+            "cannot be accounted for by epoch, next_dataset_position, and the selected training problem count",
+        )
+
+    if mode == "alternating":
+        phase_steps = schedule.get("phase_steps")
+        completed_phase_steps = schedule.get("completed_phase_steps")
+        if (
+            isinstance(phase_steps, int)
+            and not isinstance(phase_steps, bool)
+            and phase_steps > 0
+            and isinstance(completed_phase_steps, int)
+            and not isinstance(completed_phase_steps, bool)
+            and completed_phase_steps != consumed % phase_steps
+        ):
+            validator.add(
+                "$.schedule.completed_phase_steps",
+                "must equal consumed_examples modulo phase_steps",
+            )
+
+    counter_fields = (
+        ("eggroll_optimizer_calls",)
+        if mode == "eggroll"
+        else ("gradient_optimizer_calls", "eggroll_optimizer_calls")
+    )
+    optimizer_calls = 0
+    for field in counter_fields:
+        value = schedule.get(field)
+        if isinstance(value, int) and not isinstance(value, bool):
+            optimizer_calls += value
+            if value > consumed:
+                validator.add(f"$.schedule.{field}", "must not exceed consumed_examples")
+        if isinstance(metrics, Mapping) and metrics.get(field) != value:
+            validator.add(f"$.metrics.{field}", f"must equal $.schedule.{field}")
+    if consumed > 0 and optimizer_calls == 0:
+        validator.add(
+            "$.schedule.eggroll_optimizer_calls",
+            "optimizer-call counters cannot account for consumed examples",
+        )
+    if optimizer_calls > consumed:
+        validator.add(
+            "$.schedule",
+            "optimizer-call counters must not exceed consumed_examples",
+        )
+    if isinstance(metrics, Mapping) and metrics.get("consumed_examples") != consumed:
+        validator.add(
+            "$.metrics.consumed_examples",
+            "must equal $.schedule.consumed_examples",
+        )
+
+
 def validate_checkpoint_metadata(
     metadata: Mapping[str, Any],
 ) -> ValidatedCheckpointMetadata:
@@ -1067,7 +1219,7 @@ def validate_checkpoint_metadata(
     mode = root.get("mode")
     root_fields = (
         _RUN_CONFIG_ROOT_FIELDS
-        if mode == "alternating" or (mode == "eggroll" and "run_config" in root)
+        if mode in {"eggroll", "alternating"}
         else _ROOT_FIELDS
     )
     validator.exact_fields(root, root_fields, "$")
@@ -1094,6 +1246,18 @@ def validate_checkpoint_metadata(
     _validate_rng(validator, root.get("rng"), tensors)
     _validate_identity(
         validator, root.get("identity"), root.get("selections"), root.get("rng")
+    )
+    _validate_optimizer_run_config(
+        validator,
+        root.get("optimizer_manifests"),
+        root.get("run_config"),
+    )
+    _validate_schedule_accounting(
+        validator,
+        mode=mode,
+        schedule=root.get("schedule"),
+        selections=root.get("selections"),
+        metrics=root.get("metrics"),
     )
 
     try:

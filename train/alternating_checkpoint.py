@@ -22,15 +22,7 @@ from train.stage0_checkpoint import (
 
 
 CHECKPOINT_VERSION = 2
-SCHEDULE_DEFINING_SETTINGS = (
-    "dataset_selection",
-    "phase_steps",
-    "model_shape",
-    "gradient_optimizer",
-    "eggroll_optimizer",
-    "eggroll_population",
-    "held_out_selection",
-)
+RESUME_MUTABLE_SETTINGS = frozenset({"epochs", "logging_frequency"})
 
 
 @dataclass(frozen=True)
@@ -394,11 +386,40 @@ def resume_config_conflicts(
     completed_epochs: int,
 ) -> tuple[str, ...]:
     """Return canonical paths for settings that cannot change during resume."""
-    conflicts = [
-        f"$.run_config.{setting}"
-        for setting in SCHEDULE_DEFINING_SETTINGS
-        if checkpoint_config.get(setting) != resume_config.get(setting)
-    ]
+    def different_paths(saved: object, current: object, path: str) -> list[str]:
+        if isinstance(saved, Mapping) and isinstance(current, Mapping):
+            paths: list[str] = []
+            for key in sorted(set(saved) | set(current)):
+                if key not in saved or key not in current:
+                    paths.append(f"{path}.{key}")
+                else:
+                    paths.extend(
+                        different_paths(saved[key], current[key], f"{path}.{key}")
+                    )
+            return paths
+        if isinstance(saved, (list, tuple)) and isinstance(current, (list, tuple)):
+            paths = []
+            for index in range(max(len(saved), len(current))):
+                if index >= len(saved) or index >= len(current):
+                    paths.append(f"{path}[{index}]")
+                else:
+                    paths.extend(
+                        different_paths(saved[index], current[index], f"{path}[{index}]")
+                    )
+            return paths
+        return [] if saved == current else [path]
+
+    guarded_saved = {
+        key: value
+        for key, value in checkpoint_config.items()
+        if key not in RESUME_MUTABLE_SETTINGS
+    }
+    guarded_current = {
+        key: value
+        for key, value in resume_config.items()
+        if key not in RESUME_MUTABLE_SETTINGS
+    }
+    conflicts = different_paths(guarded_saved, guarded_current, "$.run_config")
 
     epoch_target = resume_config.get("epochs")
     if (

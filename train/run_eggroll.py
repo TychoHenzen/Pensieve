@@ -209,6 +209,7 @@ def _load_checkpoint(
     identity: dict[str, object],
     selections: dict[str, object],
     learning_rate: float,
+    run_config: dict[str, object],
 ):
     _log(f"loading checkpoint: {path}")
     checkpoint = load_checkpoint(path, expected_mode="eggroll")
@@ -217,8 +218,15 @@ def _load_checkpoint(
         identity=identity,
         selections=selections,
         learning_rate=learning_rate,
+        run_config=run_config,
     )
-    epoch = checkpoint_epoch(path)
+    epoch = int(checkpoint.metadata["schedule"]["epoch"])
+    filename_epoch = checkpoint_epoch(path)
+    if filename_epoch != epoch:
+        raise ValueError(
+            "incompatible resume configuration: "
+            "$.schedule.epoch does not match the checkpoint filename"
+        )
     _log(f"resumed from epoch {epoch}")
     return checkpoint, epoch
 
@@ -328,6 +336,7 @@ def main() -> None:
                 identity=checkpoint_identity,
                 selections=selections,
                 learning_rate=args.lr,
+                run_config=run_config,
             )
 
     _log(
@@ -369,7 +378,11 @@ def main() -> None:
 
     epoch_losses: list[float] = []
     training_start = time.monotonic()
-    eggroll_optimizer_calls = 0
+    eggroll_optimizer_calls = (
+        int(resumed.metadata["schedule"]["eggroll_optimizer_calls"])
+        if resumed is not None
+        else 0
+    )
 
     for epoch in range(start_epoch + 1, args.epochs + 1):
         epoch_start = time.monotonic()

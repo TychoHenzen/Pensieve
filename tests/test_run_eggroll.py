@@ -1,12 +1,24 @@
 from __future__ import annotations
 
 import builtins
+import copy
 import importlib
+from pathlib import Path
 import sys
 from types import ModuleType, SimpleNamespace
 
+import pytest
+import torch
+from torch import nn
+
 from eval.stream.generators.asdiv_a import AsdivRecord
+from train.stage0_checkpoint import (
+    ALLOWED_MODEL_PARAMETER_PATHS,
+    EGGROLL_MODEL_PARAMETER_PATHS,
+)
 from train.stage0_data import plan_eggroll_fitness_batch
+from train.standalone_checkpoint import load_checkpoint
+from tests.test_stage0_checkpoint_resume import _metadata
 
 
 def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
@@ -180,3 +192,207 @@ def test_standalone_progress_record_includes_batch_accounting(monkeypatch) -> No
         "shared_variance": 0.5,
         "optimizer_call_count": 3,
     }
+
+
+def test_standalone_resume_rejects_changed_fitness_batch_before_trainer_construction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sys.modules.pop("train.run_eggroll", None)
+    run_eggroll = importlib.import_module("train.run_eggroll")
+    args = SimpleNamespace(
+        epochs=2,
+        slot_count=16,
+        num_steps=2,
+        pop_size=128,
+        sigma=0.001,
+        lr=0.1,
+        rank=4,
+        variance_weight=1.0,
+        prompt_alignment_weight=0.1,
+        eval_batch_size=8,
+        fitness_batch_size=8,
+        use_amp=False,
+        device="cpu",
+        save_dir="unused",
+        problem_count=3,
+        log_every=1,
+        resume="epoch-1.ckpt",
+        stability_report=None,
+    )
+    current_config = run_eggroll._run_config(args, report_identity=None)
+    saved_config = copy.deepcopy(current_config)
+    saved_config["eggroll_population"]["fitness_batch_size"] = 4
+    checkpoint = SimpleNamespace(
+        metadata={
+            "identity": {},
+            "selections": {},
+            "run_config": saved_config,
+            "schedule": {"epoch": 1},
+            "optimizer_manifests": [
+                {"parameter_groups": [{"scalars": {"lr": 0.1}}]}
+            ],
+        }
+    )
+    constructions: list[object] = []
+    monkeypatch.setattr(run_eggroll, "configure_deterministic_runtime", lambda: None)
+    monkeypatch.setattr(run_eggroll, "_parse_args", lambda: args)
+    monkeypatch.setattr(
+        run_eggroll,
+        "_load_dataset_context",
+        lambda _count: (("a", "b", "c"), {}, {}),
+    )
+    monkeypatch.setattr(
+        run_eggroll,
+        "load_checkpoint",
+        lambda _path, *, expected_mode: checkpoint,
+    )
+    monkeypatch.setattr(
+        run_eggroll,
+        "EggrollTrainer",
+        lambda **_kwargs: constructions.append(object()),
+    )
+    monkeypatch.setattr(run_eggroll, "_log", lambda _message: None)
+
+    with pytest.raises(
+        ValueError,
+        match=r"\$\.run_config\.eggroll_population\.fitness_batch_size",
+    ):
+        run_eggroll.main()
+
+    assert constructions == []
+
+
+def test_public_command_writes_inspects_and_resumes_real_sgd_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    sys.modules.pop("train.run_eggroll", None)
+    run_eggroll = importlib.import_module("train.run_eggroll")
+    fixture = _metadata()
+    records = tuple(
+        AsdivRecord(
+            id=f"record-{index}",
+            split="train",
+            question=f"q-{index}",
+            target=str(index),
+        )
+        for index in range(3)
+    )
+    visits: list[tuple[int, tuple[str, ...]]] = []
+    trainers: list[object] = []
+
+    class CheckpointTrainer:
+        def __init__(self, **kwargs: object) -> None:
+            parameters = {
+                name: nn.Parameter(torch.tensor([float(index)]))
+                for index, name in enumerate(ALLOWED_MODEL_PARAMETER_PATHS)
+            }
+            self.state = SimpleNamespace(trainable_params=parameters)
+            self.optimizer = torch.optim.SGD(
+                [parameters[name] for name in EGGROLL_MODEL_PARAMETER_PATHS],
+                lr=float(kwargs["lr"]),
+                momentum=0.0,
+            )
+            self.run_index = len(trainers)
+            trainers.append(self)
+
+        def trainable_param_count(self) -> int:
+            return sum(
+                parameter.numel()
+                for parameter in self.state.trainable_params.values()
+            )
+
+        def train_epoch(self, dataset, on_step) -> SimpleNamespace:
+            visits.append((self.run_index, tuple(record.id for record in dataset)))
+            with torch.no_grad():
+                for name in EGGROLL_MODEL_PARAMETER_PATHS:
+                    self.state.trainable_params[name].add_(1.0)
+            on_step(
+                len(dataset) - 1,
+                len(dataset),
+                SimpleNamespace(
+                    position=SimpleNamespace(
+                        update_method="eggroll",
+                        global_step=len(dataset),
+                        epoch=self.run_index + 1,
+                    ),
+                    total_objective=1.5,
+                    language_model_loss=1.25,
+                    shared_variance=0.25,
+                    consumed_record_count=len(dataset),
+                    next_example_position=len(dataset),
+                    optimizer_call_count=self.run_index + 1,
+                ),
+            )
+            return SimpleNamespace(
+                avg_loss=1.5,
+                avg_variance=0.25,
+                min_variance=0.25,
+                max_variance=0.25,
+                steps=1,
+            )
+
+    args = SimpleNamespace(
+        epochs=1,
+        slot_count=16,
+        num_steps=2,
+        pop_size=128,
+        sigma=0.001,
+        lr=0.1,
+        rank=4,
+        variance_weight=1.0,
+        prompt_alignment_weight=0.1,
+        eval_batch_size=8,
+        fitness_batch_size=8,
+        use_amp=False,
+        device="cpu",
+        save_dir=str(tmp_path),
+        problem_count=3,
+        log_every=3,
+        resume=None,
+        stability_report=None,
+    )
+    monkeypatch.setattr(run_eggroll, "configure_deterministic_runtime", lambda: None)
+    monkeypatch.setattr(run_eggroll, "_parse_args", lambda: args)
+    monkeypatch.setattr(
+        run_eggroll,
+        "_load_dataset_context",
+        lambda _count: (records, fixture["identity"], fixture["selections"]),
+    )
+    monkeypatch.setattr(run_eggroll, "EggrollTrainer", CheckpointTrainer)
+    monkeypatch.setattr(run_eggroll, "_log", lambda _message: None)
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+
+    run_eggroll.main()
+    first_path = tmp_path / "epoch-1.ckpt"
+    first = load_checkpoint(first_path, expected_mode="eggroll")
+
+    assert first.metadata["optimizer_manifests"][0]["optimizer_type"] == "SGD"
+    assert first.metadata["optimizer_manifests"][0]["parameter_groups"][0][
+        "scalars"
+    ]["momentum"] == 0.0
+    assert list(first.metadata["optimizer_manifests"][0]["parameter_names"]) == list(
+        EGGROLL_MODEL_PARAMETER_PATHS
+    )
+    assert first.metadata["run_config"]["eggroll_population"][
+        "fitness_batch_size"
+    ] == 8
+    assert first.metadata["schedule"]["consumed_examples"] == 3
+    assert first.metadata["schedule"]["eggroll_optimizer_calls"] == 1
+
+    args.epochs = 2
+    args.resume = str(first_path)
+    run_eggroll.main()
+    resumed = load_checkpoint(tmp_path / "epoch-2.ckpt", expected_mode="eggroll")
+
+    assert visits == [
+        (0, ("record-0", "record-1", "record-2")),
+        (1, ("record-0", "record-1", "record-2")),
+    ]
+    assert resumed.metadata["schedule"]["consumed_examples"] == 6
+    assert resumed.metadata["schedule"]["eggroll_optimizer_calls"] == 2
+    for name in EGGROLL_MODEL_PARAMETER_PATHS:
+        assert torch.equal(
+            resumed.tensors[f"model.{name}"],
+            first.tensors[f"model.{name}"] + 1.0,
+        )

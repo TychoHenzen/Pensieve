@@ -348,25 +348,11 @@ def _run_schedule(
     if not examples:
         return resume
 
-    scheduler = VarianceHysteresisScheduler(
-        phase_steps=phase_steps,
-        variance_lower_threshold=variance_lower_threshold,
-        variance_upper_threshold=variance_upper_threshold,
-        eggroll_engine=eggroll_engine,
-        gradient_engine=gradient_engine,
-        evaluator=evaluator,
-    )
     if resume is None:
         next_epoch = 1
         next_example_position = 0
         optimizer_call_offsets = {"gradient": 0, "eggroll": 0}
     else:
-        scheduler.restore(
-            active_phase=resume.active_phase,
-            completed_steps=resume.global_step,
-            completed_phase_steps=resume.completed_phase_steps,
-            phase_variance_sum=resume.phase_variance_sum,
-        )
         next_epoch = resume.epoch
         next_example_position = resume.dataset_position + 1
         optimizer_call_offsets = {
@@ -378,6 +364,23 @@ def _run_schedule(
         elif next_example_position == len(examples):
             next_epoch += 1
             next_example_position = 0
+
+    scheduler = VarianceHysteresisScheduler(
+        phase_steps=phase_steps,
+        variance_lower_threshold=variance_lower_threshold,
+        variance_upper_threshold=variance_upper_threshold,
+        eggroll_engine=eggroll_engine,
+        gradient_engine=gradient_engine,
+        evaluator=evaluator,
+    )
+    if resume is not None:
+        scheduler.restore(
+            active_phase=resume.active_phase,
+            completed_steps=resume.global_step,
+            completed_phase_steps=resume.completed_phase_steps,
+            phase_variance_sum=resume.phase_variance_sum,
+        )
+        scheduler._optimizer_call_counts.update(optimizer_call_offsets)
 
     latest_schedule = resume
     optimizer_call_counts = dict(optimizer_call_offsets)
@@ -399,8 +402,7 @@ def _run_schedule(
                 ),
             )
             optimizer_call_counts[result.position.update_method] = (
-                optimizer_call_offsets[result.position.update_method]
-                + result.position.optimizer_call_count
+                result.position.optimizer_call_count
             )
             recent_losses.append(result.language_model_loss)
             recent_vars.append(result.shared_variance)

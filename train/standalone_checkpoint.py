@@ -285,6 +285,8 @@ def validate_compatibility(
     identity: Mapping[str, Any],
     selections: Mapping[str, Any],
     learning_rate: float | None = None,
+    run_config: Mapping[str, Any] | None = None,
+    completed_epochs: int | None = None,
 ) -> None:
     def plain(value: Any) -> Any:
         if isinstance(value, Mapping):
@@ -322,6 +324,40 @@ def validate_compatibility(
             "$.selections",
         )
     )
+    if run_config is not None:
+        checkpoint_config = checkpoint.metadata.get("run_config")
+        if not isinstance(checkpoint_config, Mapping):
+            conflicts.append("$.run_config")
+        else:
+            guarded_checkpoint = {
+                key: value
+                for key, value in checkpoint_config.items()
+                if key not in {"epochs", "logging_frequency"}
+            }
+            guarded_resume = {
+                key: value
+                for key, value in run_config.items()
+                if key not in {"epochs", "logging_frequency"}
+            }
+            conflicts.extend(
+                differences(
+                    plain(guarded_checkpoint),
+                    plain(guarded_resume),
+                    "$.run_config",
+                )
+            )
+            epoch_target = run_config.get("epochs")
+            progress = (
+                int(checkpoint.metadata["schedule"]["epoch"])
+                if completed_epochs is None
+                else completed_epochs
+            )
+            if (
+                not isinstance(epoch_target, int)
+                or isinstance(epoch_target, bool)
+                or epoch_target < progress
+            ):
+                conflicts.append("$.run_config.epochs")
     if learning_rate is not None:
         saved_lr = checkpoint.metadata["optimizer_manifests"][0]["parameter_groups"][0]["scalars"].get("lr")
         if saved_lr != learning_rate:

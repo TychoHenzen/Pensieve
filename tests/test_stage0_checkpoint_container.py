@@ -8,12 +8,18 @@ import pickle
 import struct
 import warnings
 from collections.abc import Callable
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZIP_STORED, ZipFile
 
 import pytest
+
+from train import run_alternating
+from train.alternating_checkpoint import CheckpointSchedule
+from train.alternating_scheduler import EvaluationRecord
+from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 
 
 METADATA_MEMBER = "metadata.json"
@@ -102,7 +108,6 @@ def _assert_rejected_before_tensor_load(
     assert calls == []
 
 
-# covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume within an epoch
 def test_writer_emits_v2_stored_archive_with_exact_bounded_members(tmp_path: Path) -> None:
     module = _checkpoint_module()
     path = tmp_path / "phase-7.ckpt"
@@ -180,7 +185,6 @@ def test_writer_replace_failure_preserves_target_and_removes_temp_file(
     assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
 
 
-# covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary
 def test_reader_decodes_metadata_before_loading_safetensors(tmp_path: Path) -> None:
     module = _checkpoint_module()
     path = tmp_path / "epoch-3.ckpt"
@@ -483,3 +487,215 @@ def test_reader_rejects_non_finite_json_numbers_before_tensor_load(
     )
 
     _assert_rejected_before_tensor_load(path, match=r"(?i)finite|constant|json")
+
+
+class _RecordingEngine:
+    def __init__(
+        self,
+        method: str,
+        *,
+        max_consumed_records: int,
+        variance: float,
+        visits: list[tuple[str, int, int, int, str]],
+    ) -> None:
+        self.method = method
+        self.max_consumed_records = max_consumed_records
+        self.variance = variance
+        self.visits = visits
+
+    def train_step(self, example: object, position: ExperimentPosition) -> StepResult:
+        records = example if isinstance(example, tuple) else (example,)
+        first_position = position.example_position - len(records) + 1
+        for offset, record in enumerate(records):
+            self.visits.append(
+                (
+                    str(record),
+                    position.epoch,
+                    first_position + offset,
+                    position.optimizer_call_count,
+                    self.method,
+                )
+            )
+        return StepResult(
+            position=position,
+            language_model_loss=1.0,
+            total_objective=1.0,
+            regularizer_loss=0.0,
+            shared_variance=self.variance,
+            consumed_record_count=len(records),
+            next_example_position=position.example_position + 1,
+            optimizer_call_count=position.optimizer_call_count,
+        )
+
+
+class _FixedEvaluator:
+    def evaluate(self, position: ExperimentPosition) -> EvaluationResult:
+        return EvaluationResult(position, 1.0, 0.015, 0.0)
+
+
+class _BoundaryStop(RuntimeError):
+    pass
+
+
+# covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume within an epoch
+def test_observation_checkpoint_resumes_after_a_partial_eggroll_batch() -> None:
+    visits: list[tuple[str, int, int, int, str]] = []
+    eggroll = _RecordingEngine(
+        "eggroll",
+        max_consumed_records=2,
+        variance=0.03,
+        visits=visits,
+    )
+    gradient = _RecordingEngine(
+        "gradient",
+        max_consumed_records=1,
+        variance=0.015,
+        visits=visits,
+    )
+    saved: list[CheckpointSchedule] = []
+
+    def stop_at_first_boundary(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del epoch_boundary, evaluation_record
+        saved.append(schedule)
+        if phase_boundary:
+            raise _BoundaryStop
+        return ()
+
+    with pytest.raises(_BoundaryStop):
+        run_alternating._run_schedule(
+            examples=["a", "b", "c", "d", "e", "f"],
+            epochs=1,
+            phase_steps=3,
+            log_every=6,
+            eggroll_engine=eggroll,
+            gradient_engine=gradient,
+            evaluator=_FixedEvaluator(),
+            save_boundary=stop_at_first_boundary,
+            output=StringIO(),
+        )
+
+    checkpoint = saved[-1]
+    assert checkpoint == CheckpointSchedule(
+        "gradient",
+        0,
+        3,
+        1,
+        2,
+        eggroll_optimizer_calls=2,
+    )
+    run_alternating._run_schedule(
+        examples=["a", "b", "c", "d", "e", "f"],
+        epochs=1,
+        phase_steps=3,
+        log_every=6,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_FixedEvaluator(),
+        save_boundary=lambda *_args, **_kwargs: (),
+        output=StringIO(),
+        resume=checkpoint,
+    )
+
+    assert [(record, position) for record, _epoch, position, _call, _method in visits] == [
+        ("a", 0),
+        ("b", 1),
+        ("c", 2),
+        ("d", 3),
+        ("e", 4),
+        ("f", 5),
+    ]
+    assert [call for _record, _epoch, _position, call, method in visits if method == "eggroll"] == [
+        1,
+        1,
+        2,
+    ]
+
+
+# covers: train/alternating-cycle :: Resumable experiment checkpoints :: Resume at an epoch boundary
+def test_epoch_checkpoint_starts_next_epoch_with_exact_partial_window() -> None:
+    visits: list[tuple[str, int, int, int, str]] = []
+    eggroll = _RecordingEngine(
+        "eggroll",
+        max_consumed_records=2,
+        variance=0.015,
+        visits=visits,
+    )
+    gradient = _RecordingEngine(
+        "gradient",
+        max_consumed_records=1,
+        variance=0.015,
+        visits=visits,
+    )
+    saved: list[CheckpointSchedule] = []
+
+    def save(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del phase_boundary, epoch_boundary, evaluation_record
+        saved.append(schedule)
+        return ()
+
+    run_alternating._run_schedule(
+        examples=["a", "b", "c"],
+        epochs=1,
+        phase_steps=5,
+        log_every=3,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_FixedEvaluator(),
+        save_boundary=save,
+        output=StringIO(),
+    )
+    epoch_boundary = saved[-1]
+    assert epoch_boundary.completed_phase_steps == 3
+    assert epoch_boundary.phase_variance_sum == pytest.approx(0.045)
+    loaded_epoch_boundary = CheckpointSchedule(
+        epoch_boundary.active_phase,
+        epoch_boundary.completed_phase_steps,
+        epoch_boundary.global_step,
+        epoch_boundary.epoch,
+        -1,
+        phase_variance_sum=epoch_boundary.phase_variance_sum,
+        gradient_optimizer_calls=epoch_boundary.gradient_optimizer_calls,
+        eggroll_optimizer_calls=epoch_boundary.eggroll_optimizer_calls,
+    )
+
+    run_alternating._run_schedule(
+        examples=["a", "b", "c"],
+        epochs=2,
+        phase_steps=5,
+        log_every=3,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_FixedEvaluator(),
+        save_boundary=save,
+        output=StringIO(),
+        resume=loaded_epoch_boundary,
+    )
+
+    assert [(record, epoch, position) for record, epoch, position, _call, _method in visits] == [
+        ("a", 1, 0),
+        ("b", 1, 1),
+        ("c", 1, 2),
+        ("a", 2, 0),
+        ("b", 2, 1),
+        ("c", 2, 2),
+    ]
+    assert [call for _record, _epoch, _position, call, method in visits if method == "eggroll"] == [
+        1,
+        1,
+        2,
+        3,
+        3,
+        4,
+    ]

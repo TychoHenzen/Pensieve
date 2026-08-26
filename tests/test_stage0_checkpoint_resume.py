@@ -21,6 +21,7 @@ from train import alternating_checkpoint, stage0_checkpoint
 
 
 PARAMETER_PATHS = stage0_checkpoint.ALLOWED_MODEL_PARAMETER_PATHS
+EGGROLL_PARAMETER_PATHS = stage0_checkpoint.EGGROLL_MODEL_PARAMETER_PATHS
 RUNTIME_IDENTITY = {
     "initialization_seed": 0,
     "python_version": "3.13.5",
@@ -49,14 +50,25 @@ RUN_CONFIG = {
     "epochs": 5,
     "phase_steps": 2,
     "model_shape": {"slot_count": 16, "num_steps": 2},
-    "gradient_optimizer": {"learning_rate": 0.0001},
-    "eggroll_optimizer": {"learning_rate": 0.001},
+    "gradient_optimizer": {
+        "type": "Adam",
+        "momentum": 0.0,
+        "learning_rate": 0.0001,
+        "parameter_paths": list(PARAMETER_PATHS),
+    },
+    "eggroll_optimizer": {
+        "type": "SGD",
+        "momentum": 0.0,
+        "learning_rate": 0.001,
+        "parameter_paths": list(EGGROLL_PARAMETER_PATHS),
+    },
     "eggroll_population": {
         "size": 128,
         "sigma": 0.02,
         "rank": 4,
         "variance_weight": 1.0,
         "eval_batch_size": 8,
+        "fitness_batch_size": 8,
         "use_amp": False,
     },
     "held_out_selection": {
@@ -66,36 +78,49 @@ RUN_CONFIG = {
         "seed": 0,
         "count": 2,
     },
+    "stability_report_identity": "c" * 64,
     "logging_frequency": 50,
 }
 
 
 def _optimizer_manifest(method: str) -> dict[str, object]:
+    parameter_paths = (
+        EGGROLL_PARAMETER_PATHS if method == "eggroll" else PARAMETER_PATHS
+    )
     references = {
-        path: {
-            name: f"optimizer.{method}.{path}.{name}"
-            for name in ("exp_avg", "exp_avg_sq")
-        }
-        for path in PARAMETER_PATHS
+        path: (
+            {}
+            if method == "eggroll"
+            else {
+                name: f"optimizer.{method}.{path}.{name}"
+                for name in ("exp_avg", "exp_avg_sq")
+            }
+        )
+        for path in parameter_paths
     }
     return {
         "method": method,
-        "optimizer_type": "Adam",
-        "parameter_names": list(PARAMETER_PATHS),
+        "optimizer_type": "SGD" if method == "eggroll" else "Adam",
+        "parameter_names": list(parameter_paths),
         "parameter_groups": [
             {
-                "parameter_names": list(PARAMETER_PATHS),
+                "parameter_names": list(parameter_paths),
                 "scalars": {
                     "lr": 1e-4 if method == "gradient" else 1e-3,
-                    "beta1": 0.9,
-                    "beta2": 0.999,
-                    "eps": 1e-8,
+                    **(
+                        {"momentum": 0.0}
+                        if method == "eggroll"
+                        else {"beta1": 0.9, "beta2": 0.999, "eps": 1e-8}
+                    ),
                     "weight_decay": 0.0,
-                    "amsgrad": False,
+                    **({} if method == "eggroll" else {"amsgrad": False}),
                 },
             }
         ],
-        "scalar_state": {path: {"step": 7} for path in PARAMETER_PATHS},
+        "scalar_state": {
+            path: ({} if method == "eggroll" else {"step": 7})
+            for path in parameter_paths
+        },
         "tensor_references": references,
     }
 
@@ -112,7 +137,12 @@ def _metadata(*, epoch_boundary: bool = False) -> dict[str, object]:
         for path in PARAMETER_PATHS
     ]
     for method in ("gradient", "eggroll"):
-        for path in PARAMETER_PATHS:
+        parameter_paths = (
+            EGGROLL_PARAMETER_PATHS if method == "eggroll" else PARAMETER_PATHS
+        )
+        for path in parameter_paths:
+            if method == "eggroll":
+                continue
             for state_name in ("exp_avg", "exp_avg_sq"):
                 manifest.append(
                     {
@@ -143,6 +173,9 @@ def _metadata(*, epoch_boundary: bool = False) -> dict[str, object]:
         "completed_phase_steps": 3 if epoch_boundary else 0,
         "phase_steps": 5 if epoch_boundary else 2,
         "global_step": 3 if epoch_boundary else 2,
+        "consumed_examples": 3 if epoch_boundary else 2,
+        "gradient_optimizer_calls": 0 if epoch_boundary else 1,
+        "eggroll_optimizer_calls": 1,
         "epoch": 1,
         "next_dataset_position": 0 if epoch_boundary else 2,
     }
@@ -177,7 +210,14 @@ def _metadata(*, epoch_boundary: bool = False) -> dict[str, object]:
                 "ordered_item_ids": held_out_ids,
             },
         },
-        "metrics": {"loss": 1.25, "boundary": "epoch" if epoch_boundary else "phase"},
+        "metrics": {
+            "loss": 1.25,
+            "boundary": "epoch" if epoch_boundary else "phase",
+            "phase_variance_sum": 0.045 if epoch_boundary else 0.0,
+            "consumed_examples": schedule["consumed_examples"],
+            "gradient_optimizer_calls": schedule["gradient_optimizer_calls"],
+            "eggroll_optimizer_calls": schedule["eggroll_optimizer_calls"],
+        },
         "rng": {
             "python": {"version": 3, "state": [1, 2, 3], "gaussian_cache": None},
             "numpy": {
@@ -371,4 +411,19 @@ def test_incompatible_schedule_reports_all_canonical_paths_without_mutation(
             "$.schedule.completed_phase_steps",
             "$.schedule.phase_steps",
         ),
+    )
+
+
+def test_impossible_consumed_example_cursor_is_rejected_before_tensor_loading(
+    tmp_path: Path,
+) -> None:
+    metadata = _metadata()
+    metadata["schedule"]["consumed_examples"] = 1  # type: ignore[index]
+    metadata["metrics"]["consumed_examples"] = 1  # type: ignore[index]
+    path = tmp_path / "impossible-cursor.ckpt"
+    _write_unchecked(path, metadata)
+
+    _assert_rejected_without_exposure(
+        path,
+        expected_paths=("$.schedule.consumed_examples",),
     )
