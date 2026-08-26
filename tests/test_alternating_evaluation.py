@@ -9,7 +9,7 @@ import pytest
 import torch
 from torch import nn
 
-from eval.stream.generators.calc_mawps import CalcMawpsRecord
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.alternating_evaluation import (
     HeldOutProblem,
     evaluate_unperturbed,
@@ -20,16 +20,16 @@ from train.alternating_scheduler import (
     PARTIAL_PHASE_BOUNDARY,
     PHASE_BOUNDARY,
     EvaluationRecord,
-    FixedBudgetScheduler,
+    VarianceHysteresisScheduler,
 )
 from train.training_results import ExperimentPosition
 
 
 def test_held_out_loader_uses_only_canonical_validation_records() -> None:
     records = [
-        CalcMawpsRecord(id="one", split="validation", question="first", target="1"),
-        CalcMawpsRecord(id="two", split="validation", question="second", target="2"),
-        CalcMawpsRecord(id="three", split="validation", question="third", target="3"),
+        AsdivRecord(id="one", split="validation", question="first", target="1"),
+        AsdivRecord(id="two", split="validation", question="second", target="2"),
+        AsdivRecord(id="three", split="validation", question="third", target="3"),
     ]
 
     assert load_held_out_problems(records, 2) == [
@@ -82,10 +82,10 @@ def test_evaluation_isolates_phase_and_epoch_training_state(
     assert run.snapshot() == before
 
 
-def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_label() -> None:
+def test_scheduler_evaluates_once_when_a_variance_window_completes() -> None:
     eggroll = FakeEngine("eggroll")
     evaluator = FakePhaseEvaluator()
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=500,
         eggroll_engine=eggroll,
         gradient_engine=FakeEngine("gradient"),
@@ -104,9 +104,9 @@ def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_l
     )
 
 
-def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_position() -> None:
+def test_scheduler_deduplicates_a_window_and_epoch_evaluation_at_the_same_position() -> None:
     evaluator = FakePhaseEvaluator()
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=500,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
@@ -127,9 +127,9 @@ def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_positio
     )
 
 
-def test_scheduler_evaluates_an_incomplete_final_phase_with_a_partial_label() -> None:
+def test_scheduler_evaluates_an_incomplete_final_window_with_a_partial_label() -> None:
     evaluator = FakePhaseEvaluator()
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=500,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
@@ -152,10 +152,10 @@ def test_scheduler_evaluates_an_incomplete_final_phase_with_a_partial_label() ->
 class FakeEngine:
     update_method: str
 
-    def train_step(self, example: object, position: ExperimentPosition) -> str:
+    def train_step(self, example: object, position: ExperimentPosition) -> object:
         del example
         assert position.update_method == self.update_method
-        return self.update_method
+        return SimpleNamespace(shared_variance=0.015)
 
 
 @dataclass

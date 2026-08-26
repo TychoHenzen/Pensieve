@@ -33,8 +33,8 @@ ALTERNATING_ROOT_FIELDS = ROOT_FIELDS | {"run_config"}
 
 RUN_CONFIG = {
     "dataset_selection": {
-        "dataset": "MU-NLPC/Calc-mawps",
-        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "dataset": "MU-NLPC/Calc-asdiv_a",
+        "revision": "520a6910e097ee287ecd2bb9104f7f45805f9df9",
         "split": "train",
         "seed": 0,
         "count": None,
@@ -63,13 +63,16 @@ RUN_CONFIG = {
         "sigma": 0.02,
         "rank": 4,
         "variance_weight": 1.0,
+        "prompt_alignment_weight": 0.1,
+        "variance_lower_threshold": 0.01,
+        "variance_upper_threshold": 0.02,
         "eval_batch_size": 8,
         "fitness_batch_size": 8,
         "use_amp": False,
     },
     "held_out_selection": {
-        "dataset": "MU-NLPC/Calc-mawps",
-        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "dataset": "MU-NLPC/Calc-asdiv_a",
+        "revision": "520a6910e097ee287ecd2bb9104f7f45805f9df9",
         "split": "validation",
         "seed": 0,
         "count": 128,
@@ -391,8 +394,20 @@ def test_standalone_root_rejects_alternating_run_config() -> None:
             "$.run_config.eggroll_population.sigma",
         ),
         (
+            lambda config: config["eggroll_population"].update(
+                {"prompt_alignment_weight": -0.1}
+            ),
+            "$.run_config.eggroll_population.prompt_alignment_weight",
+        ),
+        (
             lambda config: config["eggroll_population"].update({"use_amp": 1}),
             "$.run_config.eggroll_population.use_amp",
+        ),
+        (
+            lambda config: config["eggroll_population"].update(
+                {"variance_lower_threshold": 0.02}
+            ),
+            "$.run_config.eggroll_population.variance_lower_threshold",
         ),
         (
             lambda config: config["dataset_selection"].update({"seed": True}),

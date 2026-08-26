@@ -38,6 +38,24 @@ def post_loop_slot_variance(slots: torch.Tensor) -> torch.Tensor:
     return slots.var(dim=-2, unbiased=False).mean()
 
 
+def slot_variance_penalty(
+    slots: torch.Tensor,
+    variance_threshold: float = DEFAULT_VARIANCE_THRESHOLD,
+) -> torch.Tensor:
+    """Return one bounded collapse penalty per example or candidate.
+
+    The slot axis is second-to-last. A two-dimensional slot tensor returns
+    one scalar. Batched candidate tensors retain their leading dimensions.
+    """
+    if slots.ndim < 2:
+        raise ValueError("slots must have at least a slot and feature dimension")
+    per_dimension_variance = slots.var(dim=-2, unbiased=False)
+    per_dimension_std = torch.sqrt(per_dimension_variance + 1e-4)
+    return torch.clamp(variance_threshold - per_dimension_std, min=0.0).mean(
+        dim=-1
+    )
+
+
 class VICRegLoss(nn.Module):
     """Variance + covariance collapse-prevention regularizer over slots."""
 

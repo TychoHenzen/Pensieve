@@ -149,6 +149,7 @@ class LatentCoreTrainer:
             total_objective=total_objective.item(),
             regularizer_loss=(prompt_alignment_penalty + collapse_penalty).item(),
             shared_variance=post_loop_slot_variance(loop_slots).item(),
+            optimizer_call_count=position.optimizer_call_count,
         )
 
     def train_epoch(

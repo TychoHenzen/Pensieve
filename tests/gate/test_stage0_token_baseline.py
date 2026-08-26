@@ -4,7 +4,7 @@ Public API assumptions for task 5.2:
 
 ``eval.gate.token_cot_baseline.run_baseline`` accepts ``device`` and a
 separately named ``development_limit``.  Tests can inject normalized
-``CalcMawpsRecord`` values, a frozen-backbone loader, and the deterministic
+``AsdivRecord`` values, a frozen-backbone loader, and the deterministic
 runtime configurer.  The function returns the version-2 token result schema:
 ``{schema_version, identity, items, correct, total}``.
 """
@@ -20,10 +20,10 @@ import pytest
 import torch
 
 from eval.gate import token_cot_baseline as baseline
-from eval.stage0_identity import QWEN_MATH_PROMPT
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    select_calc_mawps_records,
+from eval.stage0_identity import QWEN_ANSWER_PREFILL, QWEN_MATH_PROMPT
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    select_asdiv_a_records,
 )
 
 
@@ -66,7 +66,7 @@ class _FakeTokenizer:
 
     def decode(self, token_ids: Sequence[int], **kwargs: Any) -> str:
         self.decode_calls.append((list(token_ids), kwargs))
-        return "Reasoning. #### 0"
+        return "0"
 
 
 class _FakeModel:
@@ -79,10 +79,10 @@ class _FakeModel:
         return [input_ids.tolist()[0] + [99]]
 
 
-def _records(count: int = FULL_TEST_COUNT) -> tuple[CalcMawpsRecord, ...]:
+def _records(count: int = FULL_TEST_COUNT) -> tuple[AsdivRecord, ...]:
     return tuple(
-        CalcMawpsRecord(
-            id=f"mawps__test_{index:03d}",
+        AsdivRecord(
+            id=f"asdiv_a__test_{index:03d}",
             split="test",
             question=f"What is zero in problem {index}?",
             target="0",
@@ -107,7 +107,7 @@ def _backbone_loader(
 
 
 def _run(
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     *,
     development_limit: int | None,
     tokenizer: _FakeTokenizer | None = None,
@@ -132,7 +132,7 @@ def _run(
 # covers: eval/stage0-gate::Frozen Qwen token baseline::Full token baseline
 def test_full_baseline_persists_every_seed_zero_test_identifier_in_order() -> None:
     records = _records()
-    expected = select_calc_mawps_records(
+    expected = select_asdiv_a_records(
         {"test": records},
         split="test",
         seed=0,
@@ -152,7 +152,7 @@ def test_full_baseline_persists_every_seed_zero_test_identifier_in_order() -> No
 # covers: eval/stage0-gate::Frozen Qwen token baseline::Official prompt format
 def test_official_qwen_prompt_template_and_greedy_generation_are_exact() -> None:
     records = _records()
-    expected_selection = select_calc_mawps_records(
+    expected_selection = select_asdiv_a_records(
         {"test": records}, split="test", seed=0, problem_count=None
     )
 
@@ -165,11 +165,12 @@ def test_official_qwen_prompt_template_and_greedy_generation_are_exact() -> None
                 {
                     "role": "user",
                     "content": QWEN_MATH_PROMPT.format(question=selected.question),
-                }
+                },
+                {"role": "assistant", "content": QWEN_ANSWER_PREFILL},
             ],
             {
                 "tokenize": True,
-                "add_generation_prompt": True,
+                "continue_final_message": True,
                 "return_dict": True,
                 "return_tensors": "pt",
                 "padding": False,
@@ -182,12 +183,20 @@ def test_official_qwen_prompt_template_and_greedy_generation_are_exact() -> None
     assert input_ids.shape[0] == 1
     assert kwargs["do_sample"] is False
     assert kwargs["num_beams"] == 1
-    assert kwargs["max_new_tokens"] == 64
+    assert kwargs["max_new_tokens"] == 16
     assert kwargs["use_cache"] is True
     assert kwargs["eos_token_id"] == EOS_TOKEN_ID
     assert kwargs["pad_token_id"] == EOS_TOKEN_ID
     assert result["items"] == [
-        {"item_id": selected.id, "prediction": "0", "target": "0", "correct": True}
+        {
+            "item_id": selected.id,
+            "completion": "0",
+            "generated_token_count": 1,
+            "hit_token_limit": False,
+            "prediction": "0",
+            "target": "0",
+            "correct": True,
+        }
     ]
 
 
@@ -265,7 +274,7 @@ def test_development_limit_is_a_bounded_non_boolean_integer(
 
 def test_limited_selection_is_explicitly_development_only_and_non_gating() -> None:
     records = _records()
-    full_selection = select_calc_mawps_records(
+    full_selection = select_asdiv_a_records(
         {"test": records}, split="test", seed=0, problem_count=None
     )
 

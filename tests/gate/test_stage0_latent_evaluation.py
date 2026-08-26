@@ -25,9 +25,9 @@ import pytest
 
 from eval.gate import latent_eval
 from eval.stage0_identity import canonical_json_bytes
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    select_calc_mawps_records,
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    select_asdiv_a_records,
 )
 
 
@@ -35,10 +35,10 @@ FULL_TEST_COUNT = 520
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 
 
-def _records() -> tuple[CalcMawpsRecord, ...]:
+def _records() -> tuple[AsdivRecord, ...]:
     return tuple(
-        CalcMawpsRecord(
-            id=f"mawps__test_{index:03d}",
+        AsdivRecord(
+            id=f"asdiv_a__test_{index:03d}",
             split="test",
             question=f"What is {index} plus zero?",
             target=str(index),
@@ -47,8 +47,8 @@ def _records() -> tuple[CalcMawpsRecord, ...]:
     )
 
 
-def _persisted_order(records: Sequence[CalcMawpsRecord]) -> tuple[str, ...]:
-    return select_calc_mawps_records(
+def _persisted_order(records: Sequence[AsdivRecord]) -> tuple[str, ...]:
+    return select_asdiv_a_records(
         {"test": tuple(records)},
         split="test",
         seed=0,
@@ -70,7 +70,7 @@ def _rendered_digest(item_ids: Sequence[str]) -> str:
 
 
 def _token_result(
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     *,
     ordered_item_ids: Sequence[str] | None = None,
     item_ids: Sequence[str] | None = None,
@@ -112,7 +112,7 @@ def _token_result(
 
 def _run(
     *,
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     token_result: Mapping[str, Any],
     development_limit: int | None,
 ) -> tuple[dict[str, Any], list[list[str]]]:
@@ -123,7 +123,7 @@ def _run(
         calls_by_subject.append([])
         return SimpleNamespace(run_index=len(calls_by_subject) - 1)
 
-    def evaluate_item(subject: Any, record: CalcMawpsRecord) -> dict[str, Any]:
+    def evaluate_item(subject: Any, record: AsdivRecord) -> dict[str, Any]:
         calls_by_subject[subject.run_index].append(record.id)
         return {"prediction": record.target, "input_ids": _input_ids(record.id)}
 
@@ -208,6 +208,36 @@ def test_limited_latent_eval_uses_persisted_prefix_and_subset_rendered_digest() 
     assert "gate_decision" not in result
 
 
+def test_latent_eval_reports_each_completed_item_through_optional_callback() -> None:
+    records = _records()
+    events: list[Any] = []
+
+    latent_eval.run_eval(
+        checkpoint_path=None,
+        seeds=[7, 11],
+        development_limit=2,
+        slot_count=16,
+        num_steps=2,
+        device="cpu",
+        token_result=_token_result(records),
+        records=records,
+        subject_loader=lambda *_args, **_kwargs: object(),
+        item_evaluator=lambda _subject, record: {
+            "prediction": record.target,
+            "input_ids": _input_ids(record.id),
+        },
+        on_item=events.append,
+    )
+
+    assert [event.seed for event in events] == [7, 7, 11, 11]
+    assert [event.item_index for event in events] == [1, 2, 1, 2]
+    assert [event.seed_correct for event in events] == [1, 2, 1, 2]
+    assert [event.global_done for event in events] == [1, 2, 3, 4]
+    assert [event.global_correct for event in events] == [1, 2, 3, 4]
+    assert all(event.item_count == 2 for event in events)
+    assert all(event.global_count == 4 for event in events)
+
+
 @pytest.mark.parametrize(
     ("case", "expected_error"),
     [
@@ -224,8 +254,8 @@ def test_persisted_token_identifier_errors_reject_before_subject_construction(
     ordered = list(_persisted_order(records))
     item_ids = list(ordered)
     if case == "unknown":
-        ordered[0] = "mawps__unknown"
-        item_ids[0] = "mawps__unknown"
+        ordered[0] = "asdiv_a__unknown"
+        item_ids[0] = "asdiv_a__unknown"
     elif case == "missing":
         item_ids.pop()
     else:

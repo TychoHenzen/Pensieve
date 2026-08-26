@@ -1,4 +1,4 @@
-"""Latent Stage 0 evaluation on the persisted Calc-MAWPS test selection."""
+"""Latent Stage 0 evaluation on the persisted Calc-ASDiv_A test selection."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ import copy
 import hashlib
 import random
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -15,17 +16,17 @@ import torch
 
 from eval.gate.answer_scoring import extract_predicted_number, score_numerical_answer
 from eval.stage0_identity import (
-    CALC_MAWPS_REVISION,
+    ASDIV_REVISION,
     LATENT_TAP_LAYER,
     apply_qwen_chat_template,
     canonical_json_bytes,
     load_frozen_qwen_backbone,
 )
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    calc_mawps_selection_identity,
-    load_calc_mawps_record_split,
-    select_calc_mawps_records,
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    asdiv_a_selection_identity,
+    load_asdiv_a_record_split,
+    select_asdiv_a_records,
 )
 from eval.subjects.latent_core import DEFAULT_NUM_STEPS, LatentCoreSubject
 from train.alternating_checkpoint import load_checkpoint as load_alternating_checkpoint
@@ -33,10 +34,25 @@ from train.answer_objective import QWEN_PROMPT_TOKEN_LIMIT, SUBJECT_LATENT_RUNS_
 from train.standalone_checkpoint import configure_deterministic_runtime
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
-DEFAULT_OUTPUT = Path("gate_results/calc_mawps_qwen/latent_eval.json")
-DEFAULT_TOKEN_RESULT = Path("gate_results/calc_mawps_qwen/token_cot.json")
+DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/latent_eval.json")
+DEFAULT_TOKEN_RESULT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 FULL_TEST_COUNT = 520
+
+
+@dataclass(frozen=True)
+class LatentProgress:
+    """Progress after one latent-evaluation item has completed."""
+
+    seed: int
+    seed_index: int
+    seed_count: int
+    item_index: int
+    item_count: int
+    seed_correct: int
+    global_done: int
+    global_count: int
+    global_correct: int
 
 
 def _checkpoint_digest(checkpoint_path: Path | None) -> str | None:
@@ -113,7 +129,7 @@ def _rendered_ids(value: Any) -> list[int]:
     return ids
 
 
-def evaluate_item(subject: LatentCoreSubject, record: CalcMawpsRecord) -> dict[str, Any]:
+def evaluate_item(subject: LatentCoreSubject, record: AsdivRecord) -> dict[str, Any]:
     """Evaluate one record with the same Qwen prompt and latent path as training."""
     rendered = apply_qwen_chat_template(subject.tokenizer, record.question)
     if not isinstance(rendered, Mapping) or "input_ids" not in rendered:
@@ -140,22 +156,22 @@ def _validate_development_limit(development_limit: int | None, available: int) -
         raise ValueError(f"development_limit must be from 1 through {available}")
 
 
-def _validate_records(records: Sequence[CalcMawpsRecord]) -> tuple[CalcMawpsRecord, ...]:
+def _validate_records(records: Sequence[AsdivRecord]) -> tuple[AsdivRecord, ...]:
     source = tuple(records)
     if len(source) != FULL_TEST_COUNT:
         raise ValueError(
-            f"Calc-MAWPS test records must contain exactly {FULL_TEST_COUNT} items"
+            f"Calc-ASDiv_A test records must contain exactly {FULL_TEST_COUNT} items"
         )
     if any(record.split != "test" for record in source):
-        raise ValueError("latent evaluation accepts only Calc-MAWPS test records")
+        raise ValueError("latent evaluation accepts only Calc-ASDiv_A test records")
     ids = [record.id for record in source]
     if len(set(ids)) != len(ids):
-        raise ValueError("Calc-MAWPS test records contain duplicate item identifiers")
+        raise ValueError("Calc-ASDiv_A test records contain duplicate item identifiers")
     return source
 
 
 def _token_order(
-    token_result: Mapping[str, Any], records: Sequence[CalcMawpsRecord]
+    token_result: Mapping[str, Any], records: Sequence[AsdivRecord]
 ) -> tuple[str, ...]:
     if token_result.get("schema_version") != 2:
         raise ValueError("token result schema_version must be 2")
@@ -180,7 +196,7 @@ def _token_order(
     if selection.get("problem_count") != len(ordered_ids):
         raise ValueError("token result selection problem_count differs from its item IDs")
 
-    canonical_order = select_calc_mawps_records(
+    canonical_order = select_asdiv_a_records(
         {"test": tuple(records)}, split="test", seed=0, problem_count=None
     ).ordered_item_ids
     unknown = sorted(set(ordered_ids) - set(canonical_order))
@@ -212,14 +228,14 @@ def _token_order(
 
 
 def _selected_records(
-    records: Sequence[CalcMawpsRecord], ordered_ids: Sequence[str], count: int
-) -> tuple[CalcMawpsRecord, ...]:
+    records: Sequence[AsdivRecord], ordered_ids: Sequence[str], count: int
+) -> tuple[AsdivRecord, ...]:
     records_by_id = {record.id: record for record in records}
     return tuple(records_by_id[item_id] for item_id in ordered_ids[:count])
 
 
 def _selection_identity(
-    token_selection: Mapping[str, Any], records: Sequence[CalcMawpsRecord]
+    token_selection: Mapping[str, Any], records: Sequence[AsdivRecord]
 ) -> dict[str, Any]:
     result = copy.deepcopy(dict(token_selection))
     ids = [record.id for record in records]
@@ -229,12 +245,12 @@ def _selection_identity(
             "seed": 0,
             "problem_count": len(ids),
             "ordered_item_ids": ids,
-            "identity_sha256": calc_mawps_selection_identity(
+            "identity_sha256": asdiv_a_selection_identity(
                 records=records,
                 split="test",
                 seed=0,
                 problem_count=len(ids),
-                revision=CALC_MAWPS_REVISION,
+                revision=ASDIV_REVISION,
             ),
         }
     )
@@ -258,11 +274,12 @@ def run_eval(
     num_steps: int,
     device: str,
     token_result: Mapping[str, Any],
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     subject_loader: Callable[..., Any] = load_subject,
-    item_evaluator: Callable[[Any, CalcMawpsRecord], Mapping[str, Any]] = evaluate_item,
+    item_evaluator: Callable[[Any, AsdivRecord], Mapping[str, Any]] = evaluate_item,
     backbone_loader: Callable[..., Any] = load_frozen_qwen_backbone,
     runtime_configurer: Callable[[], None] = configure_deterministic_runtime,
+    on_item: Callable[[LatentProgress], None] | None = None,
 ) -> dict[str, Any]:
     """Evaluate each seed against one validated, persisted item order."""
     runtime_configurer()
@@ -282,14 +299,17 @@ def run_eval(
     shared_backbone = backbone_loader(device=device) if subject_loader is load_subject else None
     runs: list[dict[str, Any]] = []
     canonical_rendered: list[dict[str, Any]] | None = None
-    for seed in seeds:
+    global_correct = 0
+    global_done = 0
+    global_count = len(seeds) * len(selection_records)
+    for seed_index, seed in enumerate(seeds, start=1):
         _seed_runtime(seed)
         loader_kwargs = {"backbone": shared_backbone} if shared_backbone is not None else {}
         subject = subject_loader(checkpoint_path, slot_count, num_steps, device, **loader_kwargs)
         items: list[dict[str, Any]] = []
         rendered_inputs: list[dict[str, Any]] = []
         correct = 0
-        for record in selection_records:
+        for item_index, record in enumerate(selection_records, start=1):
             evaluated = item_evaluator(subject, record)
             if not isinstance(evaluated, Mapping):
                 raise ValueError("item evaluator must return a mapping")
@@ -304,6 +324,8 @@ def run_eval(
             rendered_inputs.append({"item_id": record.id, "input_ids": list(input_ids)})
             is_correct = score_numerical_answer(prediction, record.target)
             correct += int(is_correct)
+            global_correct += int(is_correct)
+            global_done += 1
             items.append(
                 {
                     "item_id": record.id,
@@ -312,6 +334,20 @@ def run_eval(
                     "correct": is_correct,
                 }
             )
+            if on_item is not None:
+                on_item(
+                    LatentProgress(
+                        seed=seed,
+                        seed_index=seed_index,
+                        seed_count=len(seeds),
+                        item_index=item_index,
+                        item_count=len(selection_records),
+                        seed_correct=correct,
+                        global_done=global_done,
+                        global_count=global_count,
+                        global_correct=global_correct,
+                    )
+                )
         if canonical_rendered is None:
             canonical_rendered = rendered_inputs
         elif rendered_inputs != canonical_rendered:
@@ -351,7 +387,7 @@ def run_eval(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stage 0 latent evaluation on persisted Calc-MAWPS/Qwen inputs."
+        description="Stage 0 latent evaluation on persisted Calc-ASDiv_A/Qwen inputs."
     )
     parser.add_argument(
         "--checkpoint",
@@ -392,7 +428,7 @@ def main() -> None:
     configure_deterministic_runtime()
     args = _parse_args()
     seeds = [int(token) for token in args.seeds.split(",") if token.strip()]
-    records = tuple(load_calc_mawps_record_split("test"))
+    records = tuple(load_asdiv_a_record_split("test"))
     prepared = prepare_baseline_request(
         device=args.device,
         development_limit=args.development_limit,

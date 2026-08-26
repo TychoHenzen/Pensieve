@@ -54,6 +54,7 @@ def _position() -> ExperimentPosition:
     )
 
 
+# covers: train/alternating-cycle :: Comparable phase measurements :: Record experiment position
 def test_training_progress_record_has_exact_comparable_content() -> None:
     record = run_alternating._training_record(
         StepResult(
@@ -75,6 +76,11 @@ def test_training_progress_record_has_exact_comparable_content() -> None:
         "phase_step": 3,
         "language_model_loss": 1.25,
         "shared_variance": 0.4,
+        "next_example_position": 7,
+        "observation_window_examples": 3,
+        "records_consumed": 1,
+        "batch_size": 1,
+        "optimizer_call_count": 1,
     }
 
 
@@ -524,7 +530,7 @@ def test_traversal_caps_eggroll_batches_and_continues_within_the_epoch() -> None
 
     assert eggroll.batches == [("a", "b"), ("c",)]
     assert gradient.batches == [("d",), ("e",)]
-    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 1, 2, 3)
+    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 1, 2, 3, 2, 1)
     assert gradient.positions[0] == ExperimentPosition("gradient", 2, 4, 1, 3, 1)
 
 
@@ -548,7 +554,7 @@ def test_traversal_preserves_the_observation_window_across_epochs() -> None:
     )
 
     assert eggroll.batches == [("a", "b"), ("a",)]
-    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 2, 0, 3)
+    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 2, 0, 3, 2, 1)
     assert gradient.batches == [("b",)]
     assert gradient.positions == [ExperimentPosition("gradient", 2, 4, 2, 1, 1)]
 
@@ -576,6 +582,109 @@ def test_default_five_epoch_traversal_consumes_exactly_2850_ordered_examples() -
     assert len(visits) == 2850
     assert len(eggroll.batches) == 399
     assert gradient.batches == []
+
+
+def test_alternating_fixture_separates_batch_observation_log_and_epoch_boundaries() -> None:
+    class MetricEngine:
+        def __init__(self, method: str, max_consumed_records: int, variance: float) -> None:
+            self.method = method
+            self.max_consumed_records = max_consumed_records
+            self.variance = variance
+            self.visits: list[tuple[tuple[str, int], ...]] = []
+            self.positions: list[ExperimentPosition] = []
+            self.metrics: list[tuple[float, float]] = []
+
+        def train_step(
+            self, example: object, position: ExperimentPosition
+        ) -> StepResult:
+            records = (
+                example
+                if isinstance(example, tuple) and example and isinstance(example[0], tuple)
+                else (example,)
+            )
+            typed_records = tuple(records)
+            self.visits.append(typed_records)  # type: ignore[arg-type]
+            self.positions.append(position)
+            loss = sum(record[1] for record in typed_records) / len(typed_records)
+            self.metrics.append((loss, self.variance))
+            return StepResult(
+                position=position,
+                language_model_loss=loss,
+                total_objective=loss,
+                regularizer_loss=0.0,
+                shared_variance=self.variance,
+                consumed_record_count=len(typed_records),
+                next_example_position=position.example_position + 1,
+            )
+
+    eggroll = MetricEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = MetricEngine("gradient", max_consumed_records=1, variance=0.005)
+    saved: list[tuple[int, bool, bool]] = []
+    output = StringIO()
+
+    def save(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del evaluation_record
+        saved.append((schedule.global_step, phase_boundary, epoch_boundary))
+        return ()
+
+    schedule = run_alternating._run_schedule(
+        examples=[("a", 1), ("b", 3), ("c", 5), ("d", 7), ("e", 9), ("f", 11)],
+        epochs=1,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=4,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=save,
+        output=output,
+    )
+
+    assert eggroll.visits == [(("a", 1), ("b", 3)), (("c", 5),)]
+    assert gradient.visits == [(("d", 7),), (("e", 9),), (("f", 11),)]
+    assert eggroll.positions == [
+        ExperimentPosition("eggroll", 1, 2, 1, 1, 2, 1, 2),
+        ExperimentPosition("eggroll", 1, 3, 1, 2, 3, 2, 1),
+    ]
+    assert gradient.positions == [
+        ExperimentPosition("gradient", 2, 4, 1, 3, 1, 1, 1),
+        ExperimentPosition("gradient", 2, 5, 1, 4, 2, 2, 1),
+        ExperimentPosition("gradient", 2, 6, 1, 5, 3, 3, 1),
+    ]
+    assert eggroll.metrics == [(2.0, 0.03), (5.0, 0.03)]
+    assert gradient.metrics == [(7.0, 0.005), (9.0, 0.005), (11.0, 0.005)]
+    assert schedule is not None
+    assert schedule.active_phase == "eggroll"
+    assert saved == [(3, True, False), (6, True, True)]
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert [record["record_type"] for record in records] == [
+        "training",
+        "evaluation",
+        "checkpoint",
+    ]
+    assert records[0] == {
+        "record_type": "training",
+        "update_method": "gradient",
+        "cycle": 2,
+        "global_step": 4,
+        "epoch": 1,
+        "example_position": 3,
+        "phase_step": 1,
+        "language_model_loss": 7.0,
+        "shared_variance": 0.005,
+        "next_example_position": 4,
+        "observation_window_examples": 1,
+        "records_consumed": 1,
+        "batch_size": 1,
+        "optimizer_call_count": 1,
+    }
 
 
 def test_main_builds_shared_production_run_and_executes_schedule(

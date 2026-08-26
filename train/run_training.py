@@ -1,6 +1,6 @@
-"""Gradient training on filtered Calc-MAWPS with the frozen Qwen backbone.
+"""Gradient training on filtered Calc-ASDiv_A with the frozen Qwen backbone.
 
-Loads all 1,089 records in the pinned filtered Calc-MAWPS train order. The
+Loads all 570 records in the pinned Calc-ASDiv_A train order. The
 trainer uses the frozen Qwen/Qwen2.5-0.5B-Instruct backbone and frozen MiniLM.
 """
 
@@ -52,7 +52,7 @@ def _format_duration(seconds: float) -> str:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train the latent-core subject on filtered Calc-MAWPS with the "
+            "Train the latent-core subject on filtered Calc-ASDiv_A with the "
             "frozen Qwen/Qwen2.5-0.5B-Instruct backbone."
         )
     )
@@ -70,7 +70,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
+        help="Limit Calc-ASDiv_A training records. Default uses all 570 train records.",
     )
     parser.add_argument(
         "--log-every",
@@ -115,7 +115,7 @@ def _load_checkpoint(
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
-    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
     dataset = training_examples(
@@ -129,7 +129,7 @@ def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
 
 
 def _load_dataset_context(problem_count: int | None):
-    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
     dataset = training_examples(

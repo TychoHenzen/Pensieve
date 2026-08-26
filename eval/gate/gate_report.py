@@ -1,4 +1,4 @@
-"""Render the exact Stage 0 Calc-MAWPS/Qwen gate verdict."""
+"""Render the exact Stage 0 Calc-ASDiv_A/Qwen gate verdict."""
 
 from __future__ import annotations
 
@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from eval.gate import result_cache
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, load_calc_mawps_record_split
+from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
 
 
-DEFAULT_RESULTS_DIR = Path("gate_results/calc_mawps_qwen")
+DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_OUTPUT = DEFAULT_RESULTS_DIR / "gate_report.json"
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 BASELINE_FLOOR = Fraction(26, 520)
@@ -102,8 +102,8 @@ def evaluate_gate_results(
 
 
 def _selected_records(
-    records: tuple[CalcMawpsRecord, ...], ordered_ids: list[str]
-) -> tuple[CalcMawpsRecord, ...]:
+    records: tuple[AsdivRecord, ...], ordered_ids: list[str]
+) -> tuple[AsdivRecord, ...]:
     by_id = {record.id: record for record in records}
     try:
         return tuple(by_id[item_id] for item_id in ordered_ids)
@@ -116,7 +116,7 @@ def _selected_records(
 def build_report(
     results_dir: Path,
     *,
-    records: tuple[CalcMawpsRecord, ...] | None = None,
+    records: tuple[AsdivRecord, ...] | None = None,
     expected_token_identity: Mapping[str, Any] | None = None,
     expected_checkpoint_sha256: str | None = None,
     expected_seeds: Sequence[int] | None = None,
@@ -134,7 +134,7 @@ def build_report(
             "current expected token identity is required to read cached results"
         )
 
-    source_records = records or tuple(load_calc_mawps_record_split("test"))
+    source_records = records or tuple(load_asdiv_a_record_split("test"))
     selection = expected_token_identity.get("selection")
     if not isinstance(selection, dict) or not isinstance(selection.get("ordered_item_ids"), list):
         raise result_cache.GateResultError("expected token selection identity is missing")
@@ -188,7 +188,7 @@ def _print_summary(report: dict[str, Any]) -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Collect strict Stage 0 Calc-MAWPS/Qwen results and render a verdict."
+        description="Collect strict Stage 0 Calc-ASDiv_A/Qwen results and render a verdict."
     )
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -217,7 +217,7 @@ def main() -> None:
     token_path = args.results_dir / "token_cot.json"
     latent_path = args.results_dir / "latent_eval.json"
     if token_path.exists() and latent_path.exists():
-        records = tuple(load_calc_mawps_record_split("test"))
+        records = tuple(load_asdiv_a_record_split("test"))
         prepared = prepare_baseline_request(
             device=args.device,
             development_limit=args.development_limit,

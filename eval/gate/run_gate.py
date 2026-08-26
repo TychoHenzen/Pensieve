@@ -1,4 +1,4 @@
-"""Run the strict Stage 0 Calc-MAWPS/Qwen gate."""
+"""Run the strict Stage 0 Calc-ASDiv_A/Qwen gate."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ import torch
 
 from eval.gate.answer_scoring import MIN_MEANINGFUL_ACCURACY
 from eval.gate.gate_report import build_report
-from eval.gate.latent_eval import run_eval
+from eval.gate.latent_eval import LatentProgress, run_eval
 from eval.gate.result_cache import (
     checkpoint_sha256,
     read_latent_result,
@@ -28,15 +28,16 @@ from eval.gate.token_cot_baseline import (
     run_baseline,
 )
 from eval.stage0_identity import LATENT_TAP_LAYER
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, load_calc_mawps_record_split
+from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
 from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.standalone_checkpoint import configure_deterministic_runtime
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
-DEFAULT_RESULTS_DIR = Path("gate_results/calc_mawps_qwen")
+DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 LOG_EVERY = 50
+LATENT_LOG_EVERY = 10
 
 
 def _ts() -> str:
@@ -60,7 +61,7 @@ def _format_duration(seconds: float) -> str:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run the strict Stage 0 Calc-MAWPS/Qwen gate evaluation."
+        description="Run the strict Stage 0 Calc-ASDiv_A/Qwen gate evaluation."
     )
     parser.add_argument(
         "--checkpoint",
@@ -90,8 +91,8 @@ def _parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _records() -> tuple[CalcMawpsRecord, ...]:
-    return tuple(load_calc_mawps_record_split("test"))
+def _records() -> tuple[AsdivRecord, ...]:
+    return tuple(load_asdiv_a_record_split("test"))
 
 
 def _accuracy(result: Mapping[str, Any]) -> float:
@@ -101,7 +102,7 @@ def _accuracy(result: Mapping[str, Any]) -> float:
 
 def _run_baseline(
     args: argparse.Namespace,
-    records: Sequence[CalcMawpsRecord] | None = None,
+    records: Sequence[AsdivRecord] | None = None,
     prepared_request: PreparedBaselineRequest | None = None,
 ) -> dict[str, Any]:
     _log("=" * 60)
@@ -178,7 +179,7 @@ def _run_latent_eval(
     args: argparse.Namespace,
     seeds: list[int],
     token_result: Mapping[str, Any] | None = None,
-    records: Sequence[CalcMawpsRecord] | None = None,
+    records: Sequence[AsdivRecord] | None = None,
     prepared_request: PreparedBaselineRequest | None = None,
 ) -> dict[str, Any]:
     _log("=" * 60)
@@ -210,6 +211,29 @@ def _run_latent_eval(
         return result
 
     phase_start = time.monotonic()
+
+    def on_item(progress: LatentProgress) -> None:
+        if (
+            progress.item_index % LATENT_LOG_EVERY != 0
+            and progress.item_index != progress.item_count
+        ):
+            return
+        elapsed = time.monotonic() - phase_start
+        remaining = (
+            (elapsed / progress.global_done)
+            * (progress.global_count - progress.global_done)
+        )
+        _log(
+            f"  latent seed {progress.seed_index}/{progress.seed_count} "
+            f"({progress.seed}) [{progress.item_index}/{progress.item_count}] "
+            f"seed_acc={progress.seed_correct / progress.item_index:.4f} "
+            f"({progress.seed_correct}/{progress.item_index}) "
+            f"global=[{progress.global_done}/{progress.global_count}] "
+            f"acc={progress.global_correct / progress.global_done:.4f} "
+            f"({progress.global_correct}/{progress.global_done}) "
+            f"elapsed {_format_duration(elapsed)} ETA {_format_duration(remaining)}"
+        )
+
     result = run_eval(
         checkpoint_path=args.checkpoint,
         seeds=seeds,
@@ -221,6 +245,7 @@ def _run_latent_eval(
         records=source,
         runtime_configurer=lambda: None,
         backbone_loader=lambda **_kwargs: prepared.backbone,
+        on_item=on_item,
     )
     write_gate_result(results_path, result)
     _log(f"latent eval done ({_format_duration(time.monotonic() - phase_start)})")
@@ -231,7 +256,7 @@ def _run_verdict(
     args: argparse.Namespace,
     baseline: dict[str, Any],
     latent: dict[str, Any],
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     prepared_request: PreparedBaselineRequest,
     seeds: Sequence[int],
 ) -> bool:

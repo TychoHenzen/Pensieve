@@ -165,6 +165,8 @@ def test_eggroll_updates_leave_non_matrix_trainables_bitwise_unchanged(monkeypat
     state = TrainingState(slot_count=3, num_steps=1)
     gradient_trainer = LatentCoreTrainer(lr=0.1, state=state)
     eggroll_trainer = EggrollTrainer(pop_size=2, lr=0.1, state=state)
+    assert gradient_trainer.state is eggroll_trainer.state is state
+    assert gradient_trainer.encoder is eggroll_trainer.encoder
     gradient_params = list(state.parameters())
     eggroll_params = list(state.eggroll_parameters())
     excluded = [

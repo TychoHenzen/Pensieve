@@ -1,4 +1,4 @@
-"""Held-out Calc-MAWPS evaluation for the alternating training experiment.
+"""Held-out Calc-ASDiv_A evaluation for the alternating training experiment.
 
 The evaluator is deliberately separate from either update engine.  It uses
 the shared model objects in read-only mode and returns the common evaluation
@@ -15,7 +15,7 @@ import torch
 from torch import nn
 
 from eval.gate.answer_scoring import score_numerical_answer
-from eval.stream.generators.calc_mawps import CalcMawpsRecord
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.answer_objective import (
     SUBJECT_LATENT_RUNS_PER_ANSWER,
     decoder_aligned_answer_loss,
@@ -29,7 +29,7 @@ DEFAULT_EVAL_PROBLEM_COUNT = 128
 
 @dataclass(frozen=True)
 class HeldOutProblem:
-    """One fixed Calc-MAWPS question and its normalized numerical answer."""
+    """One fixed Calc-ASDiv_A question and its normalized numerical answer."""
 
     question: str
     answer: str
@@ -45,7 +45,7 @@ class SharedModel(Protocol):
 
 
 def load_held_out_problems(
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     problem_count: int = DEFAULT_EVAL_PROBLEM_COUNT,
 ) -> list[HeldOutProblem]:
     """Convert the persisted seed-0 validation prefix into evaluator inputs.
@@ -79,7 +79,7 @@ def evaluate_unperturbed(
 
     Loss uses the same answer-token rule as gradient training.  Variance uses
     the canonical post-loop metric.  Generated answers are compared directly
-    with Calc-MAWPS's normalized numerical targets.
+    with Calc-ASDiv_A's normalized numerical targets.
     """
     if not problems:
         return EvaluationResult(position, 0.0, 0.0, 0.0)

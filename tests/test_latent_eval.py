@@ -8,7 +8,7 @@ from torch import nn
 
 from eval.gate import latent_eval
 from eval.gate.answer_scoring import score_numerical_answer
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, select_calc_mawps_records
+from eval.stream.generators.asdiv_a import AsdivRecord, select_asdiv_a_records
 
 
 def test_numerical_answer_scoring_extracts_last_generated_number() -> None:
@@ -99,15 +99,15 @@ def test_load_subject_rejects_legacy_pickle_suffix_before_loading(
 
 def test_run_eval_configures_runtime_before_subject_construction() -> None:
     records = tuple(
-        CalcMawpsRecord(
-            id=f"mawps__test_{index:03d}",
+        AsdivRecord(
+            id=f"asdiv_a__test_{index:03d}",
             split="test",
             question=f"What is {index} plus zero?",
             target=str(index),
         )
         for index in range(520)
     )
-    ordered = select_calc_mawps_records(
+    ordered = select_asdiv_a_records(
         {"test": records}, split="test", seed=0, problem_count=None
     ).ordered_item_ids
     token_result = {

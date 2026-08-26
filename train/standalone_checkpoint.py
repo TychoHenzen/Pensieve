@@ -14,10 +14,10 @@ import numpy as np
 import torch
 from safetensors.torch import save as save_safetensors
 
-from eval.stage0_identity import CALC_MAWPS_REVISION
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsSelection,
-    calc_mawps_selection_identity,
+from eval.stage0_identity import ASDIV_REVISION
+from eval.stream.generators.asdiv_a import (
+    AsdivSelection,
+    asdiv_a_selection_identity,
 )
 from train.stage0_checkpoint import (
     ALLOWED_MODEL_PARAMETER_PATHS,
@@ -69,19 +69,19 @@ def runtime_identity() -> dict[str, object]:
 
 
 def selection_metadata(
-    selection: CalcMawpsSelection, count: int | None
+    selection: AsdivSelection, count: int | None
 ) -> dict[str, object]:
     normalized_count = selection.problem_count if count is None else count
     records = selection.records[:normalized_count]
     identity = (
         selection.identity
         if normalized_count == selection.problem_count
-        else calc_mawps_selection_identity(
+        else asdiv_a_selection_identity(
             records=records,
             split=selection.split,
             seed=selection.seed,
             problem_count=normalized_count,
-            revision=CALC_MAWPS_REVISION,
+            revision=ASDIV_REVISION,
         )
     )
     return {

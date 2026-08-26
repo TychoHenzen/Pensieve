@@ -1,4 +1,4 @@
-"""Slot-count ablation on persisted Calc-MAWPS/Qwen Stage 0 inputs."""
+"""Slot-count ablation on persisted Calc-ASDiv_A/Qwen Stage 0 inputs."""
 
 from __future__ import annotations
 
@@ -14,14 +14,14 @@ import torch
 from eval.gate.latent_eval import run_eval
 from eval.gate.result_cache import checkpoint_sha256, read_token_result, write_json_atomic
 from eval.gate.token_cot_baseline import prepare_baseline_request
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, load_calc_mawps_record_split
+from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
 from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.alternating_checkpoint import load_checkpoint
 from train.standalone_checkpoint import configure_deterministic_runtime
 
 
-DEFAULT_OUTPUT = Path("gate_results/calc_mawps_qwen/slot_ablation.json")
-DEFAULT_TOKEN_RESULT = Path("gate_results/calc_mawps_qwen/token_cot.json")
+DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/slot_ablation.json")
+DEFAULT_TOKEN_RESULT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 SLOT_COUNTS = [1, 4, 8, 16, 32, 64]
 DEFAULT_SEEDS = [0, 1, 2]
 
@@ -154,8 +154,8 @@ def run_ablation(
     device: str,
     checkpoint_dir: Path,
     token_result_path: Path,
-    records: Sequence[CalcMawpsRecord] | None = None,
-    record_loader: Callable[[str], Sequence[CalcMawpsRecord]] = load_calc_mawps_record_split,
+    records: Sequence[AsdivRecord] | None = None,
+    record_loader: Callable[[str], Sequence[AsdivRecord]] = load_asdiv_a_record_split,
     baseline_preparer: Callable[..., Any] = prepare_baseline_request,
     token_reader: Callable[..., Mapping[str, Any]] = read_token_result,
     checkpoint_loader: Callable[[Path], Any] = load_checkpoint,
@@ -262,7 +262,7 @@ def run_ablation(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stage 0 slot-count ablation on persisted Calc-MAWPS/Qwen inputs."
+        description="Stage 0 slot-count ablation on persisted Calc-ASDiv_A/Qwen inputs."
     )
     parser.add_argument(
         "--slot-counts",

@@ -23,12 +23,12 @@ class SlotDecoder:
         model,
         tokenizer,
         max_tokens: int = DEFAULT_MAX_TOKENS,
-        device: str = "cpu",
+        device: str | torch.device | None = None,
     ) -> None:
         self.model = model
         self.tokenizer = tokenizer
         self.max_tokens = max_tokens
-        self.device = device
+        self.device = device or next(model.parameters()).device
 
     def decode(self, workspace: Workspace) -> str:
         """Decode `workspace`'s slots into text, without mutating the workspace."""
@@ -43,12 +43,18 @@ class SlotDecoder:
         eos_token_id = self.tokenizer.eos_token_id
 
         generated_ids: list[int] = []
+        past_key_values = None
 
         with torch.no_grad():
             for _ in range(self.max_tokens):
-                outputs = self.model(inputs_embeds=input_embeds)
+                outputs = self.model(
+                    inputs_embeds=input_embeds,
+                    past_key_values=past_key_values,
+                    use_cache=True,
+                )
                 next_token_logits = outputs.logits[0, -1, :]
                 next_token_id = int(torch.argmax(next_token_logits).item())
+                past_key_values = getattr(outputs, "past_key_values", None)
 
                 if eos_token_id is not None and next_token_id == eos_token_id:
                     break
@@ -58,8 +64,7 @@ class SlotDecoder:
                 next_token_tensor = torch.tensor(
                     [[next_token_id]], device=self.device
                 )
-                next_token_embed = embedding_layer(next_token_tensor)  # (1, 1, hidden_dim)
-                input_embeds = torch.cat([input_embeds, next_token_embed], dim=1)
+                input_embeds = embedding_layer(next_token_tensor)  # (1, 1, hidden_dim)
 
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True)
 

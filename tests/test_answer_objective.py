@@ -155,6 +155,86 @@ class Stage0EmbeddingModel(nn.Module):
         return self.embedding
 
 
+class PromptAlignmentBody(nn.Module):
+    def __init__(self, embedding: nn.Embedding) -> None:
+        super().__init__()
+        self.embedding = embedding
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        **_: object,
+    ) -> SimpleNamespace:
+        hidden = self.embedding(input_ids) if inputs_embeds is None else inputs_embeds
+        return SimpleNamespace(last_hidden_state=hidden)
+
+
+class PromptAlignmentModel(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.embedding = nn.Embedding(4, 2)
+        with torch.no_grad():
+            self.embedding.weight.copy_(
+                torch.tensor(
+                    [
+                        [1.0, 0.0],
+                        [0.0, 1.0],
+                        [-1.0, 0.0],
+                        [0.0, -1.0],
+                    ]
+                )
+            )
+        self.model = PromptAlignmentBody(self.embedding)
+        self.lm_head = nn.Linear(2, 4, bias=False)
+
+    def get_input_embeddings(self) -> nn.Embedding:
+        return self.embedding
+
+
+# covers: train/stage0-training :: Decoder-aligned numerical objective :: Question-conditioned output alignment
+def test_prompt_alignment_penalizes_cross_problem_output_collapse() -> None:
+    model = PromptAlignmentModel()
+    answer_ids = torch.tensor([2])
+    slots = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
+
+    first_teacher = answer_objective.prompt_teacher_state(
+        model, torch.tensor([[0]])
+    )
+    second_teacher = answer_objective.prompt_teacher_state(
+        model, torch.tensor([[1]])
+    )
+    first = answer_objective.prompt_aligned_answer_objective(
+        model,
+        slots,
+        answer_ids,
+        eos_token_id=3,
+        teacher_state=first_teacher,
+    )
+    second = answer_objective.prompt_aligned_answer_objective(
+        model,
+        slots,
+        answer_ids,
+        eos_token_id=3,
+        teacher_state=second_teacher,
+    )
+
+    assert not first_teacher.requires_grad
+    assert not second_teacher.requires_grad
+    assert not torch.equal(first_teacher, second_teacher)
+    assert first.prompt_alignment_loss.item() == pytest.approx(0.0)
+    assert second.prompt_alignment_loss.item() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("weight", [-0.1, float("inf"), float("nan")])
+def test_prompt_alignment_weight_must_be_finite_and_non_negative(
+    weight: float,
+) -> None:
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        answer_objective.validate_prompt_alignment_weight(weight)
+
+
 @pytest.mark.parametrize(
     ("source_target", "canonical_target", "answer_ids"),
     [
@@ -218,7 +298,7 @@ def test_training_example_uses_shared_qwen_prompt_and_only_canonical_target_text
             qwen_messages(question),
             {
                 "tokenize": True,
-                "add_generation_prompt": True,
+                "continue_final_message": True,
                 "return_dict": True,
                 "return_tensors": "pt",
                 "padding": False,

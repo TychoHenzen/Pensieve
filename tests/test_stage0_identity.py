@@ -4,9 +4,9 @@ from unittest.mock import Mock
 import pytest
 
 
-DATASET = "MU-NLPC/Calc-mawps"
+DATASET = "MU-NLPC/Calc-asdiv_a"
 DATASET_CONFIGURATION = "default"
-DATASET_REVISION = "38c10053efeafd20ab6ff4e08c3ec17de26c19b7"
+DATASET_REVISION = "520a6910e097ee287ecd2bb9104f7f45805f9df9"
 QWEN_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
 QWEN_REVISION = "7ae557604adf67be50417f59c2c2f167def9a775"
 MINILM_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
@@ -23,37 +23,29 @@ EXPECTED_STAGE0_IDENTITY = {
     "sentence_encoder_revision": MINILM_REVISION,
     "workspace_dimension": 896,
     "latent_tap_layer": 12,
-    "prompt_contract_version": 1,
+    "prompt_contract_version": 2,
     "numerical_scorer_contract_version": 1,
 }
 
 EXPECTED_CANONICAL_IDENTITY = (
-    b'{"dataset":"MU-NLPC/Calc-mawps","dataset_configuration":"default",'
-    b'"dataset_revision":"38c10053efeafd20ab6ff4e08c3ec17de26c19b7",'
+    b'{"dataset":"MU-NLPC/Calc-asdiv_a","dataset_configuration":"default",'
+    b'"dataset_revision":"520a6910e097ee287ecd2bb9104f7f45805f9df9",'
     b'"latent_tap_layer":12,"model":"Qwen/Qwen2.5-0.5B-Instruct",'
     b'"model_revision":"7ae557604adf67be50417f59c2c2f167def9a775",'
-    b'"numerical_scorer_contract_version":1,"prompt_contract_version":1,'
+    b'"numerical_scorer_contract_version":1,"prompt_contract_version":2,'
     b'"schema_version":1,'
     b'"sentence_encoder":"sentence-transformers/all-MiniLM-L6-v2",'
     b'"sentence_encoder_revision":"1110a243fdf4706b3f48f1d95db1a4f5529b4d41",'
     b'"workspace_dimension":896}'
 )
 EXPECTED_IDENTITY_SHA256 = (
-    "3f2cc635e1ed53cbda5b9c986ebb80893afdf6e7ff3711322cffc736a8938083"
+    "8226e98ce90883c4900ae6cf6ab8639baf18f24bb4bd48adcc7fd149773ec652"
 )
 
 EXPECTED_DATASET_MANIFEST = {
-    "data/train-00000-of-00001-4bb1451333aad61c.parquet": {
+    "data/test-00000-of-00001-d118ad90f5719063.parquet": {
         "algorithm": "sha256",
-        "digest": "7a8dd8f7680b5e5ddb908cdfa33867c298d9225d1d7595a17d4771c09e482140",
-    },
-    "data/validation-00000-of-00001-2ce28573971ca59f.parquet": {
-        "algorithm": "sha256",
-        "digest": "9d2ca9e33d8efdbc2527a84f1685d6dd5ec7defb201a290a836660c071f5b607",
-    },
-    "data/test-00000-of-00001-5a59f3fc4b0d9c98.parquet": {
-        "algorithm": "sha256",
-        "digest": "2ef6313cb811d5c5ebef422a909015f7db4750020f835fd95c2ac2ccbf343d82",
+        "digest": "f13920459f68f633b3bcff528f5084066e8e6f57b166769232f8c15a294c0570",
     },
 }
 
@@ -128,30 +120,27 @@ EXPECTED_MINILM_MANIFEST = {
 }
 
 PROMPT = (
-    "Solve the following math word problem. Show your reasoning, then end your "
-    'response with exactly "#### <answer>", where <answer> is a finite integer, '
-    "decimal, or fraction.\n\nProblem:\n{question}"
+    "Solve this math word problem. Return only the numerical answer."
+    "\n\nProblem:\n{question}"
 )
+ANSWER_PREFILL = "#### "
 
 
 def _subject():
     return importlib.import_module("eval.stage0_identity")
 
 
-def _row(split: str, index: int) -> dict[str, object]:
+def _row(index: int) -> dict[str, object]:
     return {
-        "id": f"mawps__{split}_{index}",
+        "id": f"asdiv_a__{index}",
         "question": f"What is {index} plus 1?",
         "result": str(index + 1),
         "result_float": float(index + 1),
     }
 
 
-def _raw_rows(split: str, count: int) -> list[dict[str, object]]:
-    rows = [_row(split, index) for index in range(count)]
-    if split == "validation":
-        rows[-1]["id"] = "mawps__qA0gWJatQEeMzvOw"
-    return rows
+def _raw_rows(count: int) -> list[dict[str, object]]:
+    return [_row(index) for index in range(count)]
 
 
 def test_stage0_identity_has_pinned_coordinates_and_canonical_sha256():
@@ -175,7 +164,7 @@ def test_canonical_json_is_compact_sorted_utf8_and_rejects_non_finite_values():
 def test_manifests_pin_every_declared_asset_and_digest_algorithm():
     stage0 = _subject()
 
-    assert dict(stage0.CALC_MAWPS_MANIFEST) == EXPECTED_DATASET_MANIFEST
+    assert dict(stage0.ASDIV_MANIFEST) == EXPECTED_DATASET_MANIFEST
     assert dict(stage0.QWEN_MANIFEST) == EXPECTED_QWEN_MANIFEST
     assert dict(stage0.MINILM_MANIFEST) == EXPECTED_MINILM_MANIFEST
 
@@ -191,12 +180,13 @@ def test_manifest_digest_uses_git_blob_framing_or_raw_sha256_as_declared():
     )
 
 
-def test_qwen_prompt_is_one_exact_user_message():
+def test_qwen_prompt_has_the_exact_answer_prefill():
     stage0 = _subject()
     question = "A cafe has 12 cups and buys 3 more. How many cups?"
 
     assert stage0.qwen_messages(question) == [
-        {"role": "user", "content": PROMPT.format(question=question)}
+        {"role": "user", "content": PROMPT.format(question=question)},
+        {"role": "assistant", "content": ANSWER_PREFILL},
     ]
 
 
@@ -210,9 +200,12 @@ def test_qwen_prompt_uses_exact_chat_template_arguments():
 
     assert rendered == {"input_ids": [[7, 8, 9]]}
     tokenizer.apply_chat_template.assert_called_once_with(
-        [{"role": "user", "content": PROMPT.format(question=question)}],
+        [
+            {"role": "user", "content": PROMPT.format(question=question)},
+            {"role": "assistant", "content": ANSWER_PREFILL},
+        ],
         tokenize=True,
-        add_generation_prompt=True,
+        continue_final_message=True,
         return_dict=True,
         return_tensors="pt",
         padding=False,
@@ -220,24 +213,26 @@ def test_qwen_prompt_uses_exact_chat_template_arguments():
     )
 
 
-@pytest.mark.parametrize(
-    ("split", "raw_count", "usable_count"),
-    (("train", 1089, 1089), ("validation", 1040, 1039), ("test", 520, 520)),
-)
-# covers: eval/generators/calc-mawps::Filtered Calc-MAWPS split binding::Default filtered splits load
-def test_default_filtered_splits_verify_raw_count_and_return_expected_rows(
-    split: str, raw_count: int, usable_count: int
-):
+def test_pinned_source_verifies_raw_count_and_returns_every_row():
     stage0 = _subject()
-    dataset_loader = Mock(return_value=_raw_rows(split, raw_count))
+    dataset_loader = Mock(return_value=_raw_rows(1_218))
+    manifest_verifier = Mock()
 
-    records = stage0.load_calc_mawps_split(split, dataset_loader=dataset_loader)
+    records = stage0.load_asdiv_source(
+        dataset_loader=dataset_loader,
+        manifest_verifier=manifest_verifier,
+    )
 
-    assert len(records) == usable_count
+    assert len(records) == 1_218
+    manifest_verifier.assert_called_once_with(
+        DATASET,
+        DATASET_REVISION,
+        stage0.ASDIV_MANIFEST,
+    )
     dataset_loader.assert_called_once_with(
         DATASET,
         DATASET_CONFIGURATION,
-        split=split,
+        split="test",
         revision=DATASET_REVISION,
         trust_remote_code=False,
     )
@@ -245,19 +240,19 @@ def test_default_filtered_splits_verify_raw_count_and_return_expected_rows(
 
 def test_dataset_raw_count_mismatch_fails_verification():
     stage0 = _subject()
-    dataset_loader = Mock(return_value=_raw_rows("test", 519))
+    dataset_loader = Mock(return_value=_raw_rows(1_217))
 
-    with pytest.raises(ValueError, match=r"test.*520.*519"):
-        stage0.load_calc_mawps_split("test", dataset_loader=dataset_loader)
+    with pytest.raises(ValueError, match=r"1218.*1217"):
+        stage0.load_asdiv_source(dataset_loader=dataset_loader)
 
 
-# covers: eval/generators/calc-mawps::Filtered Calc-MAWPS split binding::Dataset revision unavailable
+# covers: eval/generators/asdiv-a::Filtered Calc-ASDiv_A split binding::Dataset revision unavailable
 def test_unavailable_dataset_revision_error_names_dataset_and_revision():
     stage0 = _subject()
     dataset_loader = Mock(side_effect=OSError("revision not found"))
 
     with pytest.raises(RuntimeError) as error:
-        stage0.load_calc_mawps_split("train", dataset_loader=dataset_loader)
+        stage0.load_asdiv_source(dataset_loader=dataset_loader)
 
     message = str(error.value)
     assert DATASET in message
@@ -363,7 +358,7 @@ def test_training_identity_contains_runtime_fields_and_fixed_held_out_identifier
         "tf32_enabled": False,
         "cudnn_benchmark": False,
     }
-    held_out_item_ids = ["mawps__validation_17", "mawps__validation_904"]
+    held_out_item_ids = ["asdiv_a__validation_17", "asdiv_a__validation_904"]
 
     identity = stage0.training_identity(
         runtime=runtime, held_out_item_ids=held_out_item_ids

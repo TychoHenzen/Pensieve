@@ -8,9 +8,19 @@ from core.latent_loop import LatentLoop
 from eval.stream.events import Observe
 from eval.subjects.latent_core import LatentCoreSubject
 from workspace.concept_slots import Workspace
+from codecs_module.decoder import SlotDecoder
 
 TOKENIZER_NAME = "EleutherAI/pythia-160m"
 SLOT_COUNT = 4
+
+
+def test_slot_decoder_defaults_to_model_device() -> None:
+    latent_loop = LatentLoop(num_steps=1, device="cpu")
+    tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
+
+    decoder = SlotDecoder(model=latent_loop.model, tokenizer=tokenizer)
+
+    assert decoder.device == next(latent_loop.model.parameters()).device
 
 
 def _make_decoder() -> tuple[NarrationDecoder, LatentLoop]:

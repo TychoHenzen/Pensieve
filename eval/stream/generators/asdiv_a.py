@@ -1,4 +1,4 @@
-"""Calc-MAWPS records and deterministic Stage 0 stream generation."""
+"""Calc-ASDiv_A records and deterministic Stage 0 stream generation."""
 
 from __future__ import annotations
 
@@ -15,11 +15,12 @@ from typing import Any, Callable
 
 from eval.gate.answer_scoring import _TOLERANCE
 from eval.stage0_identity import (
-    CALC_MAWPS_CONFIGURATION,
-    CALC_MAWPS_DATASET,
-    CALC_MAWPS_RAW_COUNTS,
-    CALC_MAWPS_REVISION,
-    CALC_MAWPS_VALIDATION_EXCLUDED_ID,
+    ASDIV_CONFIGURATION,
+    ASDIV_DATASET,
+    ASDIV_PARTITION_COUNTS,
+    ASDIV_PARTITION_SEED,
+    ASDIV_REVISION,
+    load_asdiv_source,
 )
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
@@ -31,12 +32,12 @@ _NUMBER = re.compile(
     r"(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)|"
     r"(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)?)"
 )
-_SPLITS = tuple(CALC_MAWPS_RAW_COUNTS)
+_SPLITS = tuple(ASDIV_PARTITION_COUNTS)
 
 
 @dataclass(frozen=True, kw_only=True)
-class CalcMawpsRecord:
-    """One normalized Calc-MAWPS source row."""
+class AsdivRecord:
+    """One normalized Calc-ASDiv_A source row."""
 
     id: str
     split: str
@@ -45,10 +46,10 @@ class CalcMawpsRecord:
 
 
 @dataclass(frozen=True, kw_only=True)
-class CalcMawpsSelection:
+class AsdivSelection:
     """The selected ordered records and their content identity."""
 
-    records: tuple[CalcMawpsRecord, ...]
+    records: tuple[AsdivRecord, ...]
     split: str
     seed: int
     problem_count: int
@@ -59,7 +60,7 @@ class CalcMawpsSelection:
 def _row_error(split: str, position: int, row: object, detail: str) -> ValueError:
     source_id = row.get("id") if isinstance(row, Mapping) else None
     identity = source_id if isinstance(source_id, str) and source_id else str(position)
-    return ValueError(f"Calc-MAWPS {split} row {position} ({identity}): {detail}")
+    return ValueError(f"Calc-ASDiv_A {split} row {position} ({identity}): {detail}")
 
 
 def _parse_target(value: object) -> tuple[str, Fraction]:
@@ -95,13 +96,13 @@ def _parse_target(value: object) -> tuple[str, Fraction]:
 
 
 def canonicalize_numerical_target(value: str) -> str:
-    """Return the exact canonical numerical text used by Calc-MAWPS."""
+    """Return the exact canonical numerical text used by Calc-ASDiv_A."""
     canonical, _ = _parse_target(value)
     return canonical
 
 
 def _parse_source_target(value: object) -> tuple[str, Fraction]:
-    """Parse pinned Calc-MAWPS grouping underscores through the canonical grammar."""
+    """Parse pinned Calc-ASDiv_A grouping underscores through the canonical grammar."""
     if isinstance(value, str) and "_" in value:
         if "," in value:
             raise ValueError("result is not a bounded integer, decimal, or fraction")
@@ -124,7 +125,7 @@ def _validate_result_float(value: object, target: Fraction) -> None:
         raise ValueError("result_float disagrees with result")
 
 
-def _normalize_row(split: str, position: int, row: object) -> CalcMawpsRecord:
+def _normalize_row(split: str, position: int, row: object) -> AsdivRecord:
     if not isinstance(row, Mapping):
         raise _row_error(split, position, row, "row is not a mapping")
     source_id = row.get("id")
@@ -141,10 +142,10 @@ def _normalize_row(split: str, position: int, row: object) -> CalcMawpsRecord:
         _validate_result_float(row.get("result_float"), rational)
     except ValueError as error:
         raise _row_error(split, position, row, str(error)) from error
-    return CalcMawpsRecord(id=source_id, split=split, question=question, target=target)
+    return AsdivRecord(id=source_id, split=split, question=question, target=target)
 
 
-def _fingerprint(record: CalcMawpsRecord) -> str:
+def _fingerprint(record: AsdivRecord) -> str:
     payload = {"question": record.question, "target": record.target}
     encoded = json.dumps(
         payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
@@ -152,119 +153,87 @@ def _fingerprint(record: CalcMawpsRecord) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _load_calc_mawps_records(
-    rows_by_split: Mapping[str, Sequence[Mapping[str, Any]]], *, strict_raw_counts: bool
-) -> dict[str, tuple[CalcMawpsRecord, ...]]:
-    """Normalize raw Calc-MAWPS rows and enforce the pinned split contract."""
-    if set(rows_by_split) != set(_SPLITS):
-        raise ValueError(f"Calc-MAWPS splits must be exactly {_SPLITS!r}")
-    records: dict[str, tuple[CalcMawpsRecord, ...]] = {}
+def load_asdiv_records(
+    source_rows: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    dataset_loader: Callable[..., Any] | None = None,
+) -> dict[str, tuple[AsdivRecord, ...]]:
+    """Normalize and partition the pinned single Calc-ASDiv_A source split.
+
+    The first 520 rows after the seed-0 shuffle are the exact population used
+    by the measured frozen-Qwen preflight. The remaining rows become the
+    disjoint training and validation partitions.
+    """
+    rows = list(
+        source_rows
+        if source_rows is not None
+        else load_asdiv_source(dataset_loader=dataset_loader)
+    )
+    expected_total = sum(ASDIV_PARTITION_COUNTS.values())
+    if len(rows) != expected_total:
+        raise ValueError(
+            "Calc-ASDiv_A source count mismatch: expected "
+            f"{expected_total}, found {len(rows)}"
+        )
+    random.Random(ASDIV_PARTITION_SEED).shuffle(rows)
+    test_end = ASDIV_PARTITION_COUNTS["test"]
+    train_end = test_end + ASDIV_PARTITION_COUNTS["train"]
+    rows_by_split = {
+        "train": rows[test_end:train_end],
+        "validation": rows[train_end:],
+        "test": rows[:test_end],
+    }
+
+    records: dict[str, tuple[AsdivRecord, ...]] = {}
     seen_ids: set[str] = set()
     seen_fingerprints: set[str] = set()
-    excluded_validation: CalcMawpsRecord | None = None
     for split in _SPLITS:
-        rows = rows_by_split[split]
-        expected = CALC_MAWPS_RAW_COUNTS[split]
-        if strict_raw_counts and len(rows) != expected:
-            raise ValueError(
-                f"Calc-MAWPS {split} raw count mismatch: expected {expected}, found {len(rows)}"
-            )
-        source_rows = list(rows)
-        excluded = [row for row in source_rows if row.get("id") == CALC_MAWPS_VALIDATION_EXCLUDED_ID]
-        if split == "validation" and strict_raw_counts:
-            if len(excluded) != 1:
-                raise ValueError(f"Calc-MAWPS validation pinned exclusion mismatch for {CALC_MAWPS_VALIDATION_EXCLUDED_ID}")
-            excluded_position = next(
-                index for index, row in enumerate(source_rows)
-                if row.get("id") == CALC_MAWPS_VALIDATION_EXCLUDED_ID
-            )
-            excluded_validation = _normalize_row(
-                split, excluded_position, excluded[0]
-            )
-            source_rows = [row for row in source_rows if row.get("id") != CALC_MAWPS_VALIDATION_EXCLUDED_ID]
-        elif excluded:
-            raise ValueError(f"Calc-MAWPS {split} contains the validation exclusion id")
-        normalized: list[CalcMawpsRecord] = []
-        for position, row in enumerate(source_rows):
+        normalized: list[AsdivRecord] = []
+        for position, row in enumerate(rows_by_split[split]):
             record = _normalize_row(split, position, row)
             fingerprint = _fingerprint(record)
             if record.id in seen_ids:
                 raise _row_error(split, position, row, "duplicate source id")
             if fingerprint in seen_fingerprints:
-                raise _row_error(split, position, row, "duplicate canonical question and target")
+                raise _row_error(
+                    split,
+                    position,
+                    row,
+                    "duplicate canonical question and target across partitions",
+                )
             seen_ids.add(record.id)
             seen_fingerprints.add(fingerprint)
             normalized.append(record)
-        records[split] = tuple(normalized)
-    if strict_raw_counts:
-        if excluded_validation is None:
-            raise ValueError("Calc-MAWPS validation pinned exclusion is missing")
-        paired = next(
-            (record for record in records["test"] if record.id == "mawps__yCG5jGSKjPM9koup"),
-            None,
-        )
-        if paired is None or _fingerprint(paired) != _fingerprint(excluded_validation):
-            actual = records["test"][0].id if records["test"] else "0"
+        expected = ASDIV_PARTITION_COUNTS[split]
+        if len(normalized) != expected:
             raise ValueError(
-                f"Calc-MAWPS test row 0 ({actual}): pinned duplicate fingerprint mismatch"
+                f"Calc-ASDiv_A {split} count mismatch: expected "
+                f"{expected}, found {len(normalized)}"
             )
+        records[split] = tuple(normalized)
     return records
 
 
-def load_calc_mawps_records(
-    rows_by_split: Mapping[str, Sequence[Mapping[str, Any]]],
-) -> dict[str, tuple[CalcMawpsRecord, ...]]:
-    """Normalize raw Calc-MAWPS rows and enforce the pinned split contract."""
-    return _load_calc_mawps_records(rows_by_split, strict_raw_counts=True)
+def load_asdiv_a_records(
+    source_rows: Sequence[Mapping[str, Any]] | None = None,
+    *,
+    dataset_loader: Callable[..., Any] | None = None,
+) -> dict[str, tuple[AsdivRecord, ...]]:
+    """Compatibility spelling for the public Calc-ASDiv_A record loader."""
+    return load_asdiv_records(source_rows, dataset_loader=dataset_loader)
 
 
-def normalize_calc_mawps_split(
-    split: str,
-    rows: Sequence[Mapping[str, Any]],
-) -> tuple[CalcMawpsRecord, ...]:
-    """Normalize one already filtered pinned split without loading other splits."""
-    if split not in _SPLITS:
-        raise ValueError(f"unknown Calc-MAWPS split {split!r}")
-    expected_count = CALC_MAWPS_RAW_COUNTS[split]
-    if split == "validation":
-        expected_count -= 1
-    if len(rows) != expected_count:
-        raise ValueError(
-            f"Calc-MAWPS {split} filtered count mismatch: expected "
-            f"{expected_count}, found {len(rows)}"
-        )
-
-    normalized: list[CalcMawpsRecord] = []
-    seen_ids: set[str] = set()
-    seen_fingerprints: set[str] = set()
-    for position, row in enumerate(rows):
-        record = _normalize_row(split, position, row)
-        fingerprint = _fingerprint(record)
-        if record.id in seen_ids:
-            raise _row_error(split, position, row, "duplicate source id")
-        if fingerprint in seen_fingerprints:
-            raise _row_error(
-                split, position, row, "duplicate canonical question and target"
-            )
-        seen_ids.add(record.id)
-        seen_fingerprints.add(fingerprint)
-        normalized.append(record)
-    return tuple(normalized)
-
-
-def load_calc_mawps_record_split(
+def load_asdiv_a_record_split(
     split: str,
     dataset_loader: Callable[..., Any] | None = None,
-) -> tuple[CalcMawpsRecord, ...]:
-    """Load and normalize one pinned split without accessing unrelated splits."""
-    from eval.stage0_identity import load_calc_mawps_split
-
-    rows = load_calc_mawps_split(split, dataset_loader=dataset_loader)
-    return normalize_calc_mawps_split(split, rows)
+) -> tuple[AsdivRecord, ...]:
+    if split not in _SPLITS:
+        raise ValueError(f"unknown Calc-ASDiv_A split {split!r}")
+    return load_asdiv_records(dataset_loader=dataset_loader)[split]
 
 
-def calc_mawps_selection_identity(
-    *, records: Sequence[CalcMawpsRecord], split: str, seed: int, problem_count: int, revision: str
+def asdiv_a_selection_identity(
+    *, records: Sequence[AsdivRecord], split: str, seed: int, problem_count: int, revision: str
 ) -> str:
     """Return the digest of the selected ordered records and selection inputs."""
     canonical_records = [
@@ -276,8 +245,8 @@ def calc_mawps_selection_identity(
     ).hexdigest()
     identity = {
         "schema_version": 1,
-        "dataset": CALC_MAWPS_DATASET,
-        "configuration": CALC_MAWPS_CONFIGURATION,
+        "dataset": ASDIV_DATASET,
+        "configuration": ASDIV_CONFIGURATION,
         "revision": revision,
         "split": split,
         "seed": seed,
@@ -290,12 +259,12 @@ def calc_mawps_selection_identity(
     ).hexdigest()
 
 
-def select_calc_mawps_records(
-    records_by_split: Mapping[str, Sequence[CalcMawpsRecord]], *, split: str, seed: int, problem_count: int | None
-) -> CalcMawpsSelection:
+def select_asdiv_a_records(
+    records_by_split: Mapping[str, Sequence[AsdivRecord]], *, split: str, seed: int, problem_count: int | None
+) -> AsdivSelection:
     """Shuffle pinned source order with the invocation seed and select its prefix."""
     if split not in _SPLITS:
-        raise ValueError(f"unknown Calc-MAWPS split {split!r}")
+        raise ValueError(f"unknown Calc-ASDiv_A split {split!r}")
     records = tuple(records_by_split[split])
     if problem_count is None:
         problem_count = len(records)
@@ -307,25 +276,25 @@ def select_calc_mawps_records(
     random.Random(seed).shuffle(ordered_ids)
     by_id = {record.id: record for record in records}
     selected = tuple(by_id[item_id] for item_id in ordered_ids[:problem_count])
-    return CalcMawpsSelection(
+    return AsdivSelection(
         records=selected,
         split=split,
         seed=seed,
         problem_count=problem_count,
         ordered_item_ids=tuple(ordered_ids[:problem_count]),
-        identity=calc_mawps_selection_identity(
-            records=selected, split=split, seed=seed, problem_count=problem_count, revision=CALC_MAWPS_REVISION
+        identity=asdiv_a_selection_identity(
+            records=selected, split=split, seed=seed, problem_count=problem_count, revision=ASDIV_REVISION
         ),
     )
 
 
-class CalcMawpsGenerator:
-    """Present Calc-MAWPS questions and probe their numerical answers."""
+class AsdivGenerator:
+    """Present Calc-ASDiv_A questions and probe their numerical answers."""
 
-    name = "calc-mawps"
+    name = "asdiv-a"
     version = "1"
 
-    def __init__(self, *, records_by_split: Mapping[str, Sequence[CalcMawpsRecord]] | None = None) -> None:
+    def __init__(self, *, records_by_split: Mapping[str, Sequence[AsdivRecord]] | None = None) -> None:
         self._records_by_split = (
             {split: tuple(records) for split, records in records_by_split.items()}
             if records_by_split is not None
@@ -336,27 +305,13 @@ class CalcMawpsGenerator:
         del config
         return 0.0
 
-    def _records(self) -> Mapping[str, Sequence[CalcMawpsRecord]]:
+    def _records(self) -> Mapping[str, Sequence[AsdivRecord]]:
         if self._records_by_split is None:
-            import datasets
-
-            rows = {
-                split: list(
-                    datasets.load_dataset(
-                        CALC_MAWPS_DATASET,
-                        CALC_MAWPS_CONFIGURATION,
-                        split=split,
-                        revision=CALC_MAWPS_REVISION,
-                        trust_remote_code=False,
-                    )
-                )
-                for split in _SPLITS
-            }
-            self._records_by_split = load_calc_mawps_records(rows)
+            self._records_by_split = load_asdiv_records()
         return self._records_by_split
 
     def generate(self, config: StreamConfig, seed: int) -> Iterator[StreamItem]:
-        selection = select_calc_mawps_records(
+        selection = select_asdiv_a_records(
             self._records(),
             split=config.params.get("split", "test"),
             seed=seed,
@@ -368,8 +323,8 @@ class CalcMawpsGenerator:
             yield StreamItem(
                 event=Probe(
                     position=position + 1,
-                    probe_id=f"calc-mawps-{record.id}-{position + 1}",
-                    task_id="calc-mawps",
+                    probe_id=f"asdiv-a-{record.id}-{position + 1}",
+                    task_id="asdiv-a",
                     query="What is the numerical answer?",
                     teaching_position=position,
                 ),

@@ -80,6 +80,7 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
         self._phase_variance_sum = 0.0
         self._active_phase = "eggroll"
         self._cycle = 1
+        self._optimizer_call_counts = {"eggroll": 0, "gradient": 0}
         self._evaluation_results: list[EvaluationRecord[EvaluationT]] = []
 
     @property
@@ -199,6 +200,7 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
             raise ValueError("scheduler could not select a positive record batch")
         global_step = self._completed_steps + record_count
         phase_step = self._completed_phase_steps + record_count
+        optimizer_call_count = self._optimizer_call_counts[update_method] + 1
         position = ExperimentPosition(
             update_method=update_method,
             cycle=self._cycle,
@@ -206,6 +208,8 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
             epoch=epoch,
             example_position=example_position + record_count - 1,
             phase_step=phase_step,
+            optimizer_call_count=optimizer_call_count,
+            consumed_record_count=record_count,
         )
         engine_input: object = examples[0] if record_count == 1 else tuple(examples[:record_count])
         result = engine.train_step(engine_input, position)
@@ -228,6 +232,7 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
             )
         self._completed_steps = global_step
         self._completed_phase_steps = phase_step
+        self._optimizer_call_counts[update_method] = optimizer_call_count
         self._phase_variance_sum += float(variance) * consumed_record_count
         if phase_step == self._phase_steps:
             average_variance = self._phase_variance_sum / self._phase_steps

@@ -39,3 +39,9 @@ gate_results/
 
 # checkpoints/: training checkpoint files written by train/run_training.py
 checkpoints/
+
+# *.jsonl: training output logs written by experimental training runs
+*.jsonl
+
+# *.log~: backup files created during training script development
+*.log~

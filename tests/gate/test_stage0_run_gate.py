@@ -48,8 +48,8 @@ def _prepared() -> tuple[Any, _FakeModel]:
     return prepared, model
 
 
-def test_default_gate_paths_are_calc_mawps_qwen_scoped() -> None:
-    assert run_gate.DEFAULT_RESULTS_DIR == Path("gate_results/calc_mawps_qwen")
+def test_default_gate_paths_are_asdiv_a_qwen_scoped() -> None:
+    assert run_gate.DEFAULT_RESULTS_DIR == Path("gate_results/asdiv_a_qwen")
     assert token_cot_baseline.DEFAULT_OUTPUT == (
         run_gate.DEFAULT_RESULTS_DIR / "token_cot.json"
     )
@@ -117,6 +117,54 @@ def test_generated_baseline_uses_atomic_cache_writer(
     assert calls == [(tmp_path / "token_cot.json", result)]
 
 
+def test_latent_phase_logs_per_seed_and_global_progress(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    prepared, _model = _prepared()
+    args = _args(tmp_path)
+    args.checkpoint.write_bytes(b"checkpoint")
+    token_result = token_cot_baseline.run_baseline(
+        device="cpu", prepared_request=prepared
+    )
+    messages: list[str] = []
+
+    def fake_run_eval(**kwargs: Any) -> dict[str, Any]:
+        callback = kwargs["on_item"]
+        callback(
+            latent_eval.LatentProgress(
+                seed=0,
+                seed_index=1,
+                seed_count=5,
+                item_index=10,
+                item_count=520,
+                seed_correct=4,
+                global_done=10,
+                global_count=2600,
+                global_correct=4,
+            )
+        )
+        return {"runs": []}
+
+    monkeypatch.setattr(run_gate, "run_eval", fake_run_eval)
+    monkeypatch.setattr(run_gate, "write_gate_result", lambda *_args: None)
+    monkeypatch.setattr(run_gate, "_log", messages.append)
+
+    run_gate._run_latent_eval(
+        args,
+        list(run_gate.DEFAULT_SEEDS),
+        token_result,
+        _records(),
+        prepared,
+    )
+
+    progress = next(message for message in messages if "latent seed" in message)
+    assert "seed 1/5 (0) [10/520]" in progress
+    assert "seed_acc=0.4000 (4/10)" in progress
+    assert "global=[10/2600] acc=0.4000 (4/10)" in progress
+    assert "elapsed " in progress
+    assert "ETA " in progress
+
+
 def test_token_standalone_main_uses_atomic_cache_writer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -168,7 +216,7 @@ def test_latent_standalone_main_uses_strict_reader_and_atomic_writer(
     writes: list[tuple[Path, Any]] = []
     monkeypatch.setattr(latent_eval, "_parse_args", lambda: args)
     monkeypatch.setattr(latent_eval, "configure_deterministic_runtime", lambda: None)
-    monkeypatch.setattr(latent_eval, "load_calc_mawps_record_split", lambda _split: records)
+    monkeypatch.setattr(latent_eval, "load_asdiv_a_record_split", lambda _split: records)
     monkeypatch.setattr(
         token_cot_baseline,
         "prepare_baseline_request",

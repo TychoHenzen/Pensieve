@@ -41,8 +41,8 @@ RUNTIME_IDENTITY = {
 }
 RUN_CONFIG = {
     "dataset_selection": {
-        "dataset": "MU-NLPC/Calc-mawps",
-        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "dataset": "MU-NLPC/Calc-asdiv_a",
+        "revision": "520a6910e097ee287ecd2bb9104f7f45805f9df9",
         "split": "train",
         "seed": 0,
         "count": 3,
@@ -67,13 +67,16 @@ RUN_CONFIG = {
         "sigma": 0.02,
         "rank": 4,
         "variance_weight": 1.0,
+        "prompt_alignment_weight": 0.1,
+        "variance_lower_threshold": 0.001,
+        "variance_upper_threshold": 0.1,
         "eval_batch_size": 8,
         "fitness_batch_size": 8,
         "use_amp": False,
     },
     "held_out_selection": {
-        "dataset": "MU-NLPC/Calc-mawps",
-        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "dataset": "MU-NLPC/Calc-asdiv_a",
+        "revision": "520a6910e097ee287ecd2bb9104f7f45805f9df9",
         "split": "validation",
         "seed": 0,
         "count": 2,

@@ -1,0 +1,761 @@
+"""Bounded trainability investigation for Stage 0 objectives and update methods.
+
+Distinguishes untrainable objectives from optimizer-specific failures through
+fixed fresh-state probes and equal-budget method comparisons.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+import hashlib
+import json
+import math
+from pathlib import Path
+from typing import Any, Literal
+
+import torch
+
+from eval.stage0_identity import canonical_json_bytes
+from train.eggroll_stability import (
+    ImplementationIdentity,
+    StabilityMetrics,
+    _is_sha256,
+    _require_finite,
+)
+
+
+TRAINABILITY_SCHEMA_VERSION = 1
+TRAINABILITY_IMPLEMENTATION_PATHS = (
+    "codecs_module/decoder.py",
+    "codecs_module/encoder.py",
+    "core/latent_loop.py",
+    "core/qwen_tap.py",
+    "eval/gate/answer_scoring.py",
+    "eval/stage0_identity.py",
+    "train/answer_objective.py",
+    "train/eggroll_factorized.py",
+    "train/eggroll_perturbations.py",
+    "train/eggroll_stability.py",
+    "train/eggroll_stability_evaluation.py",
+    "train/eggroll_trainer.py",
+    "train/eggroll_updates.py",
+    "train/run_eggroll_stability.py",
+    "train/stage0_data.py",
+    "train/stage0_trainability.py",
+    "train/training_results.py",
+    "train/training_state.py",
+    "train/vicreg.py",
+    "workspace/concept_slots.py",
+)
+
+OVERFIT_LEARNING_RATES = (0.0001, 0.001, 0.01)
+OVERFIT_CHECKPOINTS = (0, 1, 4, 16, 64)
+MIN_SEPARATION_RATIO = 0.95
+MAX_UPDATE_RELATIVE_MATRIX_RMS = 0.01
+MAX_LOSS_REDUCTION_RATIO = 0.5
+
+MethodName = Literal["gradient", "eggroll"]
+ProbeKind = Literal["overfit", "gradient_causal", "eggroll_causal"]
+ArmKind = Literal["no_update", "gradient_only", "eggroll_only"]
+
+
+@dataclass(frozen=True)
+class TrainabilityAssetIdentity:
+    """Complete identity of fixed records and configuration from the stability report."""
+
+    stability_report_digest: str
+    held_out_record_identifiers: tuple[tuple[str, str], ...]
+    training_record_identifiers_overfit: tuple[tuple[str, str], ...]
+    training_record_identifiers_32: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if not _is_sha256(self.stability_report_digest):
+            raise ValueError(
+                "trainability asset identity requires a SHA-256 digest for the report"
+            )
+        if not self.held_out_record_identifiers:
+            raise ValueError("trainability asset identity requires held-out records")
+        if not self.training_record_identifiers_overfit:
+            raise ValueError(
+                "trainability asset identity requires overfit training records"
+            )
+        if not self.training_record_identifiers_32:
+            raise ValueError(
+                "trainability asset identity requires 32-record training records"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "stability_report_digest": self.stability_report_digest,
+            "held_out_record_count": len(self.held_out_record_identifiers),
+            "training_record_count_overfit": len(self.training_record_identifiers_overfit),
+            "training_record_count_32": len(self.training_record_identifiers_32),
+        }
+
+
+@dataclass(frozen=True)
+class TrainabilityConfiguration:
+    """Every field that makes a trainability investigation reusable or stale."""
+
+    asset_identity: TrainabilityAssetIdentity
+    implementation: ImplementationIdentity
+    stability_configuration: Mapping[str, Any]
+    overfit_learning_rates: tuple[float, ...] = OVERFIT_LEARNING_RATES
+    overfit_checkpoints: tuple[int, ...] = OVERFIT_CHECKPOINTS
+    held_out_evaluation_checkpoints: tuple[int, ...] = (0, 8, 32)
+    min_separation_ratio: float = MIN_SEPARATION_RATIO
+    max_update_relative_matrix_rms: float = MAX_UPDATE_RELATIVE_MATRIX_RMS
+    max_loss_reduction_ratio: float = MAX_LOSS_REDUCTION_RATIO
+
+    def __post_init__(self) -> None:
+        _require_finite(self.to_dict(), "trainability configuration")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "asset_identity": self.asset_identity.to_dict(),
+            "implementation": self.implementation.to_dict(),
+            "overfit_learning_rates": list(self.overfit_learning_rates),
+            "overfit_checkpoints": list(self.overfit_checkpoints),
+            "held_out_evaluation_checkpoints": list(
+                self.held_out_evaluation_checkpoints
+            ),
+            "min_separation_ratio": self.min_separation_ratio,
+            "max_update_relative_matrix_rms": self.max_update_relative_matrix_rms,
+            "max_loss_reduction_ratio": self.max_loss_reduction_ratio,
+        }
+
+
+@dataclass(frozen=True)
+class OverfitAttempt:
+    """One complete memorization attempt at a declared learning rate."""
+
+    learning_rate: float
+    status: Literal["passed", "failed", "non_finite"]
+    baseline_metrics: StabilityMetrics | None
+    checkpoints: tuple[tuple[int, StabilityMetrics | None], ...] = ()
+    failed_reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.learning_rate) or self.learning_rate <= 0.0:
+            raise ValueError("overfit attempt requires a positive finite learning rate")
+        if self.status == "passed":
+            if not self.baseline_metrics:
+                raise ValueError("passed overfit attempt must have baseline metrics")
+            if not self.checkpoints:
+                raise ValueError("passed overfit attempt must have checkpoints")
+        if self.status == "non_finite" and not self.failed_reason:
+            raise ValueError(
+                "non_finite overfit attempt must specify the failed field"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "learning_rate": self.learning_rate,
+            "status": self.status,
+            "baseline_metrics": (
+                self.baseline_metrics.to_dict()
+                if self.baseline_metrics
+                else None
+            ),
+            "checkpoints": [
+                {
+                    "optimizer_call_count": count,
+                    "metrics": metrics.to_dict() if metrics else None,
+                }
+                for count, metrics in self.checkpoints
+            ],
+        }
+        if self.failed_reason:
+            result["failed_reason"] = self.failed_reason
+        _require_finite(result, "overfit attempt")
+        return result
+
+
+@dataclass(frozen=True)
+class OverfitProbeResult:
+    """Classification of the shared objective memorization probe."""
+
+    status: Literal["passed", "objective_untrainable", "inconclusive"]
+    attempts: tuple[OverfitAttempt, ...]
+    failed_conditions: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.status == "passed":
+            if not any(attempt.status == "passed" for attempt in self.attempts):
+                raise ValueError("passed overfit probe must have a passing attempt")
+        if self.status == "inconclusive" and not self.failed_conditions:
+            raise ValueError("inconclusive probe must specify failed conditions")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "attempt_count": len(self.attempts),
+            "attempts": [attempt.to_dict() for attempt in self.attempts],
+            "failed_conditions": list(self.failed_conditions),
+        }
+
+
+@dataclass(frozen=True)
+class CausalProbeResult:
+    """Classification of one method's causal update validation."""
+
+    method: MethodName
+    status: Literal["passed", "direction_mismatch", "unsafe_update", "inconclusive"]
+    baseline_objective: float | None
+    predicted_objective_delta: float | None
+    observed_objective_delta: float | None
+    max_update_relative_matrix_rms: float | None
+    baseline_separation: float | None
+    post_update_separation: float | None
+    failed_conditions: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.status == "passed":
+            if not all(
+                v is not None
+                for v in [
+                    self.baseline_objective,
+                    self.predicted_objective_delta,
+                    self.observed_objective_delta,
+                    self.max_update_relative_matrix_rms,
+                    self.baseline_separation,
+                    self.post_update_separation,
+                ]
+            ):
+                raise ValueError("passed causal probe must have all metrics")
+            predicted = self.predicted_objective_delta
+            observed = self.observed_objective_delta
+            if not (
+                predicted is not None
+                and observed is not None
+                and math.isfinite(predicted)
+                and math.isfinite(observed)
+            ):
+                raise ValueError("causal probe deltas must be finite")
+        if self.status == "inconclusive" and not self.failed_conditions:
+            raise ValueError("inconclusive probe must specify failed conditions")
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "method": self.method,
+            "status": self.status,
+            "baseline_objective": self.baseline_objective,
+            "predicted_objective_delta": self.predicted_objective_delta,
+            "observed_objective_delta": self.observed_objective_delta,
+            "max_update_relative_matrix_rms": (
+                self.max_update_relative_matrix_rms
+            ),
+            "baseline_separation": self.baseline_separation,
+            "post_update_separation": self.post_update_separation,
+        }
+        if self.failed_conditions:
+            result["failed_conditions"] = list(self.failed_conditions)
+        _require_finite(result, "causal probe result")
+        return result
+
+
+@dataclass(frozen=True)
+class ArmCheckpoint:
+    """One evaluation checkpoint in an equal-budget arm run."""
+
+    consumed_examples: int
+    optimizer_call_count: int
+    metrics: StabilityMetrics
+    max_update_relative_matrix_rms: float | None = None
+
+    def __post_init__(self) -> None:
+        if self.consumed_examples < 0 or self.optimizer_call_count < 0:
+            raise ValueError("arm checkpoint requires non-negative example counts")
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "consumed_examples": self.consumed_examples,
+            "optimizer_call_count": self.optimizer_call_count,
+            "metrics": self.metrics.to_dict(),
+        }
+        if self.max_update_relative_matrix_rms is not None:
+            result["max_update_relative_matrix_rms"] = (
+                self.max_update_relative_matrix_rms
+            )
+        _require_finite(result, "arm checkpoint")
+        return result
+
+
+@dataclass(frozen=True)
+class ArmResult:
+    """Classification of one equal-budget method arm."""
+
+    arm: ArmKind
+    method: MethodName | None
+    status: Literal[
+        "passed", "viable", "no_improvement", "loss_behavior_conflict",
+        "direction_mismatch", "unsafe_update", "non_finite", "inconclusive"
+    ]
+    baseline_checkpoint: ArmCheckpoint
+    checkpoints: tuple[ArmCheckpoint, ...]
+    recalibration_eligible: bool
+    failed_conditions: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.arm == "no_update":
+            if self.method is not None:
+                raise ValueError("no-update arm must not specify a method")
+            if self.status != "passed":
+                raise ValueError("no-update arm must have passed status")
+        else:
+            if self.method not in ("gradient", "eggroll"):
+                raise ValueError("updated arm must specify gradient or eggroll")
+            if self.status in ("direction_mismatch",) and not self.recalibration_eligible:
+                raise ValueError(
+                    "direction_mismatch arm cannot be recalibration_eligible"
+                )
+        if self.status == "inconclusive" and not self.failed_conditions:
+            raise ValueError("inconclusive arm must specify failed conditions")
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "arm": self.arm,
+            "method": self.method,
+            "status": self.status,
+            "baseline": self.baseline_checkpoint.to_dict(),
+            "checkpoint_count": len(self.checkpoints),
+            "checkpoints": [cp.to_dict() for cp in self.checkpoints],
+            "recalibration_eligible": self.recalibration_eligible,
+        }
+        if self.failed_conditions:
+            result["failed_conditions"] = list(self.failed_conditions)
+        _require_finite(result, "arm result")
+        return result
+
+
+@dataclass(frozen=True)
+class TrainabilityReport:
+    """Complete bounded trainability investigation result."""
+
+    schema_version: int
+    configuration: TrainabilityConfiguration
+    asset_identity_digest: str
+    initial_state_digest: str
+    overall_status: Literal[
+        "bounded_trainability_observed",
+        "shared_loss_behavior_conflict",
+        "objective_untrainable",
+        "method_specific_failure",
+        "inconclusive",
+    ]
+    overfit_probe: OverfitProbeResult
+    causal_probes: tuple[CausalProbeResult, ...]
+    arms: tuple[ArmResult, ...]
+    elapsed_seconds: float
+    eta_seconds: float | None = None
+    failed_conditions: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.schema_version != TRAINABILITY_SCHEMA_VERSION:
+            raise ValueError(
+                f"trainability report requires schema version {TRAINABILITY_SCHEMA_VERSION}"
+            )
+        if not _is_sha256(self.asset_identity_digest):
+            raise ValueError("trainability report requires SHA-256 asset identity")
+        if not _is_sha256(self.initial_state_digest):
+            raise ValueError("trainability report requires SHA-256 initial state")
+        if not math.isfinite(self.elapsed_seconds):
+            raise ValueError("elapsed_seconds must be finite")
+        if self.eta_seconds is not None and not math.isfinite(self.eta_seconds):
+            raise ValueError("eta_seconds must be finite or None")
+        _require_finite(self.to_dict(), "trainability report")
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "schema_version": self.schema_version,
+            "configuration": self.configuration.to_dict(),
+            "asset_identity_digest": self.asset_identity_digest,
+            "initial_state_digest": self.initial_state_digest,
+            "overall_status": self.overall_status,
+            "overfit_probe": self.overfit_probe.to_dict(),
+            "causal_probe_count": len(self.causal_probes),
+            "causal_probes": [cp.to_dict() for cp in self.causal_probes],
+            "arm_count": len(self.arms),
+            "arms": [arm.to_dict() for arm in self.arms],
+            "elapsed_seconds": self.elapsed_seconds,
+            "eta_seconds": self.eta_seconds,
+        }
+        if self.failed_conditions:
+            result["failed_conditions"] = list(self.failed_conditions)
+        _require_finite(result, "trainability report")
+        return result
+
+    def canonical_json(self) -> str:
+        """Return the canonical JSON representation."""
+        return canonical_json_bytes(self.to_dict()).decode("utf-8")
+
+
+class TrainabilityReportValidationError(ValueError):
+    """One or more strict parsing or compatibility failures."""
+
+    def __init__(self, issues: Sequence[str]) -> None:
+        self.issues = tuple(issues)
+        super().__init__("incompatible trainability report: " + "; ".join(self.issues))
+
+
+def canonical_trainability_implementation_identity(
+    repository_root: str | Path,
+    source_paths: Sequence[str] = TRAINABILITY_IMPLEMENTATION_PATHS,
+) -> ImplementationIdentity:
+    """Hash ordered repository-relative source files for trainability investigation."""
+    root = Path(repository_root).resolve()
+    sources: list[tuple[str, str]] = []
+    for relative in source_paths:
+        path = (root / relative).resolve()
+        if root not in path.parents or not path.is_file():
+            raise ValueError(f"guarded trainability source is invalid: {relative}")
+        sources.append((relative.replace("\\", "/"), hashlib.sha256(path.read_bytes()).hexdigest()))
+    combined = hashlib.sha256(
+        canonical_json_bytes({path: digest for path, digest in sources})
+    ).hexdigest()
+    return ImplementationIdentity(combined, tuple(sources))
+
+
+def load_and_validate_stability_report(
+    stability_report_path: str | Path,
+    current_implementation: ImplementationIdentity,
+    held_out_record_ids_from_report: tuple[tuple[str, str], ...],
+) -> tuple[str, Mapping[str, Any]]:
+    """Load and validate a failed stability report for trainability investigation.
+
+    Args:
+        stability_report_path: Path to the JSON stability report
+        current_implementation: Current implementation identity for compatibility check
+        held_out_record_ids_from_report: Expected held-out record identifiers
+
+    Returns:
+        Tuple of (report_digest, report_configuration)
+
+    Raises:
+        TrainabilityReportValidationError: If report is missing, passing, malformed, or incompatible
+    """
+    report_path = Path(stability_report_path).resolve()
+    issues: list[str] = []
+
+    if not report_path.exists():
+        issues.append(f"stability report not found: {report_path}")
+        raise TrainabilityReportValidationError(issues)
+
+    try:
+        report_bytes = report_path.read_bytes()
+        report_data = json.loads(report_bytes)
+    except (json.JSONDecodeError, OSError) as e:
+        issues.append(f"stability report malformed or unreadable: {e}")
+        raise TrainabilityReportValidationError(issues)
+
+    if not isinstance(report_data, dict):
+        issues.append("stability report root must be an object")
+        raise TrainabilityReportValidationError(issues)
+
+    status = report_data.get("status")
+    if status == "passed":
+        issues.append("stability report must have status=failed (passing reports cannot start investigation)")
+    elif status != "failed":
+        issues.append(f"stability report must have status=failed, got {status!r}")
+
+    if issues:
+        raise TrainabilityReportValidationError(issues)
+
+    config = report_data.get("configuration", {})
+    if not isinstance(config, dict):
+        issues.append("configuration must be an object")
+    else:
+        impl_config = config.get("implementation", {})
+        if not isinstance(impl_config, dict):
+            issues.append("implementation must be an object in configuration")
+        else:
+            impl_sha = impl_config.get("sha256")
+            if impl_sha != current_implementation.sha256:
+                issues.append(
+                    f"implementation mismatch: report has {impl_sha!r}, "
+                    f"current is {current_implementation.sha256!r}"
+                )
+
+    asset_config = config.get("asset_identity", {})
+    if isinstance(asset_config, dict):
+        report_held_out_count = asset_config.get("held_out_problem_count")
+        if report_held_out_count != len(held_out_record_ids_from_report):
+            issues.append(
+                f"held-out record count mismatch: report says {report_held_out_count}, "
+                f"current expects {len(held_out_record_ids_from_report)}"
+            )
+
+    if issues:
+        raise TrainabilityReportValidationError(issues)
+
+    report_digest = hashlib.sha256(report_bytes).hexdigest()
+
+    return report_digest, config
+
+
+def compute_initial_state_digest(state_parameters: Sequence[tuple[str, Any]]) -> str:
+    """Compute SHA-256 digest of fresh trainability initial state.
+
+    Args:
+        state_parameters: Ordered tuples of (parameter_name, tensor_data)
+
+    Returns:
+        SHA-256 digest as hex string
+    """
+    state_dict: dict[str, Any] = {}
+    for name, value in state_parameters:
+        if isinstance(value, torch.Tensor):
+            state_dict[name] = {
+                "_tensor": True,
+                "dtype": str(value.dtype),
+                "shape": list(value.shape),
+                "device": str(value.device),
+                "data_hash": hashlib.sha256(value.detach().cpu().numpy().tobytes()).hexdigest(),
+            }
+        else:
+            state_dict[name] = value
+    combined = canonical_json_bytes(state_dict)
+    return hashlib.sha256(combined).hexdigest()
+
+
+def build_trainability_record_selections(
+    dataset: Any,
+) -> tuple[
+    tuple[tuple[str, str], ...],
+    tuple[tuple[str, str], ...],
+    tuple[tuple[str, str], ...],
+]:
+    """Build the fixed training and held-out record selections for trainability investigation.
+
+    Args:
+        dataset: Stage0Dataset with training and held-out records
+
+    Returns:
+        Tuple of (overfit_records, training_32_records, held_out_64_records)
+        where each is a tuple of (record_id, record_hash) pairs
+    """
+    training_records = dataset.training_records(mode="eggroll", epoch=1)
+    held_out_records = dataset.held_out_records()
+
+    if len(training_records) < 32:
+        raise ValueError(
+            f"trainability investigation requires at least 32 training records, got {len(training_records)}"
+        )
+    if len(held_out_records) < 64:
+        raise ValueError(
+            f"trainability investigation requires at least 64 held-out records, got {len(held_out_records)}"
+        )
+
+    overfit_records = training_records[:1]
+    training_32_records = training_records[:32]
+    held_out_64_records = held_out_records[:64]
+
+    def record_to_identifier(record: Any) -> tuple[str, str]:
+        """Convert a record to (id, content_hash) identifier."""
+        content = canonical_json_bytes(
+            {
+                "id": record.id,
+                "split": record.split,
+                "question": record.question,
+                "target": record.target,
+            }
+        )
+        content_hash = hashlib.sha256(content).hexdigest()
+        return (record.id, content_hash)
+
+    overfit_ids = tuple(record_to_identifier(r) for r in overfit_records)
+    training_32_ids = tuple(record_to_identifier(r) for r in training_32_records)
+    held_out_64_ids = tuple(record_to_identifier(r) for r in held_out_64_records)
+
+    return overfit_ids, training_32_ids, held_out_64_ids
+
+
+def evaluate_single_record_loss(
+    trainer: Any,
+    question: str,
+    answer: str,
+    device: str = "cpu",
+) -> tuple[float, float]:
+    """Evaluate language model loss on a single record.
+
+    Args:
+        trainer: LatentCoreTrainer instance
+        question: Training question
+        answer: Target answer
+        device: Device to use for computation
+
+    Returns:
+        Tuple of (language_model_loss, total_objective)
+    """
+    from train.answer_objective import (
+        SUBJECT_LATENT_RUNS_PER_ANSWER,
+        prepare_training_example,
+        prompt_aligned_answer_objective,
+        prompt_teacher_state,
+    )
+
+    try:
+        trainer.optimizer.zero_grad()
+        latent_loop = trainer.latent_loop
+        tokenizer = trainer.tokenizer
+        encoder = trainer.encoder
+        workspace = trainer.workspace
+        language_model = latent_loop.model
+
+        prepared = prepare_training_example(tokenizer, question, answer)
+        teacher_state = prompt_teacher_state(
+            language_model,
+            prepared.context_input_ids.to(device),
+        )
+        context_embeds = latent_loop.embed_tokens(prepared.context_input_ids)
+
+        slots = encoder.encode(question)
+        workspace.write_slots(slots)
+        for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
+            latent_loop.run(workspace, context_embeds=context_embeds)
+        loop_slots = workspace.read_slots()
+
+        answer_objective = prompt_aligned_answer_objective(
+            language_model,
+            loop_slots,
+            prepared.answer_ids.to(device),
+            getattr(tokenizer, "eos_token_id", None),
+            teacher_state=teacher_state,
+        )
+        lm_loss = answer_objective.language_model_loss.mean()
+        total_objective = lm_loss + (
+            trainer.prompt_alignment_weight
+            * answer_objective.prompt_alignment_loss.mean()
+        )
+
+        return lm_loss.item(), total_objective.item()
+    except Exception:
+        return float("nan"), float("nan")
+
+
+def run_overfit_attempt(
+    question: str,
+    answer: str,
+    learning_rate: float,
+    device: str = "cpu",
+    checkpoint_steps: tuple[int, ...] = (0, 1, 4, 16, 64),
+) -> dict[str, Any]:
+    """Run one overfit memorization attempt at a fixed learning rate.
+
+    Args:
+        question: Training question
+        answer: Target answer
+        learning_rate: Learning rate for optimizer
+        device: Device to use for computation
+        checkpoint_steps: Optimizer call counts where to evaluate
+
+    Returns:
+        Dictionary with attempt status, baseline metrics, and checkpoints
+    """
+    from train.trainer import LatentCoreTrainer
+
+    try:
+        trainer = LatentCoreTrainer(
+            lr=learning_rate,
+            device=device,
+        )
+
+        baseline_loss, baseline_objective = evaluate_single_record_loss(
+            trainer,
+            question,
+            answer,
+            device=device,
+        )
+
+        if math.isnan(baseline_loss):
+            return {
+                "learning_rate": learning_rate,
+                "status": "non_finite",
+                "baseline_loss": None,
+                "checkpoints": [],
+                "failed_reason": "Initial evaluation produced non-finite loss",
+            }
+
+        checkpoints: list[tuple[int, float, float]] = []
+        current_step = 0
+
+        for target_step in checkpoint_steps:
+            if current_step >= target_step:
+                continue
+
+            steps_to_run = target_step - current_step
+            for _ in range(steps_to_run):
+                try:
+                    result = trainer.train_step(question, answer)
+                    if (
+                        math.isnan(result.language_model_loss)
+                        or math.isnan(result.total_objective)
+                    ):
+                        return {
+                            "learning_rate": learning_rate,
+                            "status": "non_finite",
+                            "baseline_loss": baseline_loss,
+                            "checkpoints": checkpoints,
+                            "failed_reason": f"Non-finite loss at step {current_step + 1}",
+                        }
+                    current_step += 1
+                except Exception as e:
+                    return {
+                        "learning_rate": learning_rate,
+                        "status": "non_finite",
+                        "baseline_loss": baseline_loss,
+                        "checkpoints": checkpoints,
+                        "failed_reason": f"Exception at step {current_step + 1}: {str(e)}",
+                    }
+
+            checkpoint_loss, checkpoint_objective = evaluate_single_record_loss(
+                trainer,
+                question,
+                answer,
+                device=device,
+            )
+
+            if math.isnan(checkpoint_loss):
+                return {
+                    "learning_rate": learning_rate,
+                    "status": "non_finite",
+                    "baseline_loss": baseline_loss,
+                    "checkpoints": checkpoints,
+                    "failed_reason": f"Non-finite evaluation at step {target_step}",
+                }
+
+            loss_ratio = checkpoint_loss / baseline_loss if baseline_loss > 0 else float("inf")
+            checkpoints.append((target_step, checkpoint_loss, loss_ratio))
+
+            max_loss_threshold = 0.5 * baseline_loss
+            early_pass = checkpoint_loss <= max_loss_threshold
+
+            if early_pass:
+                return {
+                    "learning_rate": learning_rate,
+                    "status": "passed",
+                    "baseline_loss": baseline_loss,
+                    "checkpoints": checkpoints,
+                    "checkpoint_steps": checkpoint_steps,
+                    "passed_at_step": target_step,
+                    "passed_loss_ratio": loss_ratio,
+                }
+
+        return {
+            "learning_rate": learning_rate,
+            "status": "failed",
+            "baseline_loss": baseline_loss,
+            "checkpoints": checkpoints,
+            "checkpoint_steps": checkpoint_steps,
+            "failed_reason": "Did not meet loss reduction criteria within 64 steps",
+        }
+
+    except Exception as e:
+        return {
+            "learning_rate": learning_rate,
+            "status": "non_finite",
+            "baseline_loss": None,
+            "checkpoints": [],
+            "failed_reason": f"Fatal exception: {str(e)}",
+        }

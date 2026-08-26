@@ -291,6 +291,7 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     assert result.optimizer_call_count == 1
 
 
+# covers: train/alternating-cycle :: Comparable phase measurements :: Compare phase metrics
 def test_fitness_batch_reuses_one_population_and_reports_aggregate_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

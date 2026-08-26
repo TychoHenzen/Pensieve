@@ -238,7 +238,11 @@ class _TrainerEngine:
                 start_position=start_position,
                 next_position=position.example_position + 1,
             )
-            return self._trainer.train_fitness_batch(fitness_batch, position)
+            return self._trainer.train_fitness_batch(
+                fitness_batch,
+                position,
+                optimizer_call_count=position.optimizer_call_count,
+            )
         question, answer = example  # type: ignore[misc]
         return self._trainer.train_step(question, answer, position)  # type: ignore[attr-defined,no-any-return]
 
@@ -284,11 +288,19 @@ def _position_record(position: ExperimentPosition) -> dict[str, int | str]:
 
 def _training_record(result: StepResult) -> dict[str, float | int | str]:
     """Return the stable progress record for one completed update."""
+    next_example_position = result.next_example_position
+    if next_example_position is None:
+        next_example_position = result.position.example_position + 1
     return {
         "record_type": "training",
         **_position_record(result.position),
         "language_model_loss": result.language_model_loss,
         "shared_variance": result.shared_variance,
+        "next_example_position": next_example_position,
+        "observation_window_examples": result.position.phase_step,
+        "records_consumed": result.consumed_record_count,
+        "batch_size": result.consumed_record_count,
+        "optimizer_call_count": result.position.optimizer_call_count,
     }
 
 

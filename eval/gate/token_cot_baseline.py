@@ -1,4 +1,4 @@
-"""Frozen-Qwen token baseline for the Stage 0 Calc-MAWPS gate."""
+"""Frozen-Qwen token baseline for the Stage 0 Calc-ASDiv_A gate."""
 
 from __future__ import annotations
 
@@ -20,13 +20,14 @@ from eval.gate.answer_scoring import (
     score_numerical_answer,
 )
 from eval.stage0_identity import (
-    CALC_MAWPS_CONFIGURATION,
-    CALC_MAWPS_DATASET,
-    CALC_MAWPS_REVISION,
+    ASDIV_CONFIGURATION,
+    ASDIV_DATASET,
+    ASDIV_REVISION,
     LATENT_TAP_LAYER,
     NUMERICAL_SCORER_CONTRACT_VERSION,
     PROMPT_CONTRACT_VERSION,
     QWEN_MANIFEST,
+    QWEN_ANSWER_PREFILL,
     QWEN_MATH_PROMPT,
     QWEN_MODEL,
     QWEN_REVISION,
@@ -34,11 +35,11 @@ from eval.stage0_identity import (
     canonical_json_bytes,
     load_frozen_qwen_backbone,
 )
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    CalcMawpsSelection,
-    load_calc_mawps_record_split,
-    select_calc_mawps_records,
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    AsdivSelection,
+    load_asdiv_a_record_split,
+    select_asdiv_a_records,
 )
 from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.answer_objective import QWEN_PROMPT_TOKEN_LIMIT
@@ -49,9 +50,9 @@ from train.standalone_checkpoint import (
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
-DEFAULT_OUTPUT = Path("gate_results/calc_mawps_qwen/token_cot.json")
+DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 LOW_ACCURACY_WARNING_THRESHOLD = MIN_MEANINGFUL_ACCURACY
-DEFAULT_MAX_NEW_TOKENS = 64
+DEFAULT_MAX_NEW_TOKENS = 16
 TEST_SEED = 0
 FULL_TEST_COUNT = 520
 
@@ -63,7 +64,7 @@ _extract_predicted_number = extract_predicted_number
 class PreparedBaselineRequest:
     """Current request identity and rendered inputs, prepared without generation."""
 
-    selection: CalcMawpsSelection
+    selection: AsdivSelection
     backbone: Any
     rendered: tuple[Mapping[str, Any], ...]
     identity: dict[str, Any]
@@ -77,12 +78,12 @@ def _plain_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _selection_identity(selection: CalcMawpsSelection) -> dict[str, Any]:
+def _selection_identity(selection: AsdivSelection) -> dict[str, Any]:
     return {
         "schema_version": 1,
-        "dataset": CALC_MAWPS_DATASET,
-        "configuration": CALC_MAWPS_CONFIGURATION,
-        "revision": CALC_MAWPS_REVISION,
+        "dataset": ASDIV_DATASET,
+        "configuration": ASDIV_CONFIGURATION,
+        "revision": ASDIV_REVISION,
         "split": selection.split,
         "seed": selection.seed,
         "problem_count": selection.problem_count,
@@ -105,7 +106,7 @@ def _rendered_ids(value: Any) -> list[int]:
 
 def _result_identity(
     *,
-    selection: CalcMawpsSelection,
+    selection: AsdivSelection,
     rendered_inputs: Sequence[Mapping[str, Any]],
     device: str,
     runtime: Mapping[str, Any],
@@ -137,6 +138,7 @@ def _result_identity(
         "prompt": {
             "contract_version": PROMPT_CONTRACT_VERSION,
             "template": QWEN_MATH_PROMPT,
+            "assistant_prefill": QWEN_ANSWER_PREFILL,
             "context_token_limit": QWEN_PROMPT_TOKEN_LIMIT,
         },
         "rendered_inputs_sha256": hashlib.sha256(
@@ -163,14 +165,14 @@ def _result_identity(
 
 
 def _select_records(
-    records: Sequence[CalcMawpsRecord], development_limit: int | None
-) -> CalcMawpsSelection:
+    records: Sequence[AsdivRecord], development_limit: int | None
+) -> AsdivSelection:
     if len(records) != FULL_TEST_COUNT:
         raise ValueError(
-            f"Calc-MAWPS test records must contain exactly {FULL_TEST_COUNT} items"
+            f"Calc-ASDiv_A test records must contain exactly {FULL_TEST_COUNT} items"
         )
     if any(record.split != "test" for record in records):
-        raise ValueError("Calc-MAWPS token baseline accepts only test records")
+        raise ValueError("Calc-ASDiv_A token baseline accepts only test records")
     if development_limit is not None:
         if isinstance(development_limit, bool) or not isinstance(development_limit, int):
             raise TypeError(
@@ -181,7 +183,7 @@ def _select_records(
             raise ValueError(
                 f"development_limit must be from 1 through {FULL_TEST_COUNT}"
             )
-    return select_calc_mawps_records(
+    return select_asdiv_a_records(
         {"test": tuple(records)},
         split="test",
         seed=TEST_SEED,
@@ -210,7 +212,7 @@ def prepare_baseline_request(
     *,
     device: str,
     development_limit: int | None = None,
-    records: Sequence[CalcMawpsRecord] | None = None,
+    records: Sequence[AsdivRecord] | None = None,
     backbone_loader: Callable[..., Any] = load_frozen_qwen_backbone,
     runtime_configurer: Callable[[], None] = configure_deterministic_runtime,
 ) -> PreparedBaselineRequest:
@@ -218,7 +220,7 @@ def prepare_baseline_request(
     runtime_configurer()
     run_identity = runtime_identity()
     source_records = (
-        tuple(records) if records is not None else load_calc_mawps_record_split("test")
+        tuple(records) if records is not None else load_asdiv_a_record_split("test")
     )
     selection = _select_records(source_records, development_limit)
     backbone = backbone_loader(device=device)
@@ -262,13 +264,13 @@ def run_baseline(
     *,
     device: str,
     development_limit: int | None = None,
-    records: Sequence[CalcMawpsRecord] | None = None,
+    records: Sequence[AsdivRecord] | None = None,
     backbone_loader: Callable[..., Any] = load_frozen_qwen_backbone,
     runtime_configurer: Callable[[], None] = configure_deterministic_runtime,
     on_problem: Callable[[int, int, bool, int, int], None] | None = None,
     prepared_request: PreparedBaselineRequest | None = None,
 ) -> dict[str, Any]:
-    """Evaluate the persisted seed-0 Calc-MAWPS test selection."""
+    """Evaluate the persisted seed-0 Calc-ASDiv_A test selection."""
     prepared = prepared_request or prepare_baseline_request(
         device=device,
         development_limit=development_limit,
@@ -302,13 +304,26 @@ def run_baseline(
         with torch.no_grad():
             output_ids = model.generate(input_ids, **generation_kwargs)
         completion_ids = output_ids[0][len(token_ids) :]
+        generated_ids = (
+            completion_ids.tolist()
+            if hasattr(completion_ids, "tolist")
+            else list(completion_ids)
+        )
         completion = tokenizer.decode(completion_ids, skip_special_tokens=True)
-        prediction = extract_predicted_number(completion) or ""
+        prediction = extract_predicted_number(
+            QWEN_ANSWER_PREFILL + completion
+        ) or ""
         is_correct = score_numerical_answer(prediction, record.target)
         correct += int(is_correct)
         items.append(
             {
                 "item_id": record.id,
+                "completion": completion,
+                "generated_token_count": len(generated_ids),
+                "hit_token_limit": (
+                    len(generated_ids) == DEFAULT_MAX_NEW_TOKENS
+                    and (not generated_ids or generated_ids[-1] != eos_token_id)
+                ),
                 "prediction": prediction,
                 "target": record.target,
                 "correct": is_correct,
@@ -329,7 +344,7 @@ def run_baseline(
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Stage 0 frozen-Qwen token baseline on Calc-MAWPS."
+        description="Stage 0 frozen-Qwen token baseline on Calc-ASDiv_A."
     )
     parser.add_argument(
         "--development-limit",

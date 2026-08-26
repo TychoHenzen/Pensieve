@@ -29,18 +29,20 @@ import pytest
 
 from eval.gate.answer_scoring import _NUMBER_PATTERN
 from eval.stage0_identity import (
-    CALC_MAWPS_CONFIGURATION,
-    CALC_MAWPS_DATASET,
-    CALC_MAWPS_REVISION,
+    ASDIV_CONFIGURATION,
+    ASDIV_DATASET,
+    ASDIV_REVISION,
+    PROMPT_CONTRACT_VERSION,
+    QWEN_ANSWER_PREFILL,
     QWEN_MATH_PROMPT,
     QWEN_MANIFEST,
     QWEN_MODEL,
     QWEN_REVISION,
     canonical_json_bytes,
 )
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    calc_mawps_selection_identity,
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    asdiv_a_selection_identity,
 )
 
 
@@ -55,16 +57,16 @@ def cache() -> Any:
     return importlib.import_module("eval.gate.result_cache")
 
 
-def _records() -> tuple[CalcMawpsRecord, ...]:
+def _records() -> tuple[AsdivRecord, ...]:
     return (
-        CalcMawpsRecord(
-            id="mawps__test_alpha",
+        AsdivRecord(
+            id="asdiv_a__test_alpha",
             split="test",
             question="What is one half?",
             target="0.5",
         ),
-        CalcMawpsRecord(
-            id="mawps__test_beta",
+        AsdivRecord(
+            id="asdiv_a__test_beta",
             split="test",
             question="What is seven minus two?",
             target="5",
@@ -94,19 +96,19 @@ def _identity(item_ids: Sequence[str], *, latent: bool = False) -> dict[str, Any
         "schema_version": 1,
         "selection": {
             "schema_version": 1,
-            "dataset": CALC_MAWPS_DATASET,
-            "configuration": CALC_MAWPS_CONFIGURATION,
-            "revision": CALC_MAWPS_REVISION,
+            "dataset": ASDIV_DATASET,
+            "configuration": ASDIV_CONFIGURATION,
+            "revision": ASDIV_REVISION,
             "split": "test",
             "seed": 0,
             "problem_count": len(item_ids),
             "ordered_item_ids": list(item_ids),
-            "identity_sha256": calc_mawps_selection_identity(
+            "identity_sha256": asdiv_a_selection_identity(
                 records=selected_records,
                 split="test",
                 seed=0,
                 problem_count=len(selected_records),
-                revision=CALC_MAWPS_REVISION,
+                revision=ASDIV_REVISION,
             ),
         },
         "model_assets": {
@@ -120,8 +122,9 @@ def _identity(item_ids: Sequence[str], *, latent: bool = False) -> dict[str, Any
             "manifest": _asset_manifest(),
         },
         "prompt": {
-            "contract_version": 1,
+            "contract_version": PROMPT_CONTRACT_VERSION,
             "template": QWEN_MATH_PROMPT,
+            "assistant_prefill": QWEN_ANSWER_PREFILL,
             "context_token_limit": 512,
         },
         "rendered_inputs_sha256": _rendered_digest(item_ids),
@@ -133,7 +136,7 @@ def _identity(item_ids: Sequence[str], *, latent: bool = False) -> dict[str, Any
             "batch_size": 1,
             "do_sample": False,
             "num_beams": 1,
-            "max_new_tokens": 64,
+            "max_new_tokens": 16,
             "use_cache": True,
             "eos_token_id": 151_645,
             "pad_token_id": 151_645,
@@ -174,36 +177,48 @@ def _identity(item_ids: Sequence[str], *, latent: bool = False) -> dict[str, Any
     return identity
 
 
-def _items(records: Sequence[CalcMawpsRecord]) -> list[dict[str, Any]]:
-    return [
+def _items(
+    records: Sequence[AsdivRecord], *, diagnostics: bool = False
+) -> list[dict[str, Any]]:
+    items = [
         {
             "item_id": records[0].id,
-            "prediction": "Reasoning. #### 1/2",
+            "prediction": "1/2",
             "target": records[0].target,
             "correct": True,
         },
         {
             "item_id": records[1].id,
-            "prediction": "Reasoning. #### 4",
+            "prediction": "4",
             "target": records[1].target,
             "correct": False,
         },
     ]
+    if diagnostics:
+        for item in items:
+            item.update(
+                {
+                    "completion": item["prediction"],
+                    "generated_token_count": 1,
+                    "hit_token_limit": False,
+                }
+            )
+    return items
 
 
-def _token_result(records: Sequence[CalcMawpsRecord] | None = None) -> dict[str, Any]:
+def _token_result(records: Sequence[AsdivRecord] | None = None) -> dict[str, Any]:
     source = tuple(records or _records())
     ids = [record.id for record in source]
     return {
         "schema_version": 2,
         "identity": _identity(ids),
-        "items": _items(source),
+        "items": _items(source, diagnostics=True),
         "correct": 1,
         "total": len(source),
     }
 
 
-def _latent_result(records: Sequence[CalcMawpsRecord] | None = None) -> dict[str, Any]:
+def _latent_result(records: Sequence[AsdivRecord] | None = None) -> dict[str, Any]:
     source = tuple(records or _records())
     ids = [record.id for record in source]
     return {
@@ -241,7 +256,7 @@ def _delete_path(root: dict[str, Any], path: tuple[str, ...]) -> None:
     del target[path[-1]]
 
 
-def _read_token(cache: Any, path: Path, records: Sequence[CalcMawpsRecord]) -> Any:
+def _read_token(cache: Any, path: Path, records: Sequence[AsdivRecord]) -> Any:
     return cache.read_token_result(
         path,
         expected_identity=_identity([record.id for record in records]),
@@ -249,7 +264,7 @@ def _read_token(cache: Any, path: Path, records: Sequence[CalcMawpsRecord]) -> A
     )
 
 
-def _read_latent(cache: Any, path: Path, records: Sequence[CalcMawpsRecord]) -> Any:
+def _read_latent(cache: Any, path: Path, records: Sequence[AsdivRecord]) -> Any:
     return cache.read_latent_result(
         path,
         expected_identity=_identity([record.id for record in records], latent=True),
@@ -356,7 +371,7 @@ def test_absent_identity_field_is_never_compatible(
         (("schema_version",), True),
         (("selection", "seed"), False),
         (("selection", "problem_count"), "2"),
-        (("selection", "ordered_item_ids"), "mawps__test_alpha"),
+        (("selection", "ordered_item_ids"), "asdiv_a__test_alpha"),
         (("model_assets", "manifest", "config.json", "algorithm"), "sha1"),
         (("prompt", "contract_version"), False),
         (("prompt", "context_token_limit"), "512"),
@@ -533,6 +548,8 @@ def test_targets_are_reloaded_from_validated_records(
     result = _token_result(records) if kind == "token" else _latent_result(records)
     item = result["items"][0] if kind == "token" else result["runs"][0]["items"][0]
     item.update(prediction="999", target="999", correct=True)
+    if kind == "token":
+        item["completion"] = "999"
     path = tmp_path / f"{kind}.json"
     _write_json(path, result)
 

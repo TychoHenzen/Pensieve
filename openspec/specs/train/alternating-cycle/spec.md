@@ -3,53 +3,59 @@
 ## Purpose
 Defines a reproducible multi-epoch experiment that alternates Eggroll and gradient updates on one continuous dataset traversal while exposing comparable representation and task metrics.
 ## Requirements
-### Requirement: Fixed-budget optimizer phases
-The training command SHALL start in the Eggroll phase and SHALL alternate between Eggroll and gradient phases after a fixed number of training examples. The phase budget SHALL default to 500 examples and SHALL be configurable as a positive integer.
+### Requirement: Average-variance hysteresis optimizer control
+The training command SHALL start with Eggroll updates and SHALL select the active update method from the average shared post-loop slot variance over consecutive observation windows. The observation window SHALL default to 50 examples and SHALL be configurable as a positive integer through `--phase-steps`. The lower threshold SHALL default to `0.01`, and the upper threshold SHALL default to `0.02`. Both thresholds SHALL be configurable, finite, non-negative, and ordered so the lower threshold is less than the upper threshold. At a completed window, Eggroll SHALL switch to gradient when average variance is at least the upper threshold. Gradient SHALL switch to Eggroll when average variance is at most the lower threshold. The active method SHALL remain unchanged while its switching condition is false, including averages inside the hysteresis band.
 
-#### Scenario: Default phase transition
-- **WHEN** a new run reaches 500 completed Eggroll training steps
-- **THEN** step 501 uses the gradient update method on the next dataset example
+#### Scenario: Eggroll restores variance
+- **WHEN** a completed Eggroll window has average variance at or above the upper threshold
+- **THEN** the next dataset example uses the gradient update method
 
-#### Scenario: Repeated phase transition
-- **WHEN** the run completes 500 gradient training steps after an Eggroll phase
-- **THEN** the next dataset example starts a new Eggroll phase
+#### Scenario: Gradient detects collapse
+- **WHEN** a completed gradient window has average variance at or below the lower threshold
+- **THEN** the next dataset example uses the Eggroll update method
 
-#### Scenario: Invalid phase budget
-- **WHEN** the user supplies a phase budget below one
+#### Scenario: Hysteresis band retains the active method
+- **WHEN** a completed window has average variance strictly between the thresholds
+- **THEN** the next window uses the same update method
+
+#### Scenario: Invalid variance controller
+- **WHEN** the user supplies a window below one, a non-finite threshold, a negative lower threshold, or thresholds not ordered as lower less than upper
 - **THEN** the command rejects the configuration before loading models or data
 
 ### Requirement: Complete multi-epoch dataset traversal
-The training command SHALL process every selected training example exactly once per configured epoch. Phase transitions SHALL preserve the dataset cursor and SHALL NOT restart, skip, or repeat examples. The epoch count SHALL default to five and SHALL be configurable as a positive integer.
+The training command SHALL process every selected training example exactly once per configured epoch. Observation-window boundaries and optimizer switches SHALL preserve the dataset cursor and SHALL NOT restart, skip, or repeat examples. The epoch count SHALL default to five and SHALL be configurable as a positive integer.
 
-#### Scenario: Phase boundary within an epoch
-- **WHEN** a phase budget expires before the current epoch ends
-- **THEN** the next phase continues with the next example in that epoch
+#### Scenario: Observation window ends within an epoch
+- **WHEN** an observation window completes before the current epoch ends
+- **THEN** the controller continues with the next example in that epoch using the selected method
 
-#### Scenario: Epoch boundary within a phase
-- **WHEN** an epoch ends before the current 500-step phase budget is exhausted
-- **THEN** the next epoch starts in the same phase with its remaining phase budget
+#### Scenario: Epoch boundary within an observation window
+- **WHEN** an epoch ends before the current observation window is complete
+- **THEN** the next epoch preserves the active method, completed window steps, and accumulated variance sum
 
 #### Scenario: Full default run
-- **WHEN** the command runs with five epochs over the 1,089-example filtered Calc-MAWPS training split
-- **THEN** it performs exactly 5,445 training steps without changing the phase schedule at epoch boundaries
+- **WHEN** the command runs with five epochs over the 570-example Calc-ASDiv_A training partition
+- **THEN** it performs exactly 2,850 training steps without resetting the variance controller at epoch boundaries
 
 #### Scenario: Invalid epoch count
 - **WHEN** the user supplies an epoch count below one
 - **THEN** the command rejects the configuration before loading models or data
 
 ### Requirement: Continuous model and optimizer state
-Both update methods SHALL operate on one shared set of trainable model parameters. Each method SHALL retain its own optimizer state across inactive phases, and switching phases SHALL NOT reinitialize model parameters or either optimizer.
+Both update methods SHALL operate on one shared set of trainable model parameters. Each method SHALL retain its own optimizer state while inactive, and switching methods SHALL NOT reinitialize model parameters or either optimizer.
 
 #### Scenario: Switch from Eggroll to gradient training
-- **WHEN** an Eggroll phase ends
-- **THEN** the gradient phase receives the parameter values produced by the final Eggroll step and restores its prior optimizer state
+- **WHEN** the variance controller switches from Eggroll to gradient
+- **THEN** gradient receives the parameter values produced by the final Eggroll step and restores its prior optimizer state
 
 #### Scenario: Return to Eggroll
-- **WHEN** a gradient phase ends
-- **THEN** the next Eggroll phase receives the parameter values produced by the final gradient step and restores its prior optimizer state
+- **WHEN** the variance controller switches from gradient to Eggroll
+- **THEN** Eggroll receives the parameter values produced by the final gradient step and restores its prior optimizer state
 
 ### Requirement: Comparable phase measurements
 Every training step SHALL report language-model loss and one shared post-latent-loop slot variance definition. The reported variance SHALL use the same tensor, axes, estimator settings, and aggregation in both update methods.
+
+Both update methods SHALL use the same bounded post-loop collapse penalty and configured variance weight. For each feature, the penalty is `max(0, 1 - sqrt(population_variance_across_slots + 1e-4))`, averaged across features. Gradient training SHALL minimize language-model loss plus the weighted penalty. Eggroll SHALL maximize the negative of that same objective. Candidate evaluation SHALL execute the exact latent-loop update equation without an extra normalization before a latent run.
 
 #### Scenario: Compare phase metrics
 - **WHEN** adjacent Eggroll and gradient steps emit metrics
@@ -59,31 +65,31 @@ Every training step SHALL report language-model loss and one shared post-latent-
 - **WHEN** a training step emits a progress record
 - **THEN** the record identifies the update method, cycle number, global step, epoch number, example position, and phase-step position
 
-### Requirement: Phase and epoch evaluation
-The experiment SHALL evaluate the unperturbed shared model without parameter updates at every completed phase and epoch. Evaluation SHALL use a fixed held-out problem set selected once for the run and SHALL report mean language-model loss, shared slot variance, and answer exact match.
+### Requirement: Observation-window and epoch evaluation
+The experiment SHALL evaluate the unperturbed shared model without parameter updates at every completed observation window and epoch. Evaluation SHALL use a fixed held-out problem set selected once for the run and SHALL report mean language-model loss, shared slot variance, and answer exact match.
 
-#### Scenario: Completed phase evaluation
-- **WHEN** a 500-step phase completes
-- **THEN** the command evaluates the current unperturbed model on the fixed held-out problems and labels the result with the phase that produced it
+#### Scenario: Completed observation-window evaluation
+- **WHEN** an observation window completes
+- **THEN** the command evaluates the current unperturbed model on the fixed held-out problems and labels the result with the method that produced it
 
-#### Scenario: Partial final phase evaluation
-- **WHEN** training ends before the current phase reaches 500 steps
+#### Scenario: Partial final observation-window evaluation
+- **WHEN** training ends before the current observation window completes
 - **THEN** the command evaluates the final model and labels the result as a partial phase
 
 #### Scenario: Evaluation isolation
 - **WHEN** held-out evaluation runs
-- **THEN** model parameters, optimizer states, dataset position, and phase position remain unchanged
+- **THEN** model parameters, optimizer states, dataset position, and variance-controller state remain unchanged
 
 ### Requirement: Resumable experiment checkpoints
-The command SHALL save the version-2 JSON-plus-safetensors `.ckpt` container at every phase and epoch boundary. It SHALL contain shared trainable parameters, separate Eggroll and gradient optimizer states and parameter groups, active phase, completed phase steps, phase budget, global step, epoch, next dataset position, fixed per-epoch order identity, complete Stage 0 identity, fixed held-out identifiers, run configuration, and Python, NumPy, PyTorch CPU, every CUDA RNG state, and ordered CUDA device identities. The run configuration SHALL record the complete typed dataset selection, epoch target, phase budget, slot count, latent-step count, both optimizer learning rates, Eggroll population size, sigma, rank, variance weight, evaluation batch size, AMP setting, held-out selection, and logging frequency. The two optimizers SHALL retain independent state over the same declared shared parameters; each step SHALL clear the active optimizer's gradients before its update. Resume SHALL use the safe loading contract and MUST reject a changed CUDA device count or ordering during metadata validation before model construction. Resume MAY change logging frequency and MAY increase the epoch target, but the epoch target MUST NOT be below completed progress. Every other run-configuration mismatch SHALL be rejected with its canonical field path before model construction or state application.
+The command SHALL save the version-2 JSON-plus-safetensors `.ckpt` container at every observation-window and epoch boundary. It SHALL contain shared trainable parameters, separate Eggroll and gradient optimizer states and parameter groups, active method, completed window steps, observation-window size, partial-window variance sum, global step, epoch, next dataset position, fixed per-epoch order identity, complete Stage 0 identity, fixed held-out identifiers, run configuration, and Python, NumPy, PyTorch CPU, every CUDA RNG state, and ordered CUDA device identities. The run configuration SHALL record the complete typed dataset selection, epoch target, observation-window size, lower and upper variance thresholds, slot count, latent-step count, both optimizer learning rates, Eggroll population size, sigma, rank, variance weight, evaluation batch size, AMP setting, held-out selection, and logging frequency. The two optimizers SHALL retain independent state over the same declared shared parameters; each step SHALL clear the active optimizer's gradients before its update. Resume SHALL use the safe loading contract and MUST reject a changed CUDA device count or ordering during metadata validation before model construction. Resume MAY change logging frequency and MAY increase the epoch target, but the epoch target MUST NOT be below completed progress. Every other run-configuration mismatch SHALL be rejected with its canonical field path before model construction or state application. A checkpoint inside an unfinished observation window MUST contain its partial-window variance sum.
 
 #### Scenario: Resume within an epoch
-- **WHEN** the command resumes from a compatible phase-boundary checkpoint created within an epoch
-- **THEN** it continues with the next unprocessed example and the phase dictated by the saved schedule
+- **WHEN** the command resumes from a compatible observation-window checkpoint created within an epoch
+- **THEN** it continues with the next unprocessed example and the method dictated by the saved controller state
 
 #### Scenario: Resume at an epoch boundary
 - **WHEN** the command resumes from a compatible epoch-boundary checkpoint
-- **THEN** it starts the next epoch without repeating the completed epoch and preserves any unfinished phase budget
+- **THEN** it starts the next epoch without repeating the completed epoch and preserves any unfinished variance window
 
 #### Scenario: Reject incompatible resume configuration
 - **WHEN** resume arguments or loaded data change a schedule-defining setting, dataset identity, backbone identity, model shape, tap layer, or held-out item identity stored in the checkpoint
@@ -142,3 +148,14 @@ The command SHALL filter only structured JSON progress records identified by `re
 #### Scenario: Non-progress output remains independent
 - **WHEN** progress filtering suppresses a structured JSON record
 - **THEN** it does not intercept stderr or writes that are not structured records with `record_type` equal to `training`, `evaluation`, or `checkpoint`
+
+### Requirement: Portable training graph export
+The graph command SHALL read structured `training` and `evaluation` records from mixed training logs encoded as UTF-8 or UTF-16. It SHALL ignore human-readable status, stderr, and checkpoint records. It SHALL write a conventional CSV plus one self-contained HTML file that requires no Python plotting package, external viewer, or network resource. The graph SHALL plot language-model loss, shared slot variance on a logarithmic scale with both hysteresis thresholds, and held-out exact match with an optional baseline reference. Training samples SHALL identify Eggroll and gradient updates without connecting a line across an intervening optimizer phase.
+
+#### Scenario: Convert a PowerShell training log
+- **WHEN** `python -m train.plot_training` receives a mixed UTF-16 training log
+- **THEN** it writes CSV and HTML outputs from every valid training and evaluation record
+
+#### Scenario: Reject a log without metrics
+- **WHEN** the input contains no valid training or evaluation record
+- **THEN** the graph command fails without writing an empty or misleading graph

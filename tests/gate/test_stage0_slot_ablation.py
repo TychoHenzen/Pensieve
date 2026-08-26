@@ -1,4 +1,4 @@
-"""No-download contract tests for the Calc-MAWPS slot-count ablation command."""
+"""No-download contract tests for the Calc-ASDiv_A slot-count ablation command."""
 
 from __future__ import annotations
 
@@ -15,8 +15,8 @@ from eval.gate import slot_ablation
 
 def _records() -> tuple[SimpleNamespace, ...]:
     return (
-        SimpleNamespace(id="mawps__test_alpha", target="1"),
-        SimpleNamespace(id="mawps__test_beta", target="2"),
+        SimpleNamespace(id="asdiv_a__test_alpha", target="1"),
+        SimpleNamespace(id="asdiv_a__test_beta", target="2"),
     )
 
 
