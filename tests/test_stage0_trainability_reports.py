@@ -856,3 +856,99 @@ class TestOverfitAttemptDeterminism:
         assert "overfit" in lower_doc or "memorization" in lower_doc, (
             "documentation should describe the overfit/memorization purpose"
         )
+
+
+class TestOverfitProbeFixtures:
+    """Integration tests for one-record probe with lightweight fixtures."""
+
+    def test_overfit_probe_runs_with_simple_question(self) -> None:
+        """Test that one-record probe runs successfully with simple fixture."""
+        from train.stage0_trainability import run_overfit_attempt
+
+        simple_question = "What is 1+1?"
+        simple_answer = "2"
+
+        result = run_overfit_attempt(
+            simple_question,
+            simple_answer,
+            learning_rate=0.001,
+            checkpoint_steps=(1,),
+        )
+
+        assert isinstance(result, dict)
+        assert result["status"] in ("passed", "failed", "non_finite")
+        assert result["learning_rate"] == 0.001
+
+    def test_overfit_probe_fixture_returns_consistent_structure(self) -> None:
+        """Test that probe results have consistent structure across different fixtures."""
+        from train.stage0_trainability import run_overfit_attempt
+
+        fixtures = [
+            ("What is 2+2?", "4"),
+            ("What is 5+3?", "8"),
+            ("What is 10-5?", "5"),
+        ]
+
+        for question, answer in fixtures:
+            result = run_overfit_attempt(
+                question, answer, learning_rate=0.001, checkpoint_steps=(1,)
+            )
+
+            assert isinstance(result, dict), f"Result for {question} must be dict"
+            assert "status" in result, f"Result for {question} must have status"
+            assert "learning_rate" in result, f"Result for {question} must have learning_rate"
+            assert result["learning_rate"] == 0.001, (
+                f"Result for {question} must preserve learning_rate"
+            )
+
+    def test_overfit_probe_result_validity(self) -> None:
+        """Test that probe results are well-formed and valid."""
+        from train.stage0_trainability import run_overfit_attempt
+        import math
+
+        result = run_overfit_attempt(
+            "What is 3+3?", "6", learning_rate=0.001, checkpoint_steps=(1, 4)
+        )
+
+        if result["status"] != "non_finite":
+            if "baseline_loss" in result and result["baseline_loss"] is not None:
+                assert isinstance(result["baseline_loss"], float), (
+                    "baseline_loss must be float"
+                )
+                assert math.isfinite(result["baseline_loss"]), (
+                    "baseline_loss must be finite"
+                )
+                assert result["baseline_loss"] >= 0, (
+                    "baseline_loss must be non-negative"
+                )
+
+        if result["status"] == "passed":
+            assert "checkpoints" in result, "passed result must have checkpoints"
+            assert isinstance(result["checkpoints"], (list, tuple)), (
+                "checkpoints must be sequence"
+            )
+
+    def test_overfit_probe_independently_runnable(self) -> None:
+        """Test that probe is independently runnable without external state."""
+        from train.stage0_trainability import run_overfit_attempt
+
+        questions = ["What is 7+1?", "What is 9-4?"]
+        results = []
+
+        for question in questions:
+            result = run_overfit_attempt(
+                question, "8" if "7" in question else "5",
+                learning_rate=0.001,
+                checkpoint_steps=(1,)
+            )
+            results.append(result)
+
+        assert len(results) == len(questions), "probe must run for each question"
+
+        for i, result in enumerate(results):
+            assert result["status"] in ("passed", "failed", "non_finite"), (
+                f"probe {i} returned invalid status"
+            )
+            assert result["learning_rate"] == 0.001, (
+                f"probe {i} did not preserve learning_rate"
+            )
