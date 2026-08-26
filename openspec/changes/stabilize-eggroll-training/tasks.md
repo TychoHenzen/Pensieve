@@ -52,13 +52,15 @@
 
 ## 4. Integrate Example-Count Scheduling
 
-- [ ] 4.1 Change hysteresis progress to consumed examples and cap EGGROLL batches at observation boundaries. Preserve all switch, band, and invalid-controller behavior.
+- [x] 4.1 Change hysteresis progress to consumed examples and cap EGGROLL batches at observation boundaries. Preserve all switch, band, and invalid-controller behavior.
+<!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Eggroll restores variance -->
   <!-- covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Gradient detects collapse -->
   <!-- covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Hysteresis band retains the active method -->
   <!-- covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Eggroll batch ends at the observation boundary -->
   <!-- covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Invalid variance controller -->
-- [ ] 4.2 Update epoch traversal to mix one-example gradient calls with multi-example EGGROLL calls while preserving exact order, partial windows, and the 2,850-example default total.
+- [x] 4.2 Update epoch traversal to mix one-example gradient calls with multi-example EGGROLL calls while preserving exact order, partial windows, and the 2,850-example default total.
+<!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Observation window ends within an epoch -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within an observation window -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run -->

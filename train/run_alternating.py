@@ -22,6 +22,7 @@ from eval.stage0_identity import (
     training_identity,
 )
 from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
     AsdivSelection,
     asdiv_a_selection_identity,
 )
@@ -67,6 +68,7 @@ from train.eggroll_trainer import (
     EggrollTrainer,
     validate_eggroll_config,
 )
+from train.stage0_data import FitnessBatch
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
 from train.training_state import TrainingState
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
@@ -206,9 +208,41 @@ class _TrainerEngine:
     def __init__(self, trainer: object) -> None:
         self._trainer = trainer
 
+    @property
+    def max_consumed_records(self) -> int:
+        """Expose each method's positive contiguous update capacity."""
+        if isinstance(self._trainer, EggrollTrainer):
+            return self._trainer.fitness_batch_size
+        return 1
+
     def train_step(self, example: object, position: ExperimentPosition) -> StepResult:
+        if isinstance(self._trainer, EggrollTrainer) and self._is_record_batch(example):
+            records = tuple(example)
+            start_position = position.example_position - len(records) + 1
+            fitness_batch = FitnessBatch(
+                records=tuple(
+                    AsdivRecord(
+                        id=f"alternating-{position.epoch}-{start_position + index}",
+                        split="train",
+                        question=question,
+                        target=answer,
+                    )
+                    for index, (question, answer) in enumerate(records)
+                ),
+                start_position=start_position,
+                next_position=position.example_position + 1,
+            )
+            return self._trainer.train_fitness_batch(fitness_batch, position)
         question, answer = example  # type: ignore[misc]
         return self._trainer.train_step(question, answer, position)  # type: ignore[attr-defined,no-any-return]
+
+    @staticmethod
+    def _is_record_batch(example: object) -> bool:
+        return (
+            isinstance(example, tuple)
+            and bool(example)
+            and isinstance(example[0], tuple)
+        )
 
 
 class _Evaluator:
@@ -341,12 +375,16 @@ def _run_schedule(
         epoch_start = time.monotonic()
         recent_losses: list[float] = []
         recent_vars: list[float] = []
-        for example_position in range(first_position, len(examples)):
+        example_position = first_position
+        while example_position < len(examples):
             evaluation_count = len(scheduler.evaluation_results)
-            result = scheduler.train_step(
-                examples[example_position],
+            result = scheduler.train_records(
+                examples[example_position:],
                 epoch=epoch,
                 example_position=example_position,
+                records_until_logging_boundary=(
+                    log_every - (scheduler.completed_steps % log_every)
+                ),
             )
             recent_losses.append(result.language_model_loss)
             recent_vars.append(result.shared_variance)
@@ -354,8 +392,8 @@ def _run_schedule(
                 _write_progress_record(_training_record(result), output)
                 if log_output is not None:
                     elapsed = time.monotonic() - epoch_start
-                    completed = example_position - first_position + 1
-                    remaining = len(examples) - example_position - 1
+                    completed = result.position.example_position - first_position + 1
+                    remaining = len(examples) - result.position.example_position - 1
                     per_example = elapsed / completed
                     _log(
                         f"  {result.position.update_method} epoch {epoch}/{epochs} "
@@ -370,7 +408,7 @@ def _run_schedule(
                     )
 
             phase_boundary = result.position.phase_step == phase_steps
-            epoch_boundary = example_position == len(examples) - 1
+            epoch_boundary = result.position.example_position == len(examples) - 1
             if epoch_boundary:
                 scheduler.evaluate_epoch_boundary(result.position)
                 if epoch == epochs:
@@ -407,6 +445,8 @@ def _run_schedule(
                     _write_progress_record(_checkpoint_record(paths), output)
                     if log_output is not None:
                         _log(f"saved: {', '.join(str(path) for path in paths)}", log_output)
+
+            example_position += result.consumed_record_count
 
         if log_output is not None:
             _log(

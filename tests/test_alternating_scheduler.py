@@ -1,221 +1,187 @@
-"""Tests for fixed-budget alternating optimizer scheduling."""
+"""Tests for average-variance hysteresis optimizer scheduling."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 
-from train import run_alternating
-from train.alternating_scheduler import FixedBudgetScheduler
+from train.alternating_scheduler import VarianceHysteresisScheduler
 from train.training_results import ExperimentPosition
 
 
-@dataclass
-class FakeEngine:
-    """Records scheduler calls without loading a model or dataset."""
-
+@dataclass(frozen=True)
+class FakeResult:
     update_method: str
+    position: ExperimentPosition
+    shared_variance: float
+    consumed_record_count: int = 1
 
-    def __post_init__(self) -> None:
+
+class FakeEngine:
+    """Records scheduler calls and returns configured variance values."""
+
+    def __init__(
+        self,
+        update_method: str,
+        variances: list[float],
+        max_consumed_records: int = 1,
+    ) -> None:
+        self.update_method = update_method
+        self.variances = variances
+        self.max_consumed_records = max_consumed_records
         self.calls: list[tuple[object, ExperimentPosition]] = []
 
-    def train_step(self, example: object, position: ExperimentPosition) -> str:
+    def train_step(self, example: object, position: ExperimentPosition) -> FakeResult:
         self.calls.append((example, position))
-        return self.update_method
+        variance = self.variances.pop(0) if self.variances else 0.015
+        consumed_record_count = (
+            len(example)
+            if isinstance(example, tuple) and example and isinstance(example[0], tuple)
+            else 1
+        )
+        return FakeResult(
+            self.update_method,
+            position,
+            variance,
+            consumed_record_count,
+        )
 
 
-def test_starts_with_a_500_step_eggroll_phase() -> None:
-    eggroll = FakeEngine("eggroll")
-    gradient = FakeEngine("gradient")
-    scheduler = FixedBudgetScheduler(
-        phase_steps=500,
+def _scheduler(
+    eggroll_variances: list[float], gradient_variances: list[float]
+) -> tuple[VarianceHysteresisScheduler[FakeResult, object], FakeEngine, FakeEngine]:
+    eggroll = FakeEngine("eggroll", eggroll_variances)
+    gradient = FakeEngine("gradient", gradient_variances)
+    scheduler = VarianceHysteresisScheduler(
+        phase_steps=2,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
         eggroll_engine=eggroll,
         gradient_engine=gradient,
     )
-
-    for example in range(1, 501):
-        assert scheduler.train_step(example, epoch=1, example_position=example) == "eggroll"
-
-    assert gradient.calls == []
-    assert eggroll.calls[0] == (
-        1,
-        ExperimentPosition("eggroll", 1, 1, 1, 1, 1),
-    )
-    assert eggroll.calls[-1] == (
-        500,
-        ExperimentPosition("eggroll", 1, 500, 1, 500, 500),
-    )
+    return scheduler, eggroll, gradient
 
 
-def test_step_501_starts_gradient_phase_on_next_example() -> None:
-    eggroll = FakeEngine("eggroll")
-    gradient = FakeEngine("gradient")
-    scheduler = FixedBudgetScheduler(
-        phase_steps=500,
-        eggroll_engine=eggroll,
-        gradient_engine=gradient,
-    )
+# covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Hysteresis band retains the active method
+def test_eggroll_stays_active_while_average_variance_is_below_upper_threshold() -> None:
+    scheduler, eggroll, gradient = _scheduler([0.005, 0.015, 0.02], [])
 
-    for example in range(1, 502):
+    for example in range(3):
         scheduler.train_step(example, epoch=1, example_position=example)
 
-    assert len(eggroll.calls) == 500
+    assert len(eggroll.calls) == 3
+    assert gradient.calls == []
+    assert eggroll.calls[2][1] == ExperimentPosition("eggroll", 2, 3, 1, 2, 1)
+
+
+# covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Eggroll restores variance
+def test_eggroll_switches_to_gradient_when_window_average_reaches_upper_threshold() -> None:
+    scheduler, eggroll, gradient = _scheduler([0.015, 0.025], [0.015])
+
+    for example in range(3):
+        scheduler.train_step(example, epoch=1, example_position=example)
+
+    assert len(eggroll.calls) == 2
     assert gradient.calls == [
-        (
-            501,
-            ExperimentPosition("gradient", 2, 501, 1, 501, 1),
-        )
+        (2, ExperimentPosition("gradient", 2, 3, 1, 2, 1))
     ]
 
 
-# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Phase boundary within an epoch
-def test_phase_boundary_keeps_the_1089_example_epoch_in_order() -> None:
-    eggroll = FakeEngine("eggroll")
-    gradient = FakeEngine("gradient")
-    scheduler = FixedBudgetScheduler(
-        phase_steps=500,
-        eggroll_engine=eggroll,
-        gradient_engine=gradient,
+# covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Gradient detects collapse
+def test_gradient_holds_in_hysteresis_band_and_returns_below_lower_threshold() -> None:
+    scheduler, eggroll, gradient = _scheduler(
+        [0.03, 0.03, 0.015],
+        [0.015, 0.015, 0.005, 0.005],
     )
 
-    for example_position in range(1_089):
-        scheduler.train_step(
-            (1, example_position),
-            epoch=1,
-            example_position=example_position,
-        )
+    for example in range(7):
+        scheduler.train_step(example, epoch=1, example_position=example)
 
-    all_calls = sorted(
-        eggroll.calls + gradient.calls,
-        key=lambda call: call[1].global_step,
+    assert len(gradient.calls) == 4
+    assert eggroll.calls[-1] == (
+        6,
+        ExperimentPosition("eggroll", 4, 7, 1, 6, 1),
     )
-    calls_by_step = {position.global_step: call for call, position in all_calls}
 
-    assert [example for example, _ in all_calls] == [
-        (1, position) for position in range(1_089)
-    ]
-    assert calls_by_step[500] == (1, 499)
-    assert calls_by_step[501] == (1, 500)
+
+def test_epoch_boundary_does_not_reset_the_variance_window() -> None:
+    scheduler, eggroll, gradient = _scheduler([0.03, 0.03, 0.015], [0.015])
+
+    scheduler.train_step((1, 0), epoch=1, example_position=0)
+    scheduler.train_step((2, 0), epoch=2, example_position=0)
+    scheduler.train_step((2, 1), epoch=2, example_position=1)
+
+    assert eggroll.calls[1] == (
+        (2, 0),
+        ExperimentPosition("eggroll", 1, 2, 2, 0, 2),
+    )
     assert gradient.calls[0] == (
-        (1, 500),
-        ExperimentPosition("gradient", 2, 501, 1, 500, 1),
-    )
-    assert gradient.calls[-1] == (
-        (1, 999),
-        ExperimentPosition("gradient", 2, 1_000, 1, 999, 500),
-    )
-    assert eggroll.calls[-1] == (
-        (1, 1_088),
-        ExperimentPosition("eggroll", 3, 1_089, 1, 1_088, 89),
+        (2, 1),
+        ExperimentPosition("gradient", 2, 3, 2, 1, 1),
     )
 
 
-# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within a phase
-def test_1089_example_epoch_boundary_preserves_phase_budget() -> None:
-    eggroll = FakeEngine("eggroll")
-    gradient = FakeEngine("gradient")
-    scheduler = FixedBudgetScheduler(
-        phase_steps=500,
+def test_restore_preserves_active_phase_window_position_and_variance_sum() -> None:
+    scheduler, _, gradient = _scheduler([], [0.015])
+
+    scheduler.restore(
+        active_phase="gradient",
+        completed_steps=9,
+        completed_phase_steps=1,
+        phase_variance_sum=0.014,
+    )
+    result = scheduler.train_step("next", epoch=3, example_position=4)
+
+    assert result.position == ExperimentPosition("gradient", 5, 10, 3, 4, 2)
+    assert gradient.calls == [("next", result.position)]
+    assert scheduler.active_phase == "gradient"
+    assert scheduler.completed_phase_steps == 0
+    assert scheduler.phase_variance_sum == 0.0
+
+
+# covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Eggroll batch ends at the observation boundary
+def test_eggroll_batch_stops_at_the_observation_window_boundary() -> None:
+    eggroll = FakeEngine("eggroll", [0.03], max_consumed_records=8)
+    gradient = FakeEngine("gradient", [0.015])
+    scheduler = VarianceHysteresisScheduler(
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
         eggroll_engine=eggroll,
         gradient_engine=gradient,
     )
 
-    for epoch in range(1, 3):
-        for example_position in range(1_089):
-            scheduler.train_step(
-                (epoch, example_position),
-                epoch=epoch,
-                example_position=example_position,
-            )
-
-    all_calls = sorted(
-        eggroll.calls + gradient.calls,
-        key=lambda call: call[1].global_step,
+    result = scheduler.train_records(
+        [("a", "1"), ("b", "2"), ("c", "3"), ("d", "4")],
+        epoch=1,
+        example_position=0,
     )
-    assert [example for example, _ in all_calls] == [
-        (epoch, position)
-        for epoch in range(1, 3)
-        for position in range(1_089)
-    ]
-    assert all_calls[1_088] == (
-        (1, 1_088),
-        ExperimentPosition("eggroll", 3, 1_089, 1, 1_088, 89),
-    )
-    assert all_calls[1_089] == (
-        (2, 0),
-        ExperimentPosition("eggroll", 3, 1_090, 2, 0, 90),
+    following = scheduler.train_records(
+        [("d", "4")], epoch=1, example_position=3
     )
 
-
-# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run
-def test_default_five_epochs_visit_all_5445_positions_without_phase_reset() -> None:
-    epochs = run_alternating._parse_args([]).epochs
-    eggroll = FakeEngine("eggroll")
-    gradient = FakeEngine("gradient")
-    scheduler = FixedBudgetScheduler(
-        phase_steps=500,
-        eggroll_engine=eggroll,
-        gradient_engine=gradient,
-    )
-
-    for epoch in range(1, epochs + 1):
-        for example_position in range(1_089):
-            scheduler.train_step(
-                (epoch, example_position),
-                epoch=epoch,
-                example_position=example_position,
-            )
-
-    all_calls = sorted(
-        eggroll.calls + gradient.calls,
-        key=lambda call: call[1].global_step,
-    )
-    visits = {(position.epoch, position.example_position) for _, position in all_calls}
-    calls_by_global_step = {
-        position.global_step: (example, position) for example, position in all_calls
-    }
-    assert epochs == 5
-    assert len(all_calls) == 5_445
-    assert len(visits) == 5_445
-    assert [example for example, _ in all_calls] == [
-        (epoch, position)
-        for epoch in range(1, 6)
-        for position in range(1_089)
-    ]
-    for phase_end in range(500, 5_001, 500):
-        assert calls_by_global_step[phase_end][1].phase_step == 500
-        assert calls_by_global_step[phase_end + 1][1].phase_step == 1
-        assert (
-            calls_by_global_step[phase_end + 1][1].cycle
-            == calls_by_global_step[phase_end][1].cycle + 1
+    assert eggroll.calls == [
+        (
+            (("a", "1"), ("b", "2"), ("c", "3")),
+            ExperimentPosition("eggroll", 1, 3, 1, 2, 3),
         )
-    assert calls_by_global_step[1_090] == (
-        (2, 0),
-        ExperimentPosition("eggroll", 3, 1_090, 2, 0, 90),
-    )
-    assert calls_by_global_step[2_179] == (
-        (3, 0),
-        ExperimentPosition("eggroll", 5, 2_179, 3, 0, 179),
-    )
-    assert calls_by_global_step[5_445][1].phase_step == 445
+    ]
+    assert result.consumed_record_count == 3
+    assert scheduler.active_phase == "gradient"
+    assert following.position == ExperimentPosition("gradient", 2, 4, 1, 3, 1)
 
 
-def test_returns_to_eggroll_after_500_gradient_steps() -> None:
-    eggroll = FakeEngine("eggroll")
-    gradient = FakeEngine("gradient")
-    scheduler = FixedBudgetScheduler(
-        phase_steps=500,
-        eggroll_engine=eggroll,
-        gradient_engine=gradient,
-    )
+# covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Invalid variance controller
+def test_invalid_variance_controller_is_rejected() -> None:
+    eggroll = FakeEngine("eggroll", [])
+    gradient = FakeEngine("gradient", [])
 
-    for example in range(1, 1002):
-        scheduler.train_step(example, epoch=2, example_position=example)
-
-    assert gradient.calls[-1] == (
-        1000,
-        ExperimentPosition("gradient", 2, 1000, 2, 1000, 500),
-    )
-    assert eggroll.calls[-1] == (
-        1001,
-        ExperimentPosition("eggroll", 3, 1001, 2, 1001, 1),
-    )
+    try:
+        VarianceHysteresisScheduler(
+            phase_steps=0,
+            eggroll_engine=eggroll,
+            gradient_engine=gradient,
+        )
+    except ValueError as error:
+        assert str(error) == "phase_steps must be at least 1"
+    else:
+        raise AssertionError("invalid variance controller was accepted")

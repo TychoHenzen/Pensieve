@@ -133,6 +133,7 @@ def test_alternating_command_defaults() -> None:
 
     assert args.epochs == 5
     assert args.phase_steps == 50
+    assert (args.variance_lower_threshold, args.variance_upper_threshold) == (0.01, 0.02)
     assert args.variance_lower_threshold == DEFAULT_VARIANCE_LOWER_THRESHOLD
     assert args.variance_upper_threshold == DEFAULT_VARIANCE_UPPER_THRESHOLD
     assert args.slot_count == DEFAULT_SLOT_COUNT
@@ -243,7 +244,14 @@ def test_run_config_records_every_typed_alternating_setting() -> None:
         ]
     )
 
-    assert run_alternating._run_config(args) == RUN_CONFIG
+    expected = copy.deepcopy(RUN_CONFIG)
+    expected["eggroll_population"].update(
+        {
+            "variance_lower_threshold": 0.01,
+            "variance_upper_threshold": 0.02,
+        }
+    )
+    assert run_alternating._run_config(args) == expected
 
 
 def test_incompatible_run_config_is_rejected_before_model_construction(
@@ -368,11 +376,13 @@ def test_invalid_prompt_alignment_weight_is_rejected_before_production_loading(
 
 
 @pytest.mark.parametrize("epochs", ["0", "-1"])
-# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count
-def test_invalid_epoch_count_is_rejected_before_production_loading(
+def test_invalid_epoch_counts_are_rejected_before_production_loading(
     epochs: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    production_loading_attempts: list[tuple[object, ...]] = []
+
     def reject_production_loading(*_args: object, **_kwargs: object) -> None:
+        production_loading_attempts.append(_args)
         raise AssertionError("production loading was attempted")
 
     monkeypatch.setattr(run_alternating, "load_stage0_dataset", reject_production_loading)
@@ -380,6 +390,25 @@ def test_invalid_epoch_count_is_rejected_before_production_loading(
 
     with pytest.raises(ValueError, match="epochs must be at least 1"):
         run_alternating.main(["--epochs", epochs])
+
+    assert production_loading_attempts == []
+
+
+# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count
+def test_invalid_epoch_count_is_rejected_before_production_loading(monkeypatch: pytest.MonkeyPatch) -> None:
+    production_loading_attempts: list[tuple[object, ...]] = []
+
+    def reject_production_loading(*_args: object, **_kwargs: object) -> None:
+        production_loading_attempts.append(_args)
+        raise AssertionError("production loading was attempted")
+
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", reject_production_loading)
+    monkeypatch.setattr(run_alternating, "TrainingState", reject_production_loading)
+
+    with pytest.raises(ValueError, match="epochs must be at least 1"):
+        run_alternating.main(["--epochs", "0"])
+
+    assert production_loading_attempts == []
 
 
 def test_invalid_phase_budget_is_rejected_before_production_loading(
@@ -393,6 +422,122 @@ def test_invalid_phase_budget_is_rejected_before_production_loading(
 
     with pytest.raises(ValueError, match="phase_steps must be at least 1"):
         run_alternating.main(["--phase-steps", "0"])
+
+
+class _BatchEngine:
+    """Dependency-light engine that records every consumed input record."""
+
+    def __init__(self, method: str, *, max_consumed_records: int, variance: float) -> None:
+        self.method = method
+        self.max_consumed_records = max_consumed_records
+        self.variance = variance
+        self.batches: list[tuple[object, ...]] = []
+        self.positions: list[ExperimentPosition] = []
+
+    def train_step(self, example: object, position: ExperimentPosition) -> StepResult:
+        records = example if isinstance(example, tuple) else (example,)
+        self.batches.append(records)
+        self.positions.append(position)
+        return StepResult(
+            position=position,
+            language_model_loss=1.0,
+            total_objective=1.0,
+            regularizer_loss=0.0,
+            shared_variance=self.variance,
+            consumed_record_count=len(records),
+            next_example_position=position.example_position + 1,
+        )
+
+
+class _NoopEvaluator:
+    def evaluate(self, position: ExperimentPosition) -> EvaluationResult:
+        return EvaluationResult(position, 1.0, 0.01, 0.0)
+
+
+def _save_nothing(
+    _schedule: CheckpointSchedule,
+    *,
+    phase_boundary: bool,
+    epoch_boundary: bool,
+    evaluation_record: EvaluationRecord[EvaluationResult],
+) -> tuple[Path, ...]:
+    del phase_boundary, epoch_boundary, evaluation_record
+    return ()
+
+
+# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Observation window ends within an epoch
+def test_traversal_caps_eggroll_batches_and_continues_within_the_epoch() -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+
+    run_alternating._run_schedule(
+        examples=["a", "b", "c", "d", "e"],
+        epochs=1,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=10,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=_save_nothing,
+        output=StringIO(),
+    )
+
+    assert eggroll.batches == [("a", "b"), ("c",)]
+    assert gradient.batches == [("d",), ("e",)]
+    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 1, 2, 3)
+    assert gradient.positions[0] == ExperimentPosition("gradient", 2, 4, 1, 3, 1)
+
+
+# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within an observation window
+def test_traversal_preserves_the_observation_window_across_epochs() -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+
+    run_alternating._run_schedule(
+        examples=["a", "b"],
+        epochs=2,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=10,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=_save_nothing,
+        output=StringIO(),
+    )
+
+    assert eggroll.batches == [("a", "b"), ("a",)]
+    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 2, 0, 3)
+    assert gradient.batches == [("b",)]
+    assert gradient.positions == [ExperimentPosition("gradient", 2, 4, 2, 1, 1)]
+
+
+# covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run
+def test_default_five_epoch_traversal_consumes_exactly_2850_ordered_examples() -> None:
+    examples = list(range(570))
+    eggroll = _BatchEngine("eggroll", max_consumed_records=8, variance=0.015)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+
+    run_alternating._run_schedule(
+        examples=examples,
+        epochs=5,
+        phase_steps=50,
+        log_every=50,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=_save_nothing,
+        output=StringIO(),
+    )
+
+    visits = [record for batch in eggroll.batches for record in batch]
+    assert visits == examples * 5
+    assert len(visits) == 2850
+    assert len(eggroll.batches) == 399
+    assert gradient.batches == []
 
 
 def test_main_builds_shared_production_run_and_executes_schedule(
