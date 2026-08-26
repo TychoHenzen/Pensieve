@@ -29,7 +29,7 @@
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Update moves against its prediction -->
 - [x] 3.4 Add held-out separation, relative matrix RMS, finite-state, snapshot restoration, and `unsafe_update` checks for both methods.
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Causal update damages held-out separation -->
-- [ ] 3.5 Run focused gradient and EGGROLL causal tests with known aligned, reversed, oversized, and non-finite updates.
+- [x] 3.5 Run focused gradient and EGGROLL causal tests with known aligned, reversed, oversized, and non-finite updates.
 
 ## 4. Implement Equal-Budget Method Arms
 

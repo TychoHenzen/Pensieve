@@ -1210,6 +1210,108 @@ class TestCausalSafetyChecks:
             )
 
 
+class TestFocusedCausalProbes:
+    """Focused causal probe tests with known update scenarios."""
+
+    def test_causal_probe_aligned_update_gradient(self) -> None:
+        """Test gradient method with aligned prediction and observation."""
+        from train.stage0_trainability import classify_causal_result, validate_causal_safety_checks
+
+        predicted_delta = -0.1
+        observed_delta = -0.12
+        status, _ = classify_causal_result(
+            predicted_delta=predicted_delta,
+            observed_delta=observed_delta,
+            baseline_objective=1.0,
+            post_update_objective=0.88,
+        )
+        assert status == "passed"
+
+    def test_causal_probe_aligned_update_eggroll(self) -> None:
+        """Test EGGROLL method with aligned prediction and observation."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, _ = classify_causal_result(
+            predicted_delta=-0.15,
+            observed_delta=-0.18,
+            baseline_objective=2.0,
+            post_update_objective=1.82,
+        )
+        assert status == "passed"
+
+    def test_causal_probe_reversed_direction_gradient(self) -> None:
+        """Test gradient method with reversed prediction vs observation."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, conditions = classify_causal_result(
+            predicted_delta=-0.1,
+            observed_delta=0.05,
+            baseline_objective=1.0,
+            post_update_objective=1.05,
+        )
+        assert status == "direction_mismatch"
+
+    def test_causal_probe_reversed_direction_eggroll(self) -> None:
+        """Test EGGROLL method with reversed direction."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, _ = classify_causal_result(
+            predicted_delta=-0.2,
+            observed_delta=0.1,
+            baseline_objective=2.0,
+            post_update_objective=2.1,
+        )
+        assert status == "direction_mismatch"
+
+    def test_causal_probe_oversized_rms_change(self) -> None:
+        """Test detection of RMS change exceeding 0.01 ceiling."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.76,
+            max_update_relative_matrix_rms=0.02,
+        )
+        assert status == "unsafe_update"
+        assert any("relative_matrix_rms" in c for c in conditions)
+
+    def test_causal_probe_non_finite_gradient(self) -> None:
+        """Test non-finite value detection in gradient probe."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, _ = classify_causal_result(
+            predicted_delta=float("nan"),
+            observed_delta=-0.1,
+            baseline_objective=1.0,
+            post_update_objective=0.9,
+        )
+        assert status == "non_finite"
+
+    def test_causal_probe_non_finite_eggroll(self) -> None:
+        """Test non-finite value detection in EGGROLL probe."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, _ = classify_causal_result(
+            predicted_delta=-0.1,
+            observed_delta=float("inf"),
+            baseline_objective=1.0,
+            post_update_objective=0.9,
+        )
+        assert status == "non_finite"
+
+    def test_causal_probe_safety_with_aligned_update(self) -> None:
+        """Test safety checks pass with aligned update."""
+        from train.stage0_trainability import validate_causal_safety_checks
+
+        status, conditions = validate_causal_safety_checks(
+            baseline_separation=0.8,
+            post_update_separation=0.77,
+            max_update_relative_matrix_rms=0.005,
+        )
+        assert status == "passed"
+        assert len(conditions) == 0
+
+
 class TestCausalProbeEvaluation:
     """Test complete-objective evaluation for causal probes."""
 
