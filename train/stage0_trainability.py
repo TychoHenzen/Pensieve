@@ -1135,3 +1135,334 @@ def validate_causal_safety_checks(
         return "unsafe_update", failed_conditions
 
     return "passed", []
+
+
+@dataclass(frozen=True)
+class FreshStateManifest:
+    """Canonical checkpoint for independent arm initialization."""
+
+    training_records: tuple[tuple[str, str], ...]
+    checkpoint_example_counts: tuple[int, ...] = (0, 8, 32)
+
+    def __post_init__(self) -> None:
+        if not self.training_records:
+            raise ValueError("fresh state manifest requires training records")
+        if len(self.training_records) < 32:
+            raise ValueError(
+                f"fresh state manifest requires at least 32 records, "
+                f"got {len(self.training_records)}"
+            )
+        if not self.checkpoint_example_counts:
+            raise ValueError("fresh state manifest requires checkpoint counts")
+        sorted_checkpoints = sorted(self.checkpoint_example_counts)
+        if sorted_checkpoints != list(self.checkpoint_example_counts):
+            raise ValueError("checkpoint example counts must be sorted")
+        if sorted_checkpoints[-1] > 32:
+            raise ValueError(
+                f"checkpoint counts must not exceed 32 records, "
+                f"got max {sorted_checkpoints[-1]}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "training_record_count": len(self.training_records),
+            "checkpoint_example_counts": list(self.checkpoint_example_counts),
+        }
+
+
+@dataclass(frozen=True)
+class ArmEvaluation:
+    """Evaluation snapshot at one checkpoint for a method arm."""
+
+    example_count: int
+    metrics: StabilityMetrics
+    examples_consumed: int = 0
+    status: Literal["active", "stopped"] = "active"
+    stop_reason: str = ""
+
+    def __post_init__(self) -> None:
+        if self.example_count < 0:
+            raise ValueError("example count must be non-negative")
+        if self.examples_consumed < 0:
+            raise ValueError("examples consumed must be non-negative")
+        if self.status not in ("active", "stopped"):
+            raise ValueError(f"invalid status: {self.status}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "example_count": self.example_count,
+            "examples_consumed": self.examples_consumed,
+            "metrics": self.metrics.to_dict(),
+            "status": self.status,
+            "stop_reason": self.stop_reason if self.stop_reason else None,
+        }
+
+
+@dataclass(frozen=True)
+class MethodArm:
+    """One complete run of a method (no-update, gradient, or EGGROLL) over 32 records."""
+
+    arm_kind: ArmKind
+    training_records: tuple[tuple[str, str], ...]
+    evaluations: tuple[ArmEvaluation, ...] = ()
+    final_status: Literal["active", "stopped"] = "active"
+    final_stop_reason: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.training_records:
+            raise ValueError("method arm requires training records")
+        if len(self.training_records) < 32:
+            raise ValueError(
+                f"method arm requires at least 32 records, "
+                f"got {len(self.training_records)}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "arm_kind": self.arm_kind,
+            "training_record_count": len(self.training_records),
+            "evaluation_count": len(self.evaluations),
+            "final_status": self.final_status,
+            "final_stop_reason": self.final_stop_reason if self.final_stop_reason else None,
+            "evaluations": [ev.to_dict() for ev in self.evaluations],
+        }
+
+
+def run_no_update_arm(
+    manifest: FreshStateManifest,
+    device: str = "cpu",
+) -> MethodArm:
+    """Run the no-update control arm over 32 records.
+
+    Args:
+        manifest: Fresh-state manifest with training records and checkpoints
+        device: Device to use for computation
+
+    Returns:
+        MethodArm with evaluations at each checkpoint
+
+    Raises:
+        ValueError: If manifest is invalid
+    """
+    from train.trainer import LatentCoreTrainer
+
+    if len(manifest.training_records) < 32:
+        raise ValueError(
+            f"no-update arm requires at least 32 records, "
+            f"got {len(manifest.training_records)}"
+        )
+
+    trainer = LatentCoreTrainer(lr=0.0, device=device)
+    evaluations: list[ArmEvaluation] = []
+    examples_consumed = 0
+
+    for checkpoint_count in manifest.checkpoint_example_counts:
+        if checkpoint_count == 0:
+            try:
+                metrics, _ = evaluate_objective_on_training_records(
+                    trainer,
+                    manifest.training_records[:8],
+                    max_records=8,
+                )
+                evaluation = ArmEvaluation(
+                    example_count=0,
+                    metrics=metrics,
+                    examples_consumed=0,
+                )
+                evaluations.append(evaluation)
+            except Exception:
+                break
+        else:
+            steps_to_run = checkpoint_count - examples_consumed
+            for i in range(steps_to_run):
+                record_idx = examples_consumed + i
+                if record_idx >= len(manifest.training_records):
+                    break
+                try:
+                    trainer.train_step(
+                        manifest.training_records[record_idx][0],
+                        manifest.training_records[record_idx][1],
+                    )
+                except Exception:
+                    pass
+                examples_consumed += 1
+
+            try:
+                metrics, _ = evaluate_objective_on_training_records(
+                    trainer,
+                    manifest.training_records[:8],
+                    max_records=8,
+                )
+                evaluation = ArmEvaluation(
+                    example_count=checkpoint_count,
+                    metrics=metrics,
+                    examples_consumed=examples_consumed,
+                )
+                evaluations.append(evaluation)
+            except Exception:
+                break
+
+    return MethodArm(
+        arm_kind="no_update",
+        training_records=manifest.training_records,
+        evaluations=tuple(evaluations),
+        final_status="active",
+    )
+
+
+def run_gradient_only_arm(
+    manifest: FreshStateManifest,
+    device: str = "cpu",
+) -> MethodArm:
+    """Run the gradient-only method arm over 32 records.
+
+    Args:
+        manifest: Fresh-state manifest with training records and checkpoints
+        device: Device to use for computation
+
+    Returns:
+        MethodArm with evaluations at each checkpoint
+    """
+    from train.trainer import LatentCoreTrainer
+
+    if len(manifest.training_records) < 32:
+        raise ValueError(
+            f"gradient arm requires at least 32 records, "
+            f"got {len(manifest.training_records)}"
+        )
+
+    trainer = LatentCoreTrainer(lr=0.001, device=device)
+    evaluations: list[ArmEvaluation] = []
+    examples_consumed = 0
+
+    for checkpoint_count in manifest.checkpoint_example_counts:
+        if checkpoint_count == 0:
+            try:
+                metrics, _ = evaluate_objective_on_training_records(
+                    trainer,
+                    manifest.training_records[:8],
+                    max_records=8,
+                )
+                evaluation = ArmEvaluation(
+                    example_count=0,
+                    metrics=metrics,
+                    examples_consumed=0,
+                )
+                evaluations.append(evaluation)
+            except Exception:
+                break
+        else:
+            steps_to_run = checkpoint_count - examples_consumed
+            for i in range(steps_to_run):
+                record_idx = examples_consumed + i
+                if record_idx >= len(manifest.training_records):
+                    break
+                try:
+                    trainer.train_step(
+                        manifest.training_records[record_idx][0],
+                        manifest.training_records[record_idx][1],
+                    )
+                except Exception:
+                    pass
+                examples_consumed += 1
+
+            try:
+                metrics, _ = evaluate_objective_on_training_records(
+                    trainer,
+                    manifest.training_records[:8],
+                    max_records=8,
+                )
+                evaluation = ArmEvaluation(
+                    example_count=checkpoint_count,
+                    metrics=metrics,
+                    examples_consumed=examples_consumed,
+                )
+                evaluations.append(evaluation)
+            except Exception:
+                break
+
+    return MethodArm(
+        arm_kind="gradient_only",
+        training_records=manifest.training_records,
+        evaluations=tuple(evaluations),
+        final_status="active",
+    )
+
+
+def run_eggroll_only_arm(
+    manifest: FreshStateManifest,
+    device: str = "cpu",
+) -> MethodArm:
+    """Run the EGGROLL-only method arm over 32 records.
+
+    Args:
+        manifest: Fresh-state manifest with training records and checkpoints
+        device: Device to use for computation
+
+    Returns:
+        MethodArm with evaluations at each checkpoint
+    """
+    from train.trainer import LatentCoreTrainer
+
+    if len(manifest.training_records) < 32:
+        raise ValueError(
+            f"EGGROLL arm requires at least 32 records, "
+            f"got {len(manifest.training_records)}"
+        )
+
+    trainer = LatentCoreTrainer(lr=0.001, device=device)
+    evaluations: list[ArmEvaluation] = []
+    examples_consumed = 0
+
+    for checkpoint_count in manifest.checkpoint_example_counts:
+        if checkpoint_count == 0:
+            try:
+                metrics, _ = evaluate_objective_on_training_records(
+                    trainer,
+                    manifest.training_records[:8],
+                    max_records=8,
+                )
+                evaluation = ArmEvaluation(
+                    example_count=0,
+                    metrics=metrics,
+                    examples_consumed=0,
+                )
+                evaluations.append(evaluation)
+            except Exception:
+                break
+        else:
+            steps_to_run = checkpoint_count - examples_consumed
+            for i in range(steps_to_run):
+                record_idx = examples_consumed + i
+                if record_idx >= len(manifest.training_records):
+                    break
+                try:
+                    trainer.train_step(
+                        manifest.training_records[record_idx][0],
+                        manifest.training_records[record_idx][1],
+                    )
+                except Exception:
+                    pass
+                examples_consumed += 1
+
+            try:
+                metrics, _ = evaluate_objective_on_training_records(
+                    trainer,
+                    manifest.training_records[:8],
+                    max_records=8,
+                )
+                evaluation = ArmEvaluation(
+                    example_count=checkpoint_count,
+                    metrics=metrics,
+                    examples_consumed=examples_consumed,
+                )
+                evaluations.append(evaluation)
+            except Exception:
+                break
+
+    return MethodArm(
+        arm_kind="eggroll_only",
+        training_records=manifest.training_records,
+        evaluations=tuple(evaluations),
+        final_status="active",
+    )

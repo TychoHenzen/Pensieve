@@ -1482,3 +1482,180 @@ class TestOverfitProbeFixtures:
             assert result["learning_rate"] == 0.001, (
                 f"probe {i} did not preserve learning_rate"
             )
+
+
+class TestMethodArms:
+    """Test the three method arms for equal-budget comparison."""
+
+    def test_fresh_state_manifest_requires_records(self) -> None:
+        """Test that FreshStateManifest requires training records."""
+        from train.stage0_trainability import FreshStateManifest
+
+        with pytest.raises(ValueError):
+            FreshStateManifest(training_records=())
+
+    def test_fresh_state_manifest_requires_32_records(self) -> None:
+        """Test that FreshStateManifest requires at least 32 records."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"Question {i}", f"Answer {i}") for i in range(16)
+        )
+        with pytest.raises(ValueError):
+            FreshStateManifest(training_records=records)
+
+    def test_fresh_state_manifest_accepts_32_records(self) -> None:
+        """Test that FreshStateManifest accepts exactly 32 records."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+        assert len(manifest.training_records) == 32
+        assert manifest.checkpoint_example_counts == (0, 8, 32)
+
+    def test_fresh_state_manifest_requires_sorted_checkpoints(self) -> None:
+        """Test that checkpoint counts must be sorted."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        with pytest.raises(ValueError):
+            FreshStateManifest(
+                training_records=records,
+                checkpoint_example_counts=(32, 8, 0)
+            )
+
+    def test_fresh_state_manifest_to_dict(self) -> None:
+        """Test FreshStateManifest serialization."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+        manifest_dict = manifest.to_dict()
+
+        assert manifest_dict["training_record_count"] == 32
+        assert manifest_dict["checkpoint_example_counts"] == [0, 8, 32]
+
+    def test_arm_evaluation_requires_non_negative_counts(self) -> None:
+        """Test that ArmEvaluation validates counts."""
+        from train.stage0_trainability import ArmEvaluation
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        with pytest.raises(ValueError):
+            ArmEvaluation(example_count=-1, metrics=metrics)
+
+        with pytest.raises(ValueError):
+            ArmEvaluation(example_count=0, metrics=metrics, examples_consumed=-1)
+
+    def test_arm_evaluation_to_dict(self) -> None:
+        """Test ArmEvaluation serialization."""
+        from train.stage0_trainability import ArmEvaluation
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        evaluation = ArmEvaluation(
+            example_count=8,
+            metrics=metrics,
+            examples_consumed=8,
+            status="active",
+        )
+        eval_dict = evaluation.to_dict()
+
+        assert eval_dict["example_count"] == 8
+        assert eval_dict["examples_consumed"] == 8
+        assert eval_dict["status"] == "active"
+        assert "metrics" in eval_dict
+
+    def test_method_arm_requires_training_records(self) -> None:
+        """Test that MethodArm requires training records."""
+        from train.stage0_trainability import MethodArm
+
+        with pytest.raises(ValueError):
+            MethodArm(
+                arm_kind="no_update",
+                training_records=(),
+            )
+
+    def test_method_arm_requires_32_records(self) -> None:
+        """Test that MethodArm requires at least 32 records."""
+        from train.stage0_trainability import MethodArm
+
+        records = tuple(
+            (f"Question {i}", f"Answer {i}") for i in range(16)
+        )
+        with pytest.raises(ValueError):
+            MethodArm(
+                arm_kind="gradient_only",
+                training_records=records,
+            )
+
+    def test_method_arm_accepts_32_records(self) -> None:
+        """Test that MethodArm accepts exactly 32 records."""
+        from train.stage0_trainability import MethodArm
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        arm = MethodArm(
+            arm_kind="eggroll_only",
+            training_records=records,
+        )
+        assert len(arm.training_records) == 32
+        assert arm.arm_kind == "eggroll_only"
+        assert arm.final_status == "active"
+
+    def test_method_arm_to_dict(self) -> None:
+        """Test MethodArm serialization."""
+        from train.stage0_trainability import MethodArm
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        arm = MethodArm(
+            arm_kind="gradient_only",
+            training_records=records,
+            evaluations=(),
+        )
+        arm_dict = arm.to_dict()
+
+        assert arm_dict["arm_kind"] == "gradient_only"
+        assert arm_dict["training_record_count"] == 32
+        assert arm_dict["evaluation_count"] == 0
+        assert arm_dict["final_status"] == "active"
+        assert isinstance(arm_dict["evaluations"], list)
