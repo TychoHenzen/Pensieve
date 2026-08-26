@@ -48,7 +48,7 @@
 - [x] 5.1 Implement method statuses from causal and 32-example evidence, requiring loss, exact, first-token, separation, and RMS conditions for `viable`.
   <!-- covers: train/stage0-trainability-gate :: Method findings require decoded improvement :: Method shows bounded trainability -->
   <!-- covers: train/stage0-trainability-gate :: Method findings require decoded improvement :: Loss improves without useful behavior -->
-- [ ] 5.2 Implement overall classification precedence for inconclusive evidence, objective failure, bounded trainability, shared conflict, and method-specific failure.
+- [x] 5.2 Implement overall classification precedence for inconclusive evidence, objective failure, bounded trainability, shared conflict, and method-specific failure.
   <!-- covers: train/stage0-trainability-gate :: Overall classification follows a deterministic precedence :: At least one method is viable -->
   <!-- covers: train/stage0-trainability-gate :: Overall classification follows a deterministic precedence :: Both methods repeat the observed conflict -->
   <!-- covers: train/stage0-trainability-gate :: Overall classification follows a deterministic precedence :: Control drift invalidates interpretation -->
