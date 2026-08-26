@@ -149,3 +149,51 @@ def test_command_rejects_implementation_mismatch(tmp_path: Path, monkeypatch: py
         str(output),
     ])
     assert code == 1
+
+
+def test_progress_writer_exclusive_create(tmp_path: Path) -> None:
+    """Progress writer creates JSONL with exclusive-create semantics."""
+    progress_path = tmp_path / "progress.jsonl"
+    with run_stage0_trainability.TrainabilityProgressWriter(progress_path) as writer:
+        from train.stage0_trainability import TrainabilityProgressRecord
+        record = TrainabilityProgressRecord(
+            schema_version=1,
+            sequence_number=0,
+            kind="arm_checkpoint",
+            probe_or_arm="gradient_only",
+            consumed_examples=8,
+            optimizer_call_count=8,
+            elapsed_seconds=1.5,
+            eta_seconds=2.0,
+        )
+        writer.write_record(record)
+    assert progress_path.exists()
+    lines = progress_path.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 1
+    data = json.loads(lines[0])
+    assert data["kind"] == "arm_checkpoint"
+    assert data["consumed_examples"] == 8
+
+
+def test_progress_writer_append_and_flush(tmp_path: Path) -> None:
+    """Progress writer appends records and flushes each write."""
+    progress_path = tmp_path / "progress.jsonl"
+    from train.stage0_trainability import TrainabilityProgressRecord
+    with run_stage0_trainability.TrainabilityProgressWriter(progress_path) as writer:
+        for i in range(3):
+            record = TrainabilityProgressRecord(
+                schema_version=1,
+                sequence_number=i,
+                kind="arm_checkpoint",
+                probe_or_arm=f"arm_{i}",
+                consumed_examples=i * 8,
+                optimizer_call_count=i * 8,
+                elapsed_seconds=float(i),
+                eta_seconds=None,
+            )
+            writer.write_record(record)
+    lines = progress_path.read_text(encoding="utf-8").strip().split("\n")
+    assert len(lines) == 3
+    for i, line in enumerate(lines):
+        data = json.loads(line)
+        assert data["sequence_number"] == i

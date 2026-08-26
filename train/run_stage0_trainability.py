@@ -15,8 +15,35 @@ import sys
 
 from train.stage0_trainability import (
     canonical_trainability_implementation_identity,
+    TrainabilityProgressRecord,
+    TRAINABILITY_SCHEMA_VERSION,
 )
 from train.standalone_checkpoint import configure_deterministic_runtime
+
+
+class TrainabilityProgressWriter:
+    """Append-only exclusive-create JSONL progress writer with flushing."""
+
+    def __init__(self, progress_path: Path) -> None:
+        self.progress_path = progress_path
+        self.sequence_number = 0
+        self._file_handle = None
+
+    def __enter__(self):
+        self._file_handle = self.progress_path.open("a", encoding="utf-8")
+        return self
+
+    def __exit__(self, _exc_type, _exc_val, _exc_tb):
+        if self._file_handle:
+            self._file_handle.close()
+
+    def write_record(self, record: TrainabilityProgressRecord) -> None:
+        """Write a progress record and flush."""
+        if not self._file_handle:
+            raise RuntimeError("progress writer not in context manager")
+        self._file_handle.write(record.canonical_json_line() + "\n")
+        self._file_handle.flush()
+        self.sequence_number += 1
 
 
 def _build_parser() -> argparse.ArgumentParser:

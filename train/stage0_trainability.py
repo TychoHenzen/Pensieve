@@ -7,7 +7,7 @@ fixed fresh-state probes and equal-budget method comparisons.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import hashlib
 import json
 import math
@@ -388,6 +388,66 @@ class TrainabilityReport:
 
     def canonical_json(self) -> str:
         """Return the canonical JSON representation."""
+        return canonical_json_bytes(self.to_dict()).decode("utf-8")
+
+
+@dataclass(frozen=True)
+class TrainabilityProgressRecord:
+    """Strict JSONL record emitted after each investigation event."""
+
+    schema_version: int
+    sequence_number: int
+    kind: Literal[
+        "overfit_attempt_start",
+        "overfit_checkpoint",
+        "overfit_attempt_complete",
+        "causal_probe_start",
+        "causal_probe_complete",
+        "arm_start",
+        "arm_checkpoint",
+        "arm_complete",
+    ]
+    probe_or_arm: str
+    consumed_examples: int = 0
+    optimizer_call_count: int = 0
+    elapsed_seconds: float = 0.0
+    eta_seconds: float | None = None
+    payload: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.schema_version != TRAINABILITY_SCHEMA_VERSION:
+            raise ValueError(
+                f"trainability progress requires schema version {TRAINABILITY_SCHEMA_VERSION}"
+            )
+        if self.sequence_number < 0:
+            raise ValueError("progress sequence_number must be non-negative")
+        if not math.isfinite(self.consumed_examples) or self.consumed_examples < 0:
+            raise ValueError("consumed_examples must be finite and non-negative")
+        if not math.isfinite(self.elapsed_seconds) or self.elapsed_seconds < 0:
+            raise ValueError("elapsed_seconds must be finite and non-negative")
+        if self.eta_seconds is not None and (
+            not math.isfinite(self.eta_seconds) or self.eta_seconds < 0
+        ):
+            raise ValueError("eta_seconds must be finite and non-negative or None")
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "schema_version": self.schema_version,
+            "sequence_number": self.sequence_number,
+            "kind": self.kind,
+            "probe_or_arm": self.probe_or_arm,
+            "consumed_examples": self.consumed_examples,
+            "optimizer_call_count": self.optimizer_call_count,
+            "elapsed_seconds": self.elapsed_seconds,
+            "eta_seconds": self.eta_seconds,
+        }
+        if self.payload:
+            result["payload"] = self.payload
+        _require_finite(result, "trainability progress record")
+        return result
+
+    def canonical_json_line(self) -> str:
+        """Return the canonical JSON line for JSONL output."""
         return canonical_json_bytes(self.to_dict()).decode("utf-8")
 
 
