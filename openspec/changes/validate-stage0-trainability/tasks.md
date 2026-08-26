@@ -40,7 +40,7 @@
   <!-- covers: train/stage0-trainability-gate :: Equal-budget arms isolate update-method behavior :: No-update control detects drift -->
 - [x] 4.4 Add independent non-finite, relative-RMS, and separation early stops so one failed arm cannot cancel another.
   <!-- covers: train/stage0-trainability-gate :: Equal-budget arms isolate update-method behavior :: Unsafe arm stops independently -->
-- [ ] 4.5 Add integration tests for identical record exposure, arm isolation, optimizer-call accounting, partial EGGROLL boundaries, and independent completion.
+- [x] 4.5 Add integration tests for identical record exposure, arm isolation, optimizer-call accounting, partial EGGROLL boundaries, and independent completion.
 - [ ] 4.6 Run the three arms on lightweight production-path fixtures as an independently runnable method-comparison check.
 
 ## 5. Classify Findings and Eligibility
