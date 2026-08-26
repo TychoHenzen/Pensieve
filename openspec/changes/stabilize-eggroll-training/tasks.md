@@ -137,5 +137,6 @@
 <!-- status: completed -->
 - [x] 8.3 Update the CUDA equivalence and performance benchmark to report time and peak memory per consumed example for fitness-batch size eight. Require optimized outputs to match the materialized reference and preserve the existing speed and memory gate.
 <!-- status: completed -->
-- [ ] 8.4 Run the real bounded CUDA stability command from a fresh state. Preserve its JSON and JSONL artifacts, parameter/configuration identity, checkpoint metrics, and pass or exact failure conditions.
+- [x] 8.4 Run the real bounded CUDA stability command from a fresh state. Preserve its JSON and JSONL artifacts, parameter/configuration identity, checkpoint metrics, and pass or exact failure conditions.
+<!-- status: completed -->
 - [ ] 8.5 Stop before full training. Review the bounded stability artifact as the independent practice test for the stabilized system, then use a new apply request for any threshold or default revision revealed by that evidence.
