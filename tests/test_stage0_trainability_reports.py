@@ -1923,3 +1923,108 @@ class TestNoUpdateControl:
         assert drift["exact_accuracy_delta"] == 0.0
         assert "separation_retention_ratio" in drift
         assert drift["separation_retention_ratio"] == 1.0
+
+
+class TestArmSafetyChecks:
+    """Test independent safety checks for arm evaluations."""
+
+    def test_arm_safety_check_passes_valid_metrics(self) -> None:
+        """Test that safety check passes for valid metrics."""
+        from train.stage0_trainability import check_arm_evaluation_safety
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.8,
+            first_token_accuracy=0.9,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        check = check_arm_evaluation_safety(metrics)
+
+        assert check.status == "passed"
+        assert not check.non_finite_detected
+        assert not check.rms_ceiling_violated
+        assert not check.separation_floor_violated
+
+    def test_arm_safety_check_stops_separation_violation(self) -> None:
+        """Test that safety check stops on separation floor violation."""
+        from train.stage0_trainability import check_arm_evaluation_safety
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.8,
+            first_token_accuracy=0.9,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.9,
+        )
+
+        check = check_arm_evaluation_safety(metrics, baseline_separation=1.0)
+
+        assert check.status == "stopped"
+        assert check.separation_floor_violated
+        assert "Separation retention" in check.stop_reason
+
+    def test_arm_safety_check_stops_rms_ceiling_violation(self) -> None:
+        """Test that safety check stops on RMS ceiling violation."""
+        from train.stage0_trainability import check_arm_evaluation_safety
+        from train.eggroll_stability import StabilityMetrics, ParameterRms
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=(
+                ParameterRms(path="layer1", rms=0.001),
+                ParameterRms(path="layer2", rms=0.02),
+            ),
+            language_model_loss=0.5,
+            exact_accuracy=0.8,
+            first_token_accuracy=0.9,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        check = check_arm_evaluation_safety(metrics)
+
+        assert check.status == "stopped"
+        assert check.rms_ceiling_violated
+        assert "RMS" in check.stop_reason
+
+    def test_arm_safety_check_to_dict(self) -> None:
+        """Test ArmSafetyCheck serialization."""
+        from train.stage0_trainability import ArmSafetyCheck
+
+        check = ArmSafetyCheck(
+            status="stopped",
+            stop_reason="Test reason",
+            non_finite_detected=True,
+        )
+        check_dict = check.to_dict()
+
+        assert check_dict["status"] == "stopped"
+        assert check_dict["stop_reason"] == "Test reason"
+        assert check_dict["non_finite_detected"] is True
+        assert check_dict["rms_ceiling_violated"] is False

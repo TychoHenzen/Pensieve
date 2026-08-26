@@ -1223,6 +1223,102 @@ class NoUpdateControl:
 
 
 @dataclass(frozen=True)
+class ArmSafetyCheck:
+    """Independent safety validation for one arm evaluation."""
+
+    status: Literal["passed", "stopped"]
+    stop_reason: str = ""
+    non_finite_detected: bool = False
+    rms_ceiling_violated: bool = False
+    separation_floor_violated: bool = False
+
+    def __post_init__(self) -> None:
+        if self.status not in ("passed", "stopped"):
+            raise ValueError(f"invalid status: {self.status}")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "status": self.status,
+            "stop_reason": self.stop_reason if self.stop_reason else None,
+            "non_finite_detected": self.non_finite_detected,
+            "rms_ceiling_violated": self.rms_ceiling_violated,
+            "separation_floor_violated": self.separation_floor_violated,
+        }
+
+
+def check_arm_evaluation_safety(
+    metrics: StabilityMetrics,
+    baseline_separation: float = 0.95,
+    max_rms_ceiling: float = 0.01,
+    min_separation_ratio: float = MIN_SEPARATION_RATIO,
+) -> ArmSafetyCheck:
+    """Check safety of an arm evaluation snapshot.
+
+    Args:
+        metrics: Evaluation metrics to check
+        baseline_separation: Baseline separation for ratio check
+        max_rms_ceiling: Maximum allowed relative RMS
+        min_separation_ratio: Minimum required separation retention ratio
+
+    Returns:
+        ArmSafetyCheck with independent stop decision
+    """
+    failed_reasons = []
+
+    if not math.isfinite(metrics.language_model_loss):
+        failed_reasons.append("non_finite_lm_loss")
+        return ArmSafetyCheck(
+            status="stopped",
+            stop_reason="Non-finite language model loss",
+            non_finite_detected=True,
+        )
+
+    if not math.isfinite(metrics.separation_retention):
+        failed_reasons.append("non_finite_separation")
+        return ArmSafetyCheck(
+            status="stopped",
+            stop_reason="Non-finite separation retention",
+            non_finite_detected=True,
+        )
+
+    if baseline_separation > 0:
+        separation_ratio = metrics.separation_retention / baseline_separation
+        if separation_ratio < min_separation_ratio:
+            failed_reasons.append(
+                f"separation_ratio_{separation_ratio:.4f}"
+            )
+            return ArmSafetyCheck(
+                status="stopped",
+                stop_reason=(
+                    f"Separation retention below floor: "
+                    f"{separation_ratio:.4f} < {min_separation_ratio}"
+                ),
+                separation_floor_violated=True,
+            )
+
+    if len(metrics.parameter_rms) > 0:
+        from train.eggroll_stability import ParameterRms
+
+        rms_values = [
+            item.rms if isinstance(item, ParameterRms) else 0.0
+            for item in metrics.parameter_rms
+        ]
+        max_param_rms = max(rms_values) if rms_values else 0.0
+        if max_param_rms > max_rms_ceiling:
+            failed_reasons.append(f"rms_ceiling_{max_param_rms:.4f}")
+            return ArmSafetyCheck(
+                status="stopped",
+                stop_reason=(
+                    f"Parameter RMS above ceiling: "
+                    f"{max_param_rms:.4f} > {max_rms_ceiling}"
+                ),
+                rms_ceiling_violated=True,
+            )
+
+    return ArmSafetyCheck(status="passed")
+
+
+@dataclass(frozen=True)
 class MethodArm:
     """One complete run of a method (no-update, gradient, or EGGROLL) over 32 records."""
 
