@@ -73,7 +73,7 @@
 ## 7. Verify Without Starting Training
 
 - [x] 7.1 Run the focused trainability, report, stability, gradient, EGGROLL, objective, and evaluation test modules.
-- [ ] 7.2 Run the complete suite with `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
+- [x] 7.2 Run the complete suite with `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
 - [ ] 7.3 Run optimized-reference equivalence and the existing CUDA performance and memory gates to confirm diagnostic reuse did not change training math.
 - [ ] 7.4 Run `openspec validate validate-stage0-trainability --strict --no-interactive` and require complete scenario coverage with zero regressions.
 - [ ] 7.5 Run the bounded command against `gate_results/stabilize-eggroll-training/stability-seed0-cuda-20260826T1555.json`, retain its JSON and JSONL result, and stop without recalibration, full training, threshold changes, default selection, or archival.
