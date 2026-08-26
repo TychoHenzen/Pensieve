@@ -18,6 +18,7 @@ from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
 from train.stage0_data import FitnessBatch
 from train.training_results import ExperimentPosition, StepResult
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
+from eval.stream.generators.asdiv_a import AsdivRecord
 
 
 def test_fitness_uses_canonical_post_loop_slot_variance(
@@ -370,6 +371,66 @@ def test_fitness_batch_reuses_one_population_and_reports_aggregate_progress(
     assert result.optimizer_call_count == 1
     gc.collect()
     assert all(reference() is None for reference in prepared_tensor_refs)
+
+
+def test_train_epoch_uses_each_record_once_and_keeps_the_final_partial_batch() -> None:
+    trainer = EggrollTrainer.__new__(EggrollTrainer)
+    trainer.fitness_batch_size = 8
+    observed_batches: list[FitnessBatch] = []
+    observed_callbacks: list[tuple[int, int, StepResult]] = []
+
+    def train_fitness_batch(
+        batch: FitnessBatch,
+        _position: ExperimentPosition | None = None,
+        *,
+        optimizer_call_count: int,
+    ) -> StepResult:
+        observed_batches.append(batch)
+        record_count = batch.consumed_record_count
+        return StepResult(
+            position=ExperimentPosition(
+                "eggroll", 0, optimizer_call_count, 1, batch.start_position, 0
+            ),
+            language_model_loss=float(record_count),
+            total_objective=float(record_count * 10),
+            regularizer_loss=float(record_count * 9),
+            shared_variance=float(record_count) / 10,
+            consumed_record_count=record_count,
+            next_example_position=batch.next_position,
+            optimizer_call_count=optimizer_call_count,
+        )
+
+    trainer.train_fitness_batch = train_fitness_batch  # type: ignore[method-assign]
+    records = tuple(
+        AsdivRecord(
+            id=f"record-{index}",
+            split="train",
+            question=f"question-{index}",
+            target=str(index),
+        )
+        for index in range(9)
+    )
+
+    stats = trainer.train_epoch(
+        records,
+        on_step=lambda step, total, result: observed_callbacks.append(
+            (step, total, result)
+        ),
+    )
+
+    assert [batch.ordered_item_ids for batch in observed_batches] == [
+        tuple(f"record-{index}" for index in range(8)),
+        ("record-8",),
+    ]
+    assert tuple(
+        item_id for batch in observed_batches for item_id in batch.ordered_item_ids
+    ) == tuple(record.id for record in records)
+    assert [batch.consumed_record_count for batch in observed_batches] == [8, 1]
+    assert [(step, total) for step, total, _ in observed_callbacks] == [(7, 9), (8, 9)]
+    assert [result.next_example_position for _, _, result in observed_callbacks] == [8, 9]
+    assert stats.steps == 2
+    assert stats.avg_loss == pytest.approx(650 / 9)
+    assert stats.avg_variance == pytest.approx(6.5 / 9)
 
 
 class FakeLanguageModel(nn.Module):

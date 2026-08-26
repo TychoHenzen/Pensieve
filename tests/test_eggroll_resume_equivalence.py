@@ -15,6 +15,7 @@ from tests.eggroll_reference import (
 from tests.test_eggroll_step_equivalence import (
     _all_trainable_params,
     _assert_final_snapshots_close,
+    _deterministic_fitness_batch,
     _make_trainer,
 )
 from train import run_alternating, run_eggroll
@@ -41,14 +42,16 @@ def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(
     torch.manual_seed(913)
 
     uninterrupted = _make_trainer()
-    uninterrupted.train_step("boundary question", "1")
+    uninterrupted.train_fitness_batch(_deterministic_fitness_batch(0))
     checkpoint = capture_eggroll_step_snapshot(
         _all_trainable_params(uninterrupted),
         uninterrupted.optimizer,
         uninterrupted.workspace,
     )
 
-    uninterrupted_result = uninterrupted.train_step("next question", "1")
+    uninterrupted_result = uninterrupted.train_fitness_batch(
+        _deterministic_fitness_batch(3)
+    )
     uninterrupted_final = capture_eggroll_step_snapshot(
         _all_trainable_params(uninterrupted),
         uninterrupted.optimizer,
@@ -62,7 +65,7 @@ def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(
         resumed.optimizer,
         resumed.workspace,
     )
-    resumed_result = resumed.train_step("next question", "1")
+    resumed_result = resumed.train_fitness_batch(_deterministic_fitness_batch(3))
     resumed_final = capture_eggroll_step_snapshot(
         _all_trainable_params(resumed),
         resumed.optimizer,

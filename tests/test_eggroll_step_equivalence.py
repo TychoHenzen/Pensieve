@@ -20,6 +20,8 @@ from tests.eggroll_reference import (
 )
 from train import eggroll_trainer as trainer_module
 from train.eggroll_trainer import EggrollTrainer
+from train.stage0_data import FitnessBatch
+from eval.stream.generators.asdiv_a import AsdivRecord
 
 
 class _TinyWorkspace:
@@ -205,6 +207,7 @@ def _all_trainable_params(trainer: EggrollTrainer) -> list[nn.Parameter]:
 
 @dataclass
 class _StepTrace:
+    questions: list[str]
     fitnesses: list[torch.Tensor]
     losses: list[torch.Tensor]
     variances: list[torch.Tensor]
@@ -217,7 +220,34 @@ def _normalized(fitnesses: list[float] | torch.Tensor) -> torch.Tensor:
         if isinstance(fitnesses, torch.Tensor)
         else torch.tensor(fitnesses, dtype=torch.float32)
     )
-    return (values - values.mean()) / (values.std() + 1e-5)
+    return (values - values.mean()) / (values.std(unbiased=False) + 1e-5)
+
+
+def _deterministic_fitness_batch(start_position: int = 5) -> FitnessBatch:
+    return FitnessBatch(
+        records=(
+            AsdivRecord(
+                id="first",
+                split="train",
+                question="first deterministic question",
+                target="1",
+            ),
+            AsdivRecord(
+                id="second",
+                split="train",
+                question="second deterministic question",
+                target="2",
+            ),
+            AsdivRecord(
+                id="third",
+                split="train",
+                question="third deterministic question",
+                target="3",
+            ),
+        ),
+        start_position=start_position,
+        next_position=start_position + 3,
+    )
 
 
 def _assert_nested_close(actual: Any, expected: Any) -> None:
@@ -301,10 +331,12 @@ def test_complete_optimized_step_matches_materialized_reference(
         trainer.optimizer,
         trainer.workspace,
     )
-    optimized_trace = _StepTrace([], [], [])
-    reference_trace = _StepTrace([], [], [])
+    fitness_batch = _deterministic_fitness_batch()
+    optimized_trace = _StepTrace([], [], [], [])
+    reference_trace = _StepTrace([], [], [], [])
     active_trace = [optimized_trace]
     original_forward = trainer._forward_fitness_batch
+    original_evaluate = trainer._evaluate_fitness_record
     original_update = trainer_module.apply_factorized_update
 
     def record_forward(*args: Any, **kwargs: Any) -> Any:
@@ -316,12 +348,18 @@ def test_complete_optimized_step_matches_materialized_reference(
 
     trainer._forward_fitness_batch = record_forward  # type: ignore[method-assign]
 
+    def record_evaluate(question: str, *args: Any, **kwargs: Any) -> Any:
+        active_trace[0].questions.append(question)
+        return original_evaluate(question, *args, **kwargs)
+
+    trainer._evaluate_fitness_record = record_evaluate  # type: ignore[method-assign]
+
     def optimized_update(*args: Any, **kwargs: Any) -> Any:
         optimized_trace.normalized = _normalized(kwargs["fitnesses"])
         return original_update(*args, **kwargs)
 
     monkeypatch.setattr(trainer_module, "apply_factorized_update", optimized_update)
-    optimized_result = trainer.train_step("deterministic question", "1")
+    optimized_result = trainer.train_fitness_batch(fitness_batch)
     optimized_final = capture_eggroll_step_snapshot(
         _all_trainable_params(trainer),
         trainer.optimizer,
@@ -342,7 +380,7 @@ def test_complete_optimized_step_matches_materialized_reference(
         return apply_reference_pair_loop_update(*args, **kwargs)
 
     monkeypatch.setattr(trainer_module, "apply_factorized_update", reference_update)
-    reference_result = trainer.train_step("deterministic question", "1")
+    reference_result = trainer.train_fitness_batch(fitness_batch)
     reference_final = capture_eggroll_step_snapshot(
         _all_trainable_params(trainer),
         trainer.optimizer,
@@ -354,7 +392,7 @@ def test_complete_optimized_step_matches_materialized_reference(
         (optimized_trace.losses, reference_trace.losses),
         (optimized_trace.variances, reference_trace.variances),
     ):
-        assert len(optimized_batches) == len(reference_batches) == 2
+        assert len(optimized_batches) == len(reference_batches) == 6
         torch.testing.assert_close(
             torch.cat(optimized_batches),
             torch.cat(reference_batches),
@@ -363,13 +401,50 @@ def test_complete_optimized_step_matches_materialized_reference(
         )
     assert optimized_trace.normalized is not None
     assert reference_trace.normalized is not None
+    optimized_per_problem_fitnesses = [
+        torch.cat(optimized_trace.fitnesses[index : index + 2])
+        for index in range(0, len(optimized_trace.fitnesses), 2)
+    ]
+    reference_per_problem_fitnesses = [
+        torch.cat(reference_trace.fitnesses[index : index + 2])
+        for index in range(0, len(reference_trace.fitnesses), 2)
+    ]
+    assert len(optimized_per_problem_fitnesses) == len(fitness_batch.records)
+    for optimized_fitnesses, reference_fitnesses in zip(
+        optimized_per_problem_fitnesses,
+        reference_per_problem_fitnesses,
+        strict=True,
+    ):
+        torch.testing.assert_close(
+            optimized_fitnesses,
+            reference_fitnesses,
+            rtol=1e-4,
+            atol=1e-4,
+        )
+    optimized_mean_fitnesses = torch.stack(optimized_per_problem_fitnesses).mean(dim=0)
+    reference_mean_fitnesses = torch.stack(reference_per_problem_fitnesses).mean(dim=0)
+    torch.testing.assert_close(
+        _normalized(optimized_mean_fitnesses),
+        optimized_trace.normalized,
+        rtol=1e-4,
+        atol=1e-4,
+    )
     torch.testing.assert_close(
         optimized_trace.normalized,
         reference_trace.normalized,
         rtol=1e-4,
         atol=1e-4,
     )
+    torch.testing.assert_close(
+        optimized_mean_fitnesses,
+        reference_mean_fitnesses,
+        rtol=1e-4,
+        atol=1e-4,
+    )
     assert torch.unique(torch.cat(optimized_trace.fitnesses)).numel() > 2
+    expected_questions = [record.question for record in fitness_batch.records]
+    assert optimized_trace.questions == expected_questions
+    assert reference_trace.questions == expected_questions
 
     for field in fields(optimized_result):
         optimized_value = getattr(optimized_result, field.name)

@@ -45,8 +45,10 @@
 <!-- status: completed -->
 - [x] 3.3 Extend step results and standalone progress with consumed-record count, next example position, aggregate loss and variance, and optimizer-call count.
 <!-- status: completed -->
-- [ ] 3.4 Compare optimized and materialized multi-problem steps from identical states, including per-problem fitness, means, tensors, SGD state, metrics, and RNG.
-- [ ] 3.5 Run one standalone Eggroll epoch on a small fixture whose record count is not divisible by eight. Assert each record appears exactly once and the final partial batch remains runnable.
+- [x] 3.4 Compare optimized and materialized multi-problem steps from identical states, including per-problem fitness, means, tensors, SGD state, metrics, and RNG.
+<!-- status: completed -->
+- [x] 3.5 Run one standalone Eggroll epoch on a small fixture whose record count is not divisible by eight. Assert each record appears exactly once and the final partial batch remains runnable.
+<!-- status: completed -->
 
 ## 4. Integrate Example-Count Scheduling
 

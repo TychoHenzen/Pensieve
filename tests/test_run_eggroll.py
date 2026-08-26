@@ -5,37 +5,56 @@ import importlib
 import sys
 from types import ModuleType, SimpleNamespace
 
+from eval.stream.generators.asdiv_a import AsdivRecord
+from train.stage0_data import plan_eggroll_fitness_batch
+
 
 def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
     trainer_calls: list[dict[str, object]] = []
-    trained_datasets: list[list[tuple[str, str]]] = []
+    trained_datasets: list[tuple[AsdivRecord, ...]] = []
+    observed_batches: list[tuple[str, ...]] = []
 
     class FakeEggrollTrainer:
         def __init__(self, **kwargs: object) -> None:
             trainer_calls.append(kwargs)
+            self.fitness_batch_size = kwargs["fitness_batch_size"]
 
         def trainable_param_count(self) -> int:
             return 7
 
         def train_epoch(self, dataset, on_step) -> SimpleNamespace:
             trained_datasets.append(dataset)
-            on_step(
-                0,
-                len(dataset),
-                SimpleNamespace(
-                    position=SimpleNamespace(
-                        update_method="eggroll",
-                        global_step=1,
-                        epoch=1,
+            cursor = 0
+            optimizer_call_count = 0
+            while cursor < len(dataset):
+                batch = plan_eggroll_fitness_batch(
+                    dataset,
+                    cursor=cursor,
+                    configured_batch_size=self.fitness_batch_size,
+                    records_until_epoch_boundary=len(dataset) - cursor,
+                    records_until_observation_boundary=len(dataset) - cursor,
+                    records_until_logging_boundary=len(dataset) - cursor,
+                )
+                observed_batches.append(batch.ordered_item_ids)
+                optimizer_call_count += 1
+                on_step(
+                    batch.next_position - 1,
+                    len(dataset),
+                    SimpleNamespace(
+                        position=SimpleNamespace(
+                            update_method="eggroll",
+                            global_step=batch.next_position,
+                            epoch=1,
+                        ),
+                        total_objective=1.5,
+                        language_model_loss=1.25,
+                        shared_variance=0.25,
+                        consumed_record_count=batch.consumed_record_count,
+                        next_example_position=batch.next_position,
+                        optimizer_call_count=optimizer_call_count,
                     ),
-                    total_objective=1.5,
-                    language_model_loss=1.25,
-                    shared_variance=0.25,
-                    consumed_record_count=1,
-                    next_example_position=1,
-                    optimizer_call_count=1,
-                ),
-            )
+                )
+                cursor = batch.next_position
             return SimpleNamespace(
                 avg_loss=1.5,
                 avg_variance=0.25,
@@ -45,6 +64,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
 
     fake_trainer_module = ModuleType("train.eggroll_trainer")
     fake_trainer_module.DEFAULT_EVAL_BATCH_SIZE = 8
+    fake_trainer_module.DEFAULT_FITNESS_BATCH_SIZE = 8
     fake_trainer_module.DEFAULT_LR = 0.001
     fake_trainer_module.DEFAULT_NUM_STEPS = 2
     fake_trainer_module.DEFAULT_POP_SIZE = 128
@@ -77,6 +97,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
         rank=5,
         variance_weight=0.3,
         eval_batch_size=2,
+        fitness_batch_size=8,
         use_amp=True,
         device="cpu",
         save_dir="unused",
@@ -88,7 +109,19 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
     monkeypatch.setattr(
         run_eggroll,
         "_load_dataset_context",
-        lambda _: ([("q", "a")], {}, {}),
+        lambda _: (
+            tuple(
+                AsdivRecord(
+                    id=f"record-{index}",
+                    split="train",
+                    question=f"q-{index}",
+                    target=str(index),
+                )
+                for index in range(9)
+            ),
+            {},
+            {},
+        ),
     )
     monkeypatch.setattr(run_eggroll, "_save_checkpoint", lambda *_, **__: "unused.ckpt")
     monkeypatch.setattr(run_eggroll, "_log", lambda _: None)
@@ -105,11 +138,18 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
             "rank": 5,
             "variance_weight": 0.3,
             "eval_batch_size": 2,
+            "fitness_batch_size": 8,
             "use_amp": True,
             "device": "cpu",
         }
     ]
-    assert trained_datasets == [[("q", "a")]]
+    assert [tuple(record.id for record in dataset) for dataset in trained_datasets] == [
+        tuple(f"record-{index}" for index in range(9))
+    ]
+    assert observed_batches == [
+        tuple(f"record-{index}" for index in range(8)),
+        ("record-8",),
+    ]
 
 
 def test_standalone_progress_record_includes_batch_accounting(monkeypatch) -> None:

@@ -18,6 +18,7 @@ import torch
 from eval.stage0_identity import training_identity
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_FITNESS_BATCH_SIZE,
     DEFAULT_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
@@ -99,6 +100,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Perturbed candidates evaluated together. Higher is faster but uses more VRAM.",
     )
     parser.add_argument(
+        "--fitness-batch-size",
+        type=int,
+        default=DEFAULT_FITNESS_BATCH_SIZE,
+        help="Training records averaged into one EGGROLL optimizer update.",
+    )
+    parser.add_argument(
         "--amp",
         action="store_true",
         dest="use_amp",
@@ -128,7 +135,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     args = parser.parse_args(argv)
     validate_eggroll_config(
-        args.pop_size, args.sigma, args.lr, args.rank, args.eval_batch_size
+        args.pop_size,
+        args.sigma,
+        args.lr,
+        args.rank,
+        args.eval_batch_size,
+        args.fitness_batch_size,
     )
     return args
 
@@ -151,9 +163,13 @@ def _load_dataset_context(problem_count: int | None):
     _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
-    dataset = training_examples(
-        stage0_dataset, mode="eggroll", epoch=1, problem_count=problem_count
-    )
+    dataset = stage0_dataset.training_records(mode="eggroll", epoch=1)
+    if problem_count is not None:
+        if isinstance(problem_count, bool) or not isinstance(problem_count, int):
+            raise TypeError("problem_count must be a non-boolean integer")
+        if not 1 <= problem_count <= len(dataset):
+            raise ValueError(f"problem_count must be from 1 through {len(dataset)}")
+        dataset = dataset[:problem_count]
     train = selection_metadata(stage0_dataset.train_selection, problem_count)
     held_out = selection_metadata(stage0_dataset.held_out_selection, None)
     selections = {"train": train, "held_out": held_out}
@@ -222,6 +238,7 @@ def main() -> None:
         f"steps={args.num_steps} pop={args.pop_size} "
         f"sigma={args.sigma} optimizer=SGD lr={args.lr} rank={args.rank} "
         f"var_weight={args.variance_weight} eval_batch={args.eval_batch_size} "
+        f"fitness_batch={args.fitness_batch_size} "
         f"amp={args.use_amp}"
     )
 
@@ -256,6 +273,7 @@ def main() -> None:
         rank=args.rank,
         variance_weight=args.variance_weight,
         eval_batch_size=args.eval_batch_size,
+        fitness_batch_size=args.fitness_batch_size,
         use_amp=args.use_amp,
         device=args.device,
     )

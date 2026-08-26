@@ -35,7 +35,8 @@ from train.answer_objective import (
     validate_prompt_alignment_weight,
 )
 from train.training_results import ExperimentPosition, StepResult
-from train.stage0_data import FitnessBatch
+from train.stage0_data import FitnessBatch, plan_eggroll_fitness_batch
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.training_state import TrainingState
 from train.eggroll_updates import apply_factorized_update
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
@@ -48,6 +49,7 @@ DEFAULT_RANK = 4
 DEFAULT_NUM_STEPS = 2
 DEFAULT_VARIANCE_WEIGHT = 1.0
 DEFAULT_EVAL_BATCH_SIZE = 8
+DEFAULT_FITNESS_BATCH_SIZE = 8
 
 
 def validate_eggroll_config(
@@ -56,6 +58,7 @@ def validate_eggroll_config(
     lr: float,
     rank: int,
     eval_batch_size: int,
+    fitness_batch_size: int = DEFAULT_FITNESS_BATCH_SIZE,
 ) -> None:
     """Reject invalid EGGROLL values before production dependencies load."""
     if pop_size < 2 or pop_size % 2 != 0:
@@ -68,6 +71,8 @@ def validate_eggroll_config(
         raise ValueError("lr must be finite and positive")
     if eval_batch_size < 2:
         raise ValueError("eval_batch_size must be at least 2")
+    if fitness_batch_size < 2:
+        raise ValueError("fitness_batch_size must be at least 2")
 
 
 @dataclass
@@ -93,11 +98,14 @@ class EggrollTrainer:
         variance_weight: float = DEFAULT_VARIANCE_WEIGHT,
         prompt_alignment_weight: float = DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
         eval_batch_size: int = DEFAULT_EVAL_BATCH_SIZE,
+        fitness_batch_size: int = DEFAULT_FITNESS_BATCH_SIZE,
         use_amp: bool = False,
         device: str = "cpu",
         state: TrainingState | None = None,
     ) -> None:
-        validate_eggroll_config(pop_size, sigma, lr, rank, eval_batch_size)
+        validate_eggroll_config(
+            pop_size, sigma, lr, rank, eval_batch_size, fitness_batch_size
+        )
 
         self.state = state or TrainingState(
             slot_count=slot_count, num_steps=num_steps, device=device
@@ -112,6 +120,7 @@ class EggrollTrainer:
             prompt_alignment_weight
         )
         self.eval_batch_size = eval_batch_size
+        self.fitness_batch_size = fitness_batch_size
         self.use_amp = use_amp and torch.device(device).type == "cuda"
 
         self.workspace = self.state.workspace
@@ -448,10 +457,11 @@ class EggrollTrainer:
 
     def train_epoch(
         self,
-        dataset: list[tuple[str, str]],
+        records: tuple[AsdivRecord, ...],
         on_step: Callable[[int, int, StepResult], None] | None = None,
     ) -> EpochStats:
-        if not dataset:
+        """Train one persisted record order in deterministic fitness batches."""
+        if not records:
             return EpochStats(0.0, 0.0, 0.0, 0.0, 0)
 
         total_loss = 0.0
@@ -459,24 +469,35 @@ class EggrollTrainer:
         min_var = float("inf")
         max_var = float("-inf")
 
-        for i, (question, answer) in enumerate(dataset):
-            result = self.train_step(
-                question,
-                answer,
-                optimizer_call_count=i + 1,
+        cursor = 0
+        optimizer_call_count = 0
+        while cursor < len(records):
+            fitness_batch = plan_eggroll_fitness_batch(
+                records,
+                cursor=cursor,
+                configured_batch_size=self.fitness_batch_size,
+                records_until_epoch_boundary=len(records) - cursor,
+                records_until_observation_boundary=len(records) - cursor,
+                records_until_logging_boundary=len(records) - cursor,
             )
-            total_loss += result.total_objective
-            total_var += result.shared_variance
+            optimizer_call_count += 1
+            result = self.train_fitness_batch(
+                fitness_batch,
+                optimizer_call_count=optimizer_call_count,
+            )
+            total_loss += result.total_objective * result.consumed_record_count
+            total_var += result.shared_variance * result.consumed_record_count
             min_var = min(min_var, result.shared_variance)
             max_var = max(max_var, result.shared_variance)
             if on_step is not None:
-                on_step(i, len(dataset), result)
+                on_step(result.next_example_position - 1, len(records), result)
+            cursor = fitness_batch.next_position
 
-        n = len(dataset)
+        n = len(records)
         return EpochStats(
             avg_loss=total_loss / n,
             avg_variance=total_var / n,
             min_variance=min_var,
             max_variance=max_var,
-            steps=n,
+            steps=optimizer_call_count,
         )
