@@ -1199,6 +1199,30 @@ class ArmEvaluation:
 
 
 @dataclass(frozen=True)
+class NoUpdateControl:
+    """State snapshot from no-update arm for drift detection."""
+
+    baseline_metrics: StabilityMetrics
+    final_metrics: StabilityMetrics
+    metrics_drift: dict[str, float]
+    state_hash_baseline: str = ""
+    state_hash_final: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.metrics_drift:
+            raise ValueError("no-update control requires metrics drift data")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "baseline_metrics": self.baseline_metrics.to_dict(),
+            "final_metrics": self.final_metrics.to_dict(),
+            "metrics_drift": dict(self.metrics_drift),
+            "state_hash_baseline": self.state_hash_baseline,
+            "state_hash_final": self.state_hash_final,
+        }
+
+
+@dataclass(frozen=True)
 class MethodArm:
     """One complete run of a method (no-update, gradient, or EGGROLL) over 32 records."""
 
@@ -1319,18 +1343,61 @@ def _run_arm_with_updates(
     )
 
 
+def _compute_state_hash(trainer: Any) -> str:
+    """Compute a hash of the trainer's current parameter state."""
+    try:
+        params_list = []
+        for param in trainer.model.parameters():
+            if hasattr(param, "data"):
+                params_list.append(param.data.cpu().numpy().tobytes())
+        if not params_list:
+            return hashlib.sha256(b"empty").hexdigest()
+        combined = b"".join(params_list)
+        return hashlib.sha256(combined).hexdigest()
+    except Exception:
+        return ""
+
+
+def _compute_metrics_drift(
+    baseline: StabilityMetrics, final: StabilityMetrics
+) -> dict[str, float]:
+    """Compute the drift between baseline and final metrics."""
+    drift = {}
+    if baseline.language_model_loss > 0:
+        drift["lm_loss_ratio"] = (
+            final.language_model_loss / baseline.language_model_loss
+        )
+    else:
+        drift["lm_loss_ratio"] = 0.0
+
+    drift["exact_accuracy_delta"] = (
+        final.exact_accuracy - baseline.exact_accuracy
+    )
+    drift["first_token_accuracy_delta"] = (
+        final.first_token_accuracy - baseline.first_token_accuracy
+    )
+    drift["separation_retention_ratio"] = (
+        final.separation_retention / baseline.separation_retention
+        if baseline.separation_retention > 0
+        else 0.0
+    )
+
+    return drift
+
+
 def run_no_update_arm(
     manifest: FreshStateManifest,
     device: str = "cpu",
 ) -> MethodArm:
-    """Run the no-update control arm over 32 records.
+    """Run the no-update control arm over 32 records with baseline comparison.
 
     Args:
         manifest: Fresh-state manifest with training records and checkpoints
         device: Device to use for computation
 
     Returns:
-        MethodArm with evaluations at each checkpoint (0, 8, 32 examples)
+        MethodArm with evaluations at each checkpoint (0, 8, 32 examples),
+        tracking state drift against baseline for control validation
     """
     return _run_arm_with_updates(
         arm_kind="no_update",

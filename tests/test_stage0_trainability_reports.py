@@ -1781,3 +1781,145 @@ class TestMethodArms:
             assert arm.evaluations[1].example_count == 8
         if len(arm.evaluations) >= 3:
             assert arm.evaluations[2].example_count == 32
+
+
+class TestNoUpdateControl:
+    """Test the no-update control arm for state drift detection."""
+
+    def test_no_update_control_requires_drift_data(self) -> None:
+        """Test that NoUpdateControl requires metrics drift."""
+        from train.stage0_trainability import NoUpdateControl
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        with pytest.raises(ValueError):
+            NoUpdateControl(
+                baseline_metrics=metrics,
+                final_metrics=metrics,
+                metrics_drift={},
+            )
+
+    def test_no_update_control_accepts_drift_data(self) -> None:
+        """Test that NoUpdateControl accepts valid drift data."""
+        from train.stage0_trainability import NoUpdateControl
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        control = NoUpdateControl(
+            baseline_metrics=metrics,
+            final_metrics=metrics,
+            metrics_drift={"lm_loss_ratio": 1.0},
+        )
+        assert control.metrics_drift["lm_loss_ratio"] == 1.0
+
+    def test_no_update_control_to_dict(self) -> None:
+        """Test NoUpdateControl serialization."""
+        from train.stage0_trainability import NoUpdateControl
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        control = NoUpdateControl(
+            baseline_metrics=metrics,
+            final_metrics=metrics,
+            metrics_drift={
+                "lm_loss_ratio": 1.0,
+                "accuracy_delta": 0.0,
+            },
+        )
+        control_dict = control.to_dict()
+
+        assert "baseline_metrics" in control_dict
+        assert "final_metrics" in control_dict
+        assert "metrics_drift" in control_dict
+        assert control_dict["metrics_drift"]["lm_loss_ratio"] == 1.0
+
+    def test_compute_metrics_drift(self) -> None:
+        """Test metrics drift computation."""
+        from train.stage0_trainability import _compute_metrics_drift
+        from train.eggroll_stability import StabilityMetrics
+
+        baseline = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        final = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        drift = _compute_metrics_drift(baseline, final)
+
+        assert "lm_loss_ratio" in drift
+        assert drift["lm_loss_ratio"] == 1.0
+        assert "exact_accuracy_delta" in drift
+        assert drift["exact_accuracy_delta"] == 0.0
+        assert "separation_retention_ratio" in drift
+        assert drift["separation_retention_ratio"] == 1.0
