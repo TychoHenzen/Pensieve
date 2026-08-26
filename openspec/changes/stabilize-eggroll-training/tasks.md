@@ -95,10 +95,12 @@
 
 ## 6. Build the Absolute Stability Gate
 
-- [ ] 6.1 Define strict JSON and JSONL report models, canonical implementation digests, complete configuration identity, and snapshot-isolated fresh baseline evaluation over the fixed 64 held-out records.
+- [x] 6.1 Define strict JSON and JSONL report models, canonical implementation digests, complete configuration identity, and snapshot-isolated fresh baseline evaluation over the fixed 64 held-out records.
+<!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Stability gate measures a fresh absolute baseline :: Record the untrained baseline -->
   <!-- covers: train/eggroll-stability-gate :: Stability gate measures a fresh absolute baseline :: Baseline evaluation is isolated -->
-- [ ] 6.2 Implement deterministic training and evaluations at 8, 32, and 256 consumed examples with per-update relative matrix RMS, elapsed time, ETA, and early-stop evidence.
+- [x] 6.2 Implement deterministic training and evaluations at 8, 32, and 256 consumed examples with per-update relative matrix RMS, elapsed time, ETA, and early-stop evidence.
+<!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Stability gate runs bounded development checkpoints :: Emit every healthy development checkpoint -->
   <!-- covers: train/eggroll-stability-gate :: Stability gate runs bounded development checkpoints :: Stop on absolute regression -->
 - [ ] 6.3 Implement final pass and failure classification for loss, exact accuracy, first-token accuracy, separation retention, and the 1% relative-RMS ceiling.
