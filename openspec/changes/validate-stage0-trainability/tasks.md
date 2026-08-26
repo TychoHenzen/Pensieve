@@ -24,7 +24,7 @@
 
 - [x] 3.1 Add complete-objective evaluation over the first eight training records before and after one isolated method update.
 - [x] 3.2 Capture the gradient and EGGROLL minimizing directions and compute the signed first-order predicted objective changes without changing production update math.
-- [ ] 3.3 Add causal result classification for predicted and observed decreases, including exact `direction_mismatch` evidence.
+- [x] 3.3 Add causal result classification for predicted and observed decreases, including exact `direction_mismatch` evidence.
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Method update has the predicted effect -->
   <!-- covers: train/stage0-trainability-gate :: Causal probes compare predicted and actual update direction :: Update moves against its prediction -->
 - [ ] 3.4 Add held-out separation, relative matrix RMS, finite-state, snapshot restoration, and `unsafe_update` checks for both methods.

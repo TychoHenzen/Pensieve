@@ -1008,6 +1008,104 @@ class TestUpdateDirectionAndPrediction:
             )
 
 
+class TestCausalResultClassification:
+    """Test classification of causal probe results."""
+
+    def test_classify_causal_passed_both_improve(self) -> None:
+        """Test passed classification when both predicted and observed improve."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, conditions = classify_causal_result(
+            predicted_delta=-0.1,
+            observed_delta=-0.15,
+            baseline_objective=1.0,
+            post_update_objective=0.85,
+        )
+
+        assert status == "passed"
+        assert len(conditions) == 0
+
+    def test_classify_causal_direction_mismatch(self) -> None:
+        """Test direction_mismatch when predicted improves but observed worsens."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, conditions = classify_causal_result(
+            predicted_delta=-0.1,
+            observed_delta=0.05,
+            baseline_objective=1.0,
+            post_update_objective=1.05,
+        )
+
+        assert status == "direction_mismatch"
+        assert "observed_not_improvement" in conditions
+
+    def test_classify_causal_predicted_not_improvement(self) -> None:
+        """Test classification when prediction is not improvement."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, conditions = classify_causal_result(
+            predicted_delta=0.1,
+            observed_delta=-0.05,
+            baseline_objective=1.0,
+            post_update_objective=0.95,
+        )
+
+        assert status == "non_finite"
+        assert "predicted_not_improvement" in conditions
+
+    def test_classify_causal_non_finite_predicted(self) -> None:
+        """Test classification when predicted delta is non-finite."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, conditions = classify_causal_result(
+            predicted_delta=float("nan"),
+            observed_delta=-0.1,
+            baseline_objective=1.0,
+            post_update_objective=0.9,
+        )
+
+        assert status == "non_finite"
+        assert "predicted_delta_non_finite" in conditions
+
+    def test_classify_causal_non_finite_observed(self) -> None:
+        """Test classification when observed delta is non-finite."""
+        from train.stage0_trainability import classify_causal_result
+
+        status, conditions = classify_causal_result(
+            predicted_delta=-0.1,
+            observed_delta=float("inf"),
+            baseline_objective=1.0,
+            post_update_objective=0.9,
+        )
+
+        assert status == "non_finite"
+        assert "observed_delta_non_finite" in conditions
+
+    def test_classify_causal_requires_positive_baseline(self) -> None:
+        """Test that classification requires positive baseline objective."""
+        from train.stage0_trainability import classify_causal_result
+
+        with pytest.raises(ValueError, match="positive"):
+            classify_causal_result(
+                predicted_delta=-0.1,
+                observed_delta=-0.1,
+                baseline_objective=-1.0,
+                post_update_objective=0.9,
+            )
+
+    def test_classify_causal_requires_finite_post(self) -> None:
+        """Test that post-update objective must be finite."""
+        from train.stage0_trainability import classify_causal_result
+
+        with pytest.raises(ValueError, match="finite"):
+            classify_causal_result(
+                predicted_delta=-0.1,
+                observed_delta=-0.1,
+                baseline_objective=1.0,
+                post_update_objective=float("nan"),
+            )
+
+
 class TestCausalProbeEvaluation:
     """Test complete-objective evaluation for causal probes."""
 

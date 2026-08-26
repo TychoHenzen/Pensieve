@@ -1020,3 +1020,55 @@ def compute_first_order_prediction(
     predicted_delta = -step_size * gradient_norm
 
     return predicted_delta
+
+
+def classify_causal_result(
+    predicted_delta: float,
+    observed_delta: float,
+    baseline_objective: float,
+    post_update_objective: float,
+) -> tuple[str, list[str]]:
+    """Classify causal probe result based on predicted vs observed changes.
+
+    Args:
+        predicted_delta: First-order predicted objective change
+        observed_delta: Actual observed objective change (post - pre)
+        baseline_objective: Pre-update objective value
+        post_update_objective: Post-update objective value
+
+    Returns:
+        Tuple of (status, failed_conditions) where status is one of:
+        - "passed": both predicted and observed negative (improvement)
+        - "direction_mismatch": predicted negative but observed non-negative
+        - "non_finite": any value is non-finite
+
+    Raises:
+        ValueError: If objective values are invalid
+    """
+    if not math.isfinite(baseline_objective) or baseline_objective <= 0:
+        raise ValueError("baseline objective must be positive and finite")
+    if not math.isfinite(post_update_objective):
+        raise ValueError("post-update objective must be finite")
+
+    failed_conditions = []
+
+    if not math.isfinite(predicted_delta):
+        failed_conditions.append("predicted_delta_non_finite")
+        return "non_finite", failed_conditions
+
+    if not math.isfinite(observed_delta):
+        failed_conditions.append("observed_delta_non_finite")
+        return "non_finite", failed_conditions
+
+    predicted_improves = predicted_delta < 0
+    observed_improves = observed_delta < 0
+
+    if not predicted_improves:
+        failed_conditions.append("predicted_not_improvement")
+        return "non_finite", failed_conditions
+
+    if not observed_improves:
+        failed_conditions.append("observed_not_improvement")
+        return "direction_mismatch", failed_conditions
+
+    return "passed", []
