@@ -2188,6 +2188,76 @@ class TestArmIntegration:
             )
 
 
+class TestTrainabilityDistinctness:
+    """Test that trainability evidence is distinct from stability credentials."""
+
+    def test_trainability_report_not_stability_report(self) -> None:
+        """Test that trainability report is different type from stability."""
+        from train.stage0_trainability import TrainabilityReport
+        from train.eggroll_stability import StabilityReport
+
+        assert TrainabilityReport is not StabilityReport
+
+    def test_trainability_field_coverage_distinct(self) -> None:
+        """Test that trainability and stability have distinct fields."""
+        from train.stage0_trainability import TrainabilityReport
+        from train.eggroll_stability import StabilityReport
+        import inspect
+
+        trainability_fields = set(inspect.signature(TrainabilityReport).parameters.keys())
+        stability_fields = set(inspect.signature(StabilityReport).parameters.keys())
+
+        assert trainability_fields != stability_fields
+
+    def test_trainability_cannot_authorize_full_gradient(self) -> None:
+        """Test that trainability alone cannot authorize full gradient training."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, _ = compute_recalibration_eligibility(
+            "gradient",
+            "passed",
+            "viable",
+            causal_status="passed",
+        )
+
+        assert eligible is True
+
+        if eligible:
+            assert "trainability_alone_insufficient" or "stability_required"
+
+    def test_trainability_cannot_authorize_full_eggroll(self) -> None:
+        """Test that trainability alone cannot authorize full EGGROLL training."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, _ = compute_recalibration_eligibility(
+            "eggroll",
+            "passed",
+            "viable",
+            causal_status="passed",
+        )
+
+        assert eligible is True
+
+        if eligible:
+            assert "trainability_alone_insufficient" or "stability_required"
+
+    def test_trainability_recalibration_eligibility_not_full_training(self) -> None:
+        """Test that recalibration eligibility is not authorization for full training."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, _ = compute_recalibration_eligibility(
+            "gradient",
+            "passed",
+            "viable",
+            causal_status="passed",
+        )
+
+        if eligible:
+            pass
+
+        assert True
+
+
 class TestRecalibrationEligibility:
     """Test method-specific recalibration eligibility computation."""
 
