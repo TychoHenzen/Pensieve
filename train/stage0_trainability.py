@@ -1137,6 +1137,45 @@ def validate_causal_safety_checks(
     return "passed", []
 
 
+def compute_recalibration_eligibility(
+    method: MethodName,
+    overfit_status: str,
+    method_status: str,
+    causal_status: str | None = None,
+) -> tuple[bool, list[str]]:
+    """Compute method-specific recalibration eligibility.
+
+    Args:
+        method: Method name (gradient or eggroll)
+        overfit_status: Status from overfit probe (passed/objective_untrainable)
+        method_status: Status from arm evaluation (viable/no_improvement/etc)
+        causal_status: Status from causal probe (passed/direction_mismatch/unsafe_update)
+
+    Returns:
+        Tuple of (is_eligible, missing_prerequisites) where is_eligible is True
+        only if all prerequisites are met and method_status allows recalibration
+
+    Missing prerequisites list includes:
+    - "objective_untrainable" if overfit probe failed
+    - "causal_unsupported" if causal probe failed
+    - "method_not_viable" if method status prevents recalibration
+    """
+    missing = []
+
+    if overfit_status != "passed":
+        missing.append("objective_untrainable")
+
+    if causal_status and causal_status not in ("passed", "direction_mismatch"):
+        missing.append("causal_unsupported")
+
+    if method_status not in ("viable", "direction_mismatch"):
+        missing.append("method_not_viable")
+
+    is_eligible = len(missing) == 0
+
+    return is_eligible, missing
+
+
 def classify_overall_trainability(
     overfit_status: str,
     method_statuses: dict[MethodName, str],

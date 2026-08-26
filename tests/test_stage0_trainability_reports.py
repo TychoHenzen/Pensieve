@@ -2188,6 +2188,97 @@ class TestArmIntegration:
             )
 
 
+class TestRecalibrationEligibility:
+    """Test method-specific recalibration eligibility computation."""
+
+    def test_eligible_viable_with_causal_passed(self) -> None:
+        """Test eligible when all prerequisites met."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, missing = compute_recalibration_eligibility(
+            "gradient",
+            "passed",
+            "viable",
+            causal_status="passed",
+        )
+
+        assert eligible is True
+        assert len(missing) == 0
+
+    def test_eligible_direction_mismatch_with_causal(self) -> None:
+        """Test eligible when method is direction_mismatch (can retry)."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, missing = compute_recalibration_eligibility(
+            "eggroll",
+            "passed",
+            "direction_mismatch",
+            causal_status="direction_mismatch",
+        )
+
+        assert eligible is True
+        assert len(missing) == 0
+
+    def test_ineligible_objective_untrainable(self) -> None:
+        """Test ineligible when objective failed."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, missing = compute_recalibration_eligibility(
+            "gradient",
+            "objective_untrainable",
+            "viable",
+            causal_status="passed",
+        )
+
+        assert eligible is False
+        assert "objective_untrainable" in missing
+
+    def test_ineligible_causal_unsupported(self) -> None:
+        """Test ineligible when causal probe not passed."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, missing = compute_recalibration_eligibility(
+            "gradient",
+            "passed",
+            "viable",
+            causal_status="unsafe_update",
+        )
+
+        assert eligible is False
+        assert "causal_unsupported" in missing
+
+    def test_ineligible_method_not_viable(self) -> None:
+        """Test ineligible when method status not viable."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, missing = compute_recalibration_eligibility(
+            "eggroll",
+            "passed",
+            "no_improvement",
+            causal_status="passed",
+        )
+
+        assert eligible is False
+        assert "method_not_viable" in missing
+
+    def test_ineligible_multiple_missing(self) -> None:
+        """Test ineligible with multiple missing prerequisites."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, missing = compute_recalibration_eligibility(
+            "gradient",
+            "objective_untrainable",
+            "no_improvement",
+            causal_status="unsafe_update",
+        )
+
+        assert eligible is False
+        assert len(missing) == 3
+        assert "objective_untrainable" in missing
+        assert "causal_unsupported" in missing
+        assert "method_not_viable" in missing
+
+
 class TestOverallClassification:
     """Test overall trainability classification from method results."""
 
