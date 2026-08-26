@@ -36,7 +36,7 @@
 - [x] 4.1 Add independent no-update, gradient-only, and EGGROLL-only arms from one canonical fresh-state manifest over the same ordered 32 records.
 - [x] 4.2 Count consumed examples consistently, cap EGGROLL batches at 8 and 32 records, and emit evaluations for every arm at 0, 8, and 32 examples.
   <!-- covers: train/stage0-trainability-gate :: Equal-budget arms isolate update-method behavior :: Arms receive equal evidence -->
-- [ ] 4.3 Make the no-update arm advance only its diagnostic cursor and compare tensors, optimizer state, RNG state, and metrics with its baseline.
+- [x] 4.3 Make the no-update arm advance only its diagnostic cursor and compare tensors, optimizer state, RNG state, and metrics with its baseline.
   <!-- covers: train/stage0-trainability-gate :: Equal-budget arms isolate update-method behavior :: No-update control detects drift -->
 - [ ] 4.4 Add independent non-finite, relative-RMS, and separation early stops so one failed arm cannot cancel another.
   <!-- covers: train/stage0-trainability-gate :: Equal-budget arms isolate update-method behavior :: Unsafe arm stops independently -->
