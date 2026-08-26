@@ -2188,6 +2188,246 @@ class TestArmIntegration:
             )
 
 
+class TestMethodStatusClassification:
+    """Test method status classification from arm evidence."""
+
+    def test_classify_viable_status_with_improvement(self) -> None:
+        """Test viable status when all conditions are met."""
+        from train.stage0_trainability import (
+            ArmCheckpoint,
+            classify_method_status,
+        )
+        from train.eggroll_stability import StabilityMetrics
+
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.6,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        final_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.8,
+            exact_accuracy=0.7,
+            first_token_accuracy=0.8,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.8,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        baseline_cp = ArmCheckpoint(
+            consumed_examples=0,
+            optimizer_call_count=0,
+            metrics=baseline_metrics,
+        )
+        final_cp = ArmCheckpoint(
+            consumed_examples=32,
+            optimizer_call_count=32,
+            metrics=final_metrics,
+        )
+
+        status, conditions, eligible = classify_method_status(
+            baseline_cp, final_cp, "gradient", causal_status="passed"
+        )
+
+        assert status == "viable"
+        assert len(conditions) == 0
+        assert eligible is True
+
+    def test_classify_no_improvement_status(self) -> None:
+        """Test no_improvement status when loss doesn't improve."""
+        from train.stage0_trainability import (
+            ArmCheckpoint,
+            classify_method_status,
+        )
+        from train.eggroll_stability import StabilityMetrics
+
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.6,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        final_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.1,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.6,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.1,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        baseline_cp = ArmCheckpoint(
+            consumed_examples=0,
+            optimizer_call_count=0,
+            metrics=baseline_metrics,
+        )
+        final_cp = ArmCheckpoint(
+            consumed_examples=32,
+            optimizer_call_count=32,
+            metrics=final_metrics,
+        )
+
+        status, conditions, eligible = classify_method_status(
+            baseline_cp, final_cp, "gradient"
+        )
+
+        assert status == "no_improvement"
+        assert "loss_not_improved" in conditions
+        assert eligible is False
+
+    def test_classify_loss_behavior_conflict(self) -> None:
+        """Test loss_behavior_conflict when loss improves but metrics don't."""
+        from train.stage0_trainability import (
+            ArmCheckpoint,
+            classify_method_status,
+        )
+        from train.eggroll_stability import StabilityMetrics
+
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.8,
+            first_token_accuracy=0.8,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        final_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.8,
+            exact_accuracy=0.7,
+            first_token_accuracy=0.8,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.8,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        baseline_cp = ArmCheckpoint(
+            consumed_examples=0,
+            optimizer_call_count=0,
+            metrics=baseline_metrics,
+        )
+        final_cp = ArmCheckpoint(
+            consumed_examples=32,
+            optimizer_call_count=32,
+            metrics=final_metrics,
+        )
+
+        status, conditions, eligible = classify_method_status(
+            baseline_cp, final_cp, "eggroll"
+        )
+
+        assert status == "loss_behavior_conflict"
+        assert "no_decoded_improvement" in conditions
+        assert eligible is False
+
+    def test_classify_direction_mismatch_status(self) -> None:
+        """Test direction_mismatch when causal result contradicts."""
+        from train.stage0_trainability import (
+            ArmCheckpoint,
+            classify_method_status,
+        )
+        from train.eggroll_stability import StabilityMetrics
+
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.6,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        final_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.8,
+            exact_accuracy=0.7,
+            first_token_accuracy=0.8,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.8,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        baseline_cp = ArmCheckpoint(
+            consumed_examples=0,
+            optimizer_call_count=0,
+            metrics=baseline_metrics,
+        )
+        final_cp = ArmCheckpoint(
+            consumed_examples=32,
+            optimizer_call_count=32,
+            metrics=final_metrics,
+        )
+
+        status, conditions, eligible = classify_method_status(
+            baseline_cp, final_cp, "gradient", causal_status="direction_mismatch"
+        )
+
+        assert status == "direction_mismatch"
+        assert "causal_direction_mismatch" in conditions
+        assert eligible is False
+
+
 class TestArmFixtures:
     """Method-comparison fixtures for independent arm verification."""
 

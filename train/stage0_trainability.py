@@ -1137,6 +1137,114 @@ def validate_causal_safety_checks(
     return "passed", []
 
 
+def classify_method_status(
+    baseline_checkpoint: ArmCheckpoint,
+    final_checkpoint: ArmCheckpoint,
+    method: MethodName,
+    causal_status: str | None = None,
+) -> tuple[str, list[str], bool]:
+    """Classify method arm status from 32-example evidence.
+
+    Args:
+        baseline_checkpoint: Initial checkpoint (no-update arm baseline)
+        final_checkpoint: Final checkpoint after updates
+        method: Method name (gradient or eggroll)
+        causal_status: Optional causal probe status (passed/direction_mismatch/unsafe_update)
+
+    Returns:
+        Tuple of (status, failed_conditions, recalibration_eligible) where status is one of:
+        - "viable": meets all conditions for bounded trainability
+        - "no_improvement": loss increased or no decoded improvement
+        - "loss_behavior_conflict": loss improved but metrics didn't
+        - "direction_mismatch": contradicts causal prediction
+        - "unsafe_update": violated separation/RMS limits
+        - "non_finite": any value is non-finite
+        - "inconclusive": unclear evidence
+
+    Raises:
+        ValueError: If inputs are invalid
+    """
+    failed_conditions = []
+
+    baseline_metrics = baseline_checkpoint.metrics
+    final_metrics = final_checkpoint.metrics
+
+    if not math.isfinite(final_metrics.language_model_loss):
+        failed_conditions.append("final_loss_non_finite")
+        return "non_finite", failed_conditions, False
+
+    if not math.isfinite(baseline_metrics.language_model_loss):
+        failed_conditions.append("baseline_loss_non_finite")
+        return "non_finite", failed_conditions, False
+
+    loss_improved = (
+        final_metrics.language_model_loss
+        < baseline_metrics.language_model_loss
+    )
+
+    if not loss_improved:
+        failed_conditions.append("loss_not_improved")
+        return "no_improvement", failed_conditions, False
+
+    exact_improved = (
+        final_metrics.exact_accuracy >= baseline_metrics.exact_accuracy
+    )
+    first_token_improved = (
+        final_metrics.first_token_accuracy
+        >= baseline_metrics.first_token_accuracy
+    )
+
+    if not exact_improved or not first_token_improved:
+        failed_conditions.append("no_decoded_improvement")
+        if exact_improved or first_token_improved:
+            return "loss_behavior_conflict", failed_conditions, False
+        else:
+            return "no_improvement", failed_conditions, False
+
+    if not math.isfinite(final_metrics.separation_retention):
+        failed_conditions.append("final_separation_non_finite")
+        return "non_finite", failed_conditions, False
+
+    separation_ratio = (
+        final_metrics.separation_retention / baseline_metrics.separation_retention
+        if baseline_metrics.separation_retention > 0
+        else 0.0
+    )
+    if separation_ratio < MIN_SEPARATION_RATIO:
+        failed_conditions.append(
+            f"separation_retention_ratio_{separation_ratio:.4f}"
+        )
+        return "unsafe_update", failed_conditions, False
+
+    if len(final_checkpoint.metrics.parameter_rms) > 0:
+        from train.eggroll_stability import ParameterRms
+
+        rms_values = [
+            item.rms if isinstance(item, ParameterRms) else 0.0
+            for item in final_checkpoint.metrics.parameter_rms
+        ]
+        max_rms = max(rms_values) if rms_values else 0.0
+        if max_rms > MAX_UPDATE_RELATIVE_MATRIX_RMS:
+            failed_conditions.append(f"relative_rms_ceiling_{max_rms:.4f}")
+            return "unsafe_update", failed_conditions, False
+
+    if causal_status == "direction_mismatch":
+        failed_conditions.append("causal_direction_mismatch")
+        return "direction_mismatch", failed_conditions, False
+    elif causal_status == "unsafe_update":
+        failed_conditions.append("causal_unsafe_update")
+        return "unsafe_update", failed_conditions, False
+    elif causal_status == "non_finite":
+        failed_conditions.append("causal_non_finite")
+        return "non_finite", failed_conditions, False
+
+    recalibration_eligible = (
+        causal_status == "passed" if causal_status else False
+    )
+
+    return "viable", [], recalibration_eligible
+
+
 @dataclass(frozen=True)
 class FreshStateManifest:
     """Canonical checkpoint for independent arm initialization."""
