@@ -931,3 +931,92 @@ def evaluate_objective_on_training_records(
     )
 
     return metrics, record_ids
+
+
+@dataclass(frozen=True)
+class UpdateDirection:
+    """Captured direction of a proposed update for causal analysis."""
+
+    method: MethodName
+    baseline_objective: float
+    predicted_delta: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.baseline_objective):
+            raise ValueError("baseline objective must be finite")
+        if self.baseline_objective <= 0:
+            raise ValueError("baseline objective must be positive")
+        if not math.isfinite(self.predicted_delta):
+            raise ValueError("predicted delta must be finite")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "baseline_objective": self.baseline_objective,
+            "predicted_delta": self.predicted_delta,
+        }
+
+
+@dataclass(frozen=True)
+class UpdatePrediction:
+    """First-order prediction of objective change from an update."""
+
+    method: MethodName
+    pre_update_objective: float
+    predicted_post_update_objective: float
+    predicted_delta: float
+
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.pre_update_objective):
+            raise ValueError("pre-update objective must be finite")
+        if not math.isfinite(self.predicted_post_update_objective):
+            raise ValueError("predicted post-update objective must be finite")
+        if not math.isfinite(self.predicted_delta):
+            raise ValueError("predicted delta must be finite")
+
+        expected_predicted = self.pre_update_objective + self.predicted_delta
+        delta = abs(expected_predicted - self.predicted_post_update_objective)
+        if delta > 1e-6:
+            raise ValueError(
+                f"predicted objectives are inconsistent: "
+                f"pre + delta = {expected_predicted}, "
+                f"predicted post = {self.predicted_post_update_objective}"
+            )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "method": self.method,
+            "pre_update_objective": self.pre_update_objective,
+            "predicted_post_update_objective": self.predicted_post_update_objective,
+            "predicted_delta": self.predicted_delta,
+        }
+
+
+def compute_first_order_prediction(
+    baseline_objective: float,
+    gradient_norm: float,
+    step_size: float,
+) -> float:
+    """Compute first-order predicted objective change from gradient norm and step size.
+
+    Args:
+        baseline_objective: Current objective value
+        gradient_norm: Norm of the gradient at current point
+        step_size: Update step size (learning rate or similar)
+
+    Returns:
+        Predicted change in objective (negative indicates improvement prediction)
+
+    Raises:
+        ValueError: If parameters are invalid
+    """
+    if not math.isfinite(baseline_objective) or baseline_objective <= 0:
+        raise ValueError("baseline objective must be positive and finite")
+    if not math.isfinite(gradient_norm) or gradient_norm < 0:
+        raise ValueError("gradient norm must be non-negative and finite")
+    if not math.isfinite(step_size) or step_size <= 0:
+        raise ValueError("step size must be positive and finite")
+
+    predicted_delta = -step_size * gradient_norm
+
+    return predicted_delta

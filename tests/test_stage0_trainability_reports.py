@@ -858,6 +858,156 @@ class TestOverfitAttemptDeterminism:
         )
 
 
+class TestUpdateDirectionAndPrediction:
+    """Test update direction capture and first-order prediction."""
+
+    def test_update_direction_requires_finite_baseline(self) -> None:
+        """Test that update direction requires finite baseline objective."""
+        from train.stage0_trainability import UpdateDirection
+
+        with pytest.raises(ValueError, match="finite"):
+            UpdateDirection(
+                method="gradient",
+                baseline_objective=float("inf"),
+                predicted_delta=-0.1,
+            )
+
+    def test_update_direction_requires_positive_baseline(self) -> None:
+        """Test that baseline objective must be positive."""
+        from train.stage0_trainability import UpdateDirection
+
+        with pytest.raises(ValueError, match="positive"):
+            UpdateDirection(
+                method="eggroll",
+                baseline_objective=-1.0,
+                predicted_delta=-0.1,
+            )
+
+    def test_update_direction_requires_finite_delta(self) -> None:
+        """Test that predicted delta must be finite."""
+        from train.stage0_trainability import UpdateDirection
+
+        with pytest.raises(ValueError, match="finite"):
+            UpdateDirection(
+                method="gradient",
+                baseline_objective=1.0,
+                predicted_delta=float("nan"),
+            )
+
+    def test_update_direction_valid(self) -> None:
+        """Test creating valid update direction."""
+        from train.stage0_trainability import UpdateDirection
+
+        direction = UpdateDirection(
+            method="gradient",
+            baseline_objective=1.5,
+            predicted_delta=-0.1,
+        )
+        assert direction.method == "gradient"
+        assert direction.baseline_objective == 1.5
+        assert direction.predicted_delta == -0.1
+
+    def test_update_direction_to_dict(self) -> None:
+        """Test update direction serialization."""
+        from train.stage0_trainability import UpdateDirection
+
+        direction = UpdateDirection(
+            method="eggroll",
+            baseline_objective=2.0,
+            predicted_delta=-0.2,
+        )
+        result = direction.to_dict()
+        assert result["method"] == "eggroll"
+        assert result["baseline_objective"] == 2.0
+        assert result["predicted_delta"] == -0.2
+
+    def test_update_prediction_requires_valid_objectives(self) -> None:
+        """Test that update prediction requires consistent objectives."""
+        from train.stage0_trainability import UpdatePrediction
+
+        with pytest.raises(ValueError, match="inconsistent"):
+            UpdatePrediction(
+                method="gradient",
+                pre_update_objective=1.0,
+                predicted_post_update_objective=0.5,
+                predicted_delta=-0.6,
+            )
+
+    def test_update_prediction_consistent_objectives(self) -> None:
+        """Test creating valid update prediction."""
+        from train.stage0_trainability import UpdatePrediction
+
+        prediction = UpdatePrediction(
+            method="gradient",
+            pre_update_objective=1.0,
+            predicted_post_update_objective=0.9,
+            predicted_delta=-0.1,
+        )
+        assert prediction.predicted_delta == -0.1
+
+    def test_update_prediction_to_dict(self) -> None:
+        """Test update prediction serialization."""
+        from train.stage0_trainability import UpdatePrediction
+
+        prediction = UpdatePrediction(
+            method="eggroll",
+            pre_update_objective=2.0,
+            predicted_post_update_objective=1.8,
+            predicted_delta=-0.2,
+        )
+        result = prediction.to_dict()
+        assert result["method"] == "eggroll"
+        assert result["pre_update_objective"] == 2.0
+
+    def test_first_order_prediction_computation(self) -> None:
+        """Test first-order objective change computation."""
+        from train.stage0_trainability import compute_first_order_prediction
+
+        predicted_delta = compute_first_order_prediction(
+            baseline_objective=1.0,
+            gradient_norm=0.5,
+            step_size=0.1,
+        )
+
+        assert predicted_delta < 0, "prediction should indicate improvement"
+        assert abs(predicted_delta - (-0.05)) < 1e-6, (
+            "delta should be -step_size * gradient_norm"
+        )
+
+    def test_first_order_prediction_requires_positive_baseline(self) -> None:
+        """Test that prediction requires positive baseline."""
+        from train.stage0_trainability import compute_first_order_prediction
+
+        with pytest.raises(ValueError, match="positive"):
+            compute_first_order_prediction(
+                baseline_objective=-1.0,
+                gradient_norm=0.5,
+                step_size=0.1,
+            )
+
+    def test_first_order_prediction_requires_non_negative_gradient(self) -> None:
+        """Test that gradient norm must be non-negative."""
+        from train.stage0_trainability import compute_first_order_prediction
+
+        with pytest.raises(ValueError, match="non-negative"):
+            compute_first_order_prediction(
+                baseline_objective=1.0,
+                gradient_norm=-0.1,
+                step_size=0.1,
+            )
+
+    def test_first_order_prediction_requires_positive_step(self) -> None:
+        """Test that step size must be positive."""
+        from train.stage0_trainability import compute_first_order_prediction
+
+        with pytest.raises(ValueError, match="positive"):
+            compute_first_order_prediction(
+                baseline_objective=1.0,
+                gradient_norm=0.5,
+                step_size=-0.1,
+            )
+
+
 class TestCausalProbeEvaluation:
     """Test complete-objective evaluation for causal probes."""
 
