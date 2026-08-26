@@ -95,7 +95,9 @@ def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_l
     for example_position in range(1, 501):
         scheduler.train_step("example", epoch=3, example_position=example_position)
 
-    expected_position = ExperimentPosition("eggroll", 1, 500, 3, 500, 500)
+    expected_position = ExperimentPosition(
+        "eggroll", 1, 500, 3, 500, 500, optimizer_call_count=500
+    )
     assert evaluator.positions == [expected_position]
     assert scheduler.evaluation_results == (
         EvaluationRecord(expected_position, expected_position, frozenset({PHASE_BOUNDARY})),
@@ -114,7 +116,9 @@ def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_positio
     for example_position in range(1, 501):
         scheduler.train_step("example", epoch=1, example_position=example_position)
 
-    position = ExperimentPosition("eggroll", 1, 500, 1, 500, 500)
+    position = ExperimentPosition(
+        "eggroll", 1, 500, 1, 500, 500, optimizer_call_count=500
+    )
     scheduler.evaluate_epoch_boundary(position)
 
     assert evaluator.positions == [position]
