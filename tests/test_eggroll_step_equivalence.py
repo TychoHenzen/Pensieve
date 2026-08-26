@@ -55,6 +55,7 @@ class _TinyLanguageModel(nn.Module):
             self.embedding.weight.copy_(
                 torch.arange(24, dtype=torch.float32).reshape(6, 4) / 19 - 0.5
             )
+        self.model = _TinyLanguageModelBody(self)
         for parameter in self.parameters():
             parameter.requires_grad_(False)
 
@@ -63,6 +64,26 @@ class _TinyLanguageModel(nn.Module):
 
     def forward(self, *, inputs_embeds: torch.Tensor, **_: Any) -> Any:
         return SimpleNamespace(logits=F.linear(inputs_embeds, self.output_weight))
+
+    def lm_head(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        return F.linear(hidden_states, self.output_weight)
+
+
+class _TinyLanguageModelBody(nn.Module):
+    def __init__(self, parent: _TinyLanguageModel) -> None:
+        super().__init__()
+        object.__setattr__(self, "parent", parent)
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        **_: Any,
+    ) -> Any:
+        parent = self.parent
+        hidden = parent.embedding(input_ids) if inputs_embeds is None else inputs_embeds
+        return SimpleNamespace(last_hidden_state=hidden)
 
 
 class _TinyTapAdapter:
@@ -136,8 +157,9 @@ def _make_trainer() -> EggrollTrainer:
     trainer.sigma = 0.2
     trainer.rank = 2
     trainer.variance_weight = 0.35
+    trainer.prompt_alignment_weight = 1.0
     trainer.use_amp = False
-    trainer.trainable_params = [
+    all_trainable_params = [
         trainer.encoder.projection.weight,
         trainer.encoder.projection.bias,
         trainer.encoder.slot_queries,
@@ -149,8 +171,36 @@ def _make_trainer() -> EggrollTrainer:
         trainer.latent_loop.layer_norm.weight,
         trainer.latent_loop.layer_norm.bias,
     ]
-    trainer.optimizer = torch.optim.Adam(trainer.trainable_params, lr=0.009)
+    trainer.trainable_params = [
+        trainer.encoder.projection.weight,
+        trainer.encoder.slot_queries,
+        trainer.latent_loop.projection.weight,
+    ]
+    trainer.non_matrix_params = [
+        parameter
+        for parameter in all_trainable_params
+        if all(parameter is not matrix_parameter for matrix_parameter in trainer.trainable_params)
+    ]
+    trainer.optimizer = torch.optim.SGD(
+        trainer.trainable_params, lr=0.009, momentum=0.0
+    )
     return trainer
+
+
+def _all_trainable_params(trainer: EggrollTrainer) -> list[nn.Parameter]:
+    """Return the fixture's full Stage 0 registry in canonical order."""
+    return [
+        trainer.encoder.projection.weight,
+        trainer.encoder.projection.bias,
+        trainer.encoder.slot_queries,
+        trainer.encoder.attn_log_temp,
+        trainer.latent_loop.projection.weight,
+        trainer.latent_loop.projection.bias,
+        trainer.latent_loop.proj_norm.weight,
+        trainer.latent_loop.proj_norm.bias,
+        trainer.latent_loop.layer_norm.weight,
+        trainer.latent_loop.layer_norm.bias,
+    ]
 
 
 @dataclass
@@ -223,6 +273,18 @@ def _assert_final_snapshots_close(
         assert torch.equal(actual_cuda, expected_cuda)
 
 
+def _assert_non_matrix_tensors_unchanged(
+    initial: EggrollStepSnapshot,
+    final: EggrollStepSnapshot,
+) -> None:
+    matrix_indices = {0, 2, 4}
+    for index, (initial_parameter, final_parameter) in enumerate(
+        zip(initial.parameter_values, final.parameter_values, strict=True)
+    ):
+        if index not in matrix_indices:
+            torch.testing.assert_close(initial_parameter, final_parameter, rtol=0, atol=0)
+
+
 # covers: train/eggroll-execution::Optimized execution preserves EGGROLL training semantics::One optimized step matches the reference step
 def test_complete_optimized_step_matches_materialized_reference(
     monkeypatch: pytest.MonkeyPatch,
@@ -235,7 +297,7 @@ def test_complete_optimized_step_matches_materialized_reference(
 
     trainer = _make_trainer()
     initial = capture_eggroll_step_snapshot(
-        trainer.trainable_params,
+        _all_trainable_params(trainer),
         trainer.optimizer,
         trainer.workspace,
     )
@@ -261,14 +323,14 @@ def test_complete_optimized_step_matches_materialized_reference(
     monkeypatch.setattr(trainer_module, "apply_factorized_update", optimized_update)
     optimized_result = trainer.train_step("deterministic question", "1")
     optimized_final = capture_eggroll_step_snapshot(
-        trainer.trainable_params,
+        _all_trainable_params(trainer),
         trainer.optimizer,
         trainer.workspace,
     )
 
     restore_eggroll_step_snapshot(
         initial,
-        trainer.trainable_params,
+        _all_trainable_params(trainer),
         trainer.optimizer,
         trainer.workspace,
     )
@@ -282,7 +344,7 @@ def test_complete_optimized_step_matches_materialized_reference(
     monkeypatch.setattr(trainer_module, "apply_factorized_update", reference_update)
     reference_result = trainer.train_step("deterministic question", "1")
     reference_final = capture_eggroll_step_snapshot(
-        trainer.trainable_params,
+        _all_trainable_params(trainer),
         trainer.optimizer,
         trainer.workspace,
     )
@@ -321,3 +383,7 @@ def test_complete_optimized_step_matches_materialized_reference(
         else:
             assert optimized_value == reference_value
     _assert_final_snapshots_close(optimized_final, reference_final)
+    assert isinstance(trainer.optimizer, torch.optim.SGD)
+    assert trainer.optimizer.state_dict()["state"] == {}
+    _assert_non_matrix_tensors_unchanged(initial, optimized_final)
+    _assert_non_matrix_tensors_unchanged(initial, reference_final)

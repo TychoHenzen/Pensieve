@@ -1,30 +1,33 @@
-"""Contracts for the shared Stage 0 Calc-MAWPS selections."""
+"""Contracts for the shared Stage 0 Calc-ASDiv_A selections."""
 
 from __future__ import annotations
 
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    select_calc_mawps_records,
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    select_asdiv_a_records,
 )
 from eval.stage0_identity import (
-    CALC_MAWPS_CONFIGURATION,
-    CALC_MAWPS_DATASET,
-    CALC_MAWPS_RAW_COUNTS,
-    CALC_MAWPS_REVISION,
-    CALC_MAWPS_VALIDATION_EXCLUDED_ID,
+    ASDIV_CONFIGURATION,
+    ASDIV_DATASET,
+    ASDIV_SOURCE_COUNT,
+    ASDIV_REVISION,
 )
-from train.stage0_data import build_stage0_dataset, load_stage0_dataset
+from train.stage0_data import (
+    build_stage0_dataset,
+    load_stage0_dataset,
+    plan_eggroll_fitness_batch,
+)
 
 
-TRAIN_COUNT = 1_089
-VALIDATION_COUNT = 1_039
+TRAIN_COUNT = 570
+VALIDATION_COUNT = 128
 HELD_OUT_COUNT = 128
 
 
-def _records(split: str, count: int) -> tuple[CalcMawpsRecord, ...]:
+def _records(split: str, count: int) -> tuple[AsdivRecord, ...]:
     return tuple(
-        CalcMawpsRecord(
-            id=f"mawps__{split}_{index}",
+        AsdivRecord(
+            id=f"asdiv_a__{split}_{index}",
             split=split,
             question=f"{split} question {index}",
             target=str(index + 1),
@@ -41,7 +44,7 @@ def test_training_modes_replay_the_complete_seed_zero_train_order_each_epoch() -
         validation_records=_records("validation", VALIDATION_COUNT),
     )
 
-    expected = select_calc_mawps_records(
+    expected = select_asdiv_a_records(
         {"train": train_records}, split="train", seed=0, problem_count=None
     )
 
@@ -61,7 +64,7 @@ def test_held_out_selection_persists_only_the_seed_zero_validation_prefix() -> N
         validation_records=validation_records,
     )
 
-    expected_validation = select_calc_mawps_records(
+    expected_validation = select_asdiv_a_records(
         {"validation": validation_records},
         split="validation",
         seed=0,
@@ -76,7 +79,89 @@ def test_held_out_selection_persists_only_the_seed_zero_validation_prefix() -> N
     assert all(record.split == "validation" for record in stage0_data.held_out_records())
 
 
-def test_runtime_loader_uses_pinned_train_and_validation_without_test() -> None:
+# covers: train/stage0-training :: Shared Stage 0 dataset contract :: Eggroll aggregates a deterministic fitness batch
+def test_eggroll_fitness_batch_preserves_order_and_averages_candidate_fitnesses() -> None:
+    train_records = _records("train", TRAIN_COUNT)
+    stage0_data = build_stage0_dataset(
+        train_records=train_records,
+        validation_records=_records("validation", VALIDATION_COUNT),
+    )
+    records = stage0_data.training_records(mode="eggroll", epoch=1)
+
+    batch = plan_eggroll_fitness_batch(
+        records,
+        cursor=11,
+        configured_batch_size=8,
+        records_until_epoch_boundary=len(records) - 11,
+        records_until_observation_boundary=20,
+        records_until_logging_boundary=10,
+    )
+
+    assert batch.ordered_item_ids == stage0_data.training_item_ids(
+        mode="eggroll", epoch=1
+    )[11:19]
+    assert batch.start_position == 11
+    assert batch.next_position == 19
+    assert batch.consumed_record_count == 8
+    assert batch.mean_candidate_fitnesses(
+        (
+            (1.0, -2.0, 5.0),
+            (2.0, 4.0, 8.0),
+            (3.0, 10.0, -1.0),
+            (4.0, 0.0, 4.0),
+            (5.0, 2.0, 7.0),
+            (6.0, 6.0, 2.0),
+            (7.0, 8.0, 6.0),
+            (8.0, 12.0, 1.0),
+        )
+    ) == (4.5, 5.0, 4.0)
+
+
+# covers: train/stage0-training :: Shared Stage 0 dataset contract :: Eggroll caps a boundary batch
+def test_eggroll_fitness_batch_caps_each_boundary_and_keeps_final_partial_batch() -> None:
+    records = _records("train", 13)
+
+    epoch_batch = plan_eggroll_fitness_batch(
+        records,
+        cursor=2,
+        configured_batch_size=8,
+        records_until_epoch_boundary=3,
+        records_until_observation_boundary=8,
+        records_until_logging_boundary=8,
+    )
+    observation_batch = plan_eggroll_fitness_batch(
+        records,
+        cursor=5,
+        configured_batch_size=8,
+        records_until_epoch_boundary=8,
+        records_until_observation_boundary=2,
+        records_until_logging_boundary=8,
+    )
+    logging_batch = plan_eggroll_fitness_batch(
+        records,
+        cursor=8,
+        configured_batch_size=8,
+        records_until_epoch_boundary=5,
+        records_until_observation_boundary=5,
+        records_until_logging_boundary=1,
+    )
+    final_batch = plan_eggroll_fitness_batch(
+        records,
+        cursor=11,
+        configured_batch_size=8,
+        records_until_epoch_boundary=2,
+        records_until_observation_boundary=2,
+        records_until_logging_boundary=2,
+    )
+
+    assert epoch_batch.ordered_item_ids == tuple(record.id for record in records[2:5])
+    assert observation_batch.ordered_item_ids == tuple(record.id for record in records[5:7])
+    assert logging_batch.ordered_item_ids == (records[8].id,)
+    assert final_batch.ordered_item_ids == tuple(record.id for record in records[11:13])
+    assert final_batch.next_position == len(records)
+
+
+def test_runtime_loader_reads_the_pinned_source_once() -> None:
     loaded_splits: list[str] = []
 
     def dataset_loader(
@@ -87,27 +172,24 @@ def test_runtime_loader_uses_pinned_train_and_validation_without_test() -> None:
         revision: str,
         trust_remote_code: bool,
     ) -> list[dict[str, object]]:
-        assert dataset == CALC_MAWPS_DATASET
-        assert configuration == CALC_MAWPS_CONFIGURATION
-        assert revision == CALC_MAWPS_REVISION
+        assert dataset == ASDIV_DATASET
+        assert configuration == ASDIV_CONFIGURATION
+        assert revision == ASDIV_REVISION
         assert trust_remote_code is False
-        assert split != "test"
+        assert split == "test"
         loaded_splits.append(split)
-        rows = [
+        return [
             {
-                "id": f"mawps__{split}_{index}",
-                "question": f"{split} question {index}",
+                "id": f"asdiv_a__source_{index}",
+                "question": f"source question {index}",
                 "result": str(index + 1),
                 "result_float": float(index + 1),
             }
-            for index in range(CALC_MAWPS_RAW_COUNTS[split])
+            for index in range(ASDIV_SOURCE_COUNT)
         ]
-        if split == "validation":
-            rows[-1]["id"] = CALC_MAWPS_VALIDATION_EXCLUDED_ID
-        return rows
 
     stage0_data = load_stage0_dataset(dataset_loader)
 
-    assert loaded_splits == ["train", "validation"]
+    assert loaded_splits == ["test"]
     assert len(stage0_data.train_selection.records) == TRAIN_COUNT
     assert len(stage0_data.held_out_records()) == HELD_OUT_COUNT

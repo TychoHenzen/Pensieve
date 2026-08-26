@@ -26,14 +26,17 @@
 <!-- status: completed -->
   <!-- covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Default stabilized configuration -->
   <!-- covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Invalid stabilized configuration -->
-- [ ] 2.4 Update optimized and materialized complete-step fixtures to compare matrix-only SGD state and untouched non-matrix tensors.
+- [x] 2.4 Update optimized and materialized complete-step fixtures to compare matrix-only SGD state and untouched non-matrix tensors.
+<!-- status: completed -->
   <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: One optimized step matches the reference step -->
   <!-- covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Existing commands select the optimized path -->
-- [ ] 2.5 Run standalone one-step gradient and EGGROLL commands on fixtures to prove their optimizer types, parameter scopes, and defaults are independently usable.
+- [x] 2.5 Run standalone one-step gradient and EGGROLL commands on fixtures to prove their optimizer types, parameter scopes, and defaults are independently usable.
+<!-- status: completed -->
 
 ## 3. Add Deterministic Multi-Problem Fitness Batches
 
-- [ ] 3.1 Introduce a boundary-aware fitness-batch planner. Test ordered records, arithmetic candidate means, final partial batches, held-out isolation, and caps at epoch, observation-window, and logging boundaries.
+- [x] 3.1 Introduce a boundary-aware fitness-batch planner. Test ordered records, arithmetic candidate means, final partial batches, held-out isolation, and caps at epoch, observation-window, and logging boundaries.
+<!-- status: completed -->
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Training modes share examples -->
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Eggroll aggregates a deterministic fitness batch -->
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Eggroll caps a boundary batch -->
