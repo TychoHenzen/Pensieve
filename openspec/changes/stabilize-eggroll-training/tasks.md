@@ -139,4 +139,5 @@
 <!-- status: completed -->
 - [x] 8.4 Run the real bounded CUDA stability command from a fresh state. Preserve its JSON and JSONL artifacts, parameter/configuration identity, checkpoint metrics, and pass or exact failure conditions.
 <!-- status: completed -->
-- [ ] 8.5 Stop before full training. Review the bounded stability artifact as the independent practice test for the stabilized system, then use a new apply request for any threshold or default revision revealed by that evidence.
+- [x] 8.5 Stop before full training. Review the bounded stability artifact as the independent practice test for the stabilized system, then use a new apply request for any threshold or default revision revealed by that evidence.
+<!-- status: completed -->
