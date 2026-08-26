@@ -52,7 +52,7 @@
   <!-- covers: train/stage0-trainability-gate :: Overall classification follows a deterministic precedence :: At least one method is viable -->
   <!-- covers: train/stage0-trainability-gate :: Overall classification follows a deterministic precedence :: Both methods repeat the observed conflict -->
   <!-- covers: train/stage0-trainability-gate :: Overall classification follows a deterministic precedence :: Control drift invalidates interpretation -->
-- [ ] 5.3 Compute method-specific recalibration eligibility from the shared overfit and causal prerequisites and report every missing prerequisite.
+- [x] 5.3 Compute method-specific recalibration eligibility from the shared overfit and causal prerequisites and report every missing prerequisite.
   <!-- covers: train/stage0-trainability-gate :: Recalibration eligibility is method-specific and limited :: Causally supported method may be recalibrated -->
   <!-- covers: train/stage0-trainability-gate :: Recalibration eligibility is method-specific and limited :: Unsupported method remains blocked -->
 - [ ] 5.4 Keep trainability evidence distinct from stability and five-seed credentials. Add tests proving it cannot authorize full gradient, EGGROLL, or alternating training.
