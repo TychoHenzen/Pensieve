@@ -22,7 +22,19 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
             on_step(
                 0,
                 len(dataset),
-                SimpleNamespace(loss=1.5, variance=0.25, best_fitness=-1.0),
+                SimpleNamespace(
+                    position=SimpleNamespace(
+                        update_method="eggroll",
+                        global_step=1,
+                        epoch=1,
+                    ),
+                    total_objective=1.5,
+                    language_model_loss=1.25,
+                    shared_variance=0.25,
+                    consumed_record_count=1,
+                    next_example_position=1,
+                    optimizer_call_count=1,
+                ),
             )
             return SimpleNamespace(
                 avg_loss=1.5,
@@ -98,3 +110,29 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
         }
     ]
     assert trained_datasets == [[("q", "a")]]
+
+
+def test_standalone_progress_record_includes_batch_accounting(monkeypatch) -> None:
+    sys.modules.pop("train.run_eggroll", None)
+    run_eggroll = importlib.import_module("train.run_eggroll")
+    result = SimpleNamespace(
+        position=SimpleNamespace(update_method="eggroll", global_step=12, epoch=3),
+        consumed_record_count=8,
+        next_example_position=24,
+        language_model_loss=1.25,
+        total_objective=1.75,
+        shared_variance=0.5,
+        optimizer_call_count=3,
+    )
+
+    assert run_eggroll._training_progress_record(result) == {
+        "update_method": "eggroll",
+        "global_step": 12,
+        "epoch": 3,
+        "consumed_record_count": 8,
+        "next_example_position": 24,
+        "language_model_loss": 1.25,
+        "total_objective": 1.75,
+        "shared_variance": 0.5,
+        "optimizer_call_count": 3,
+    }

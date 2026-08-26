@@ -41,8 +41,10 @@
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Eggroll aggregates a deterministic fitness batch -->
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Eggroll caps a boundary batch -->
   <!-- covers: train/stage0-training :: Shared Stage 0 dataset contract :: Held-out split isolation -->
-- [ ] 3.2 Refactor EGGROLL candidate evaluation to reuse one perturbation population across all problems, accumulate per-candidate metrics sequentially, release each problem's activations, and update once from mean fitness.
-- [ ] 3.3 Extend step results and standalone progress with consumed-record count, next example position, aggregate loss and variance, and optimizer-call count.
+- [x] 3.2 Refactor EGGROLL candidate evaluation to reuse one perturbation population across all problems, accumulate per-candidate metrics sequentially, release each problem's activations, and update once from mean fitness.
+<!-- status: completed -->
+- [x] 3.3 Extend step results and standalone progress with consumed-record count, next example position, aggregate loss and variance, and optimizer-call count.
+<!-- status: completed -->
 - [ ] 3.4 Compare optimized and materialized multi-problem steps from identical states, including per-problem fitness, means, tensors, SGD state, metrics, and RNG.
 - [ ] 3.5 Run one standalone Eggroll epoch on a small fixture whose record count is not divisible by eight. Assert each record appears exactly once and the final partial batch remains runnable.
 

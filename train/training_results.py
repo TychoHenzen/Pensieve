@@ -31,6 +31,11 @@ class StepResult:
     total_objective: float
     regularizer_loss: float
     shared_variance: float
+    # Batch-aware fields are explicit so progress does not infer cursor movement
+    # from optimizer calls.
+    consumed_record_count: int = 1
+    next_example_position: int | None = None
+    optimizer_call_count: int = 1
 
 
 @dataclass(frozen=True)

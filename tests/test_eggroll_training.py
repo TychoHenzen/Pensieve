@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import gc
 import sys
 from types import ModuleType, SimpleNamespace
+import weakref
 
 import pytest
 import torch
@@ -13,6 +15,7 @@ sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
 from train.eggroll_trainer import EggrollTrainer
 from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
+from train.stage0_data import FitnessBatch
 from train.training_results import ExperimentPosition, StepResult
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
 
@@ -282,6 +285,91 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     assert len(update_calls) == 1
     assert update_calls[0]["fitnesses"] == [-3.0, -1.0]
     assert update_calls[0]["base_seed"] >= 0
+    assert result.consumed_record_count == 1
+    assert result.next_example_position == 5
+    assert result.optimizer_call_count == 1
+
+
+def test_fitness_batch_reuses_one_population_and_reports_aggregate_progress(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from eval.stream.generators.asdiv_a import AsdivRecord
+
+    trainer = EggrollTrainer.__new__(EggrollTrainer)
+    trainer.device = "cpu"
+    trainer.use_amp = False
+    trainer.pop_size = 2
+    trainer.eval_batch_size = 2
+    trainer.sigma = 0.02
+    trainer.rank = 1
+    trainer.trainable_params = [nn.Parameter(torch.zeros(1))]
+    trainer.optimizer = torch.optim.SGD(trainer.trainable_params, lr=0.1)
+    trainer.tokenizer = FakeTokenizer()
+    population_seeds: list[int] = []
+    evaluated_records: list[str] = []
+    candidate_batches: list[list[object]] = []
+    update_calls: list[dict[str, object]] = []
+    prepared_tensor_refs: list[weakref.ReferenceType[torch.Tensor]] = []
+
+    def sample_population(*_args: object, seed: int, **_kwargs: object) -> list[object]:
+        population_seeds.append(seed)
+        return [f"positive-{seed}", f"negative-{seed}"]
+
+    def prepare_record(question: str, _answer: str):
+        tensors = (
+            torch.tensor([[[float(len(question))]]]),
+            torch.tensor([[0.0]]),
+            torch.tensor([[0]]),
+            torch.tensor([[0.0]]),
+        )
+        prepared_tensor_refs.extend(weakref.ref(tensor) for tensor in tensors)
+        return (*tensors, object())
+
+    def forward(token_embeddings: torch.Tensor, *_args: object, **_kwargs: object):
+        evaluated_records.append(str(int(token_embeddings[0, 0, 0].item())))
+        candidate_batches.append(_args[2])
+        value = token_embeddings[0, 0, 0].item()
+        return (
+            torch.tensor([-value, -(value + 2.0)]),
+            torch.tensor([value, value + 2.0]),
+            torch.tensor([value / 10.0, (value + 2.0) / 10.0]),
+        )
+
+    monkeypatch.setattr("train.eggroll_trainer.sample_antithetic_pair", sample_population)
+    monkeypatch.setattr(trainer, "_prepare_fitness_record", prepare_record)
+    monkeypatch.setattr(trainer, "_forward_fitness_batch", forward)
+    monkeypatch.setattr(
+        "train.eggroll_trainer.apply_factorized_update",
+        lambda _parameters, _optimizer, **kwargs: update_calls.append(kwargs),
+    )
+    batch = FitnessBatch(
+        records=(
+            AsdivRecord(id="first", split="train", question="a", target="1"),
+            AsdivRecord(id="second", split="train", question="bbb", target="3"),
+        ),
+        start_position=7,
+        next_position=9,
+    )
+
+    result = trainer.train_fitness_batch(batch)
+
+    assert len(population_seeds) == 1
+    assert evaluated_records == ["1", "3"]
+    assert all(
+        first_candidate is second_candidate
+        for first_candidate, second_candidate in zip(
+            candidate_batches[0], candidate_batches[1], strict=True
+        )
+    )
+    assert update_calls[0]["fitnesses"] == pytest.approx([-2.0, -4.0])
+    assert len(update_calls) == 1
+    assert result.language_model_loss == pytest.approx(3.0)
+    assert result.shared_variance == pytest.approx(0.3)
+    assert result.consumed_record_count == 2
+    assert result.next_example_position == 9
+    assert result.optimizer_call_count == 1
+    gc.collect()
+    assert all(reference() is None for reference in prepared_tensor_refs)
 
 
 class FakeLanguageModel(nn.Module):

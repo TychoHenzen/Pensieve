@@ -63,6 +63,21 @@ def _format_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m"
 
 
+def _training_progress_record(result: StepResult) -> dict[str, object]:
+    """Return the structured per-update progress fields for standalone EGGROLL."""
+    return {
+        "update_method": result.position.update_method,
+        "global_step": result.position.global_step,
+        "epoch": result.position.epoch,
+        "consumed_record_count": result.consumed_record_count,
+        "next_example_position": result.next_example_position,
+        "language_model_loss": result.language_model_loss,
+        "total_objective": result.total_objective,
+        "shared_variance": result.shared_variance,
+        "optimizer_call_count": result.optimizer_call_count,
+    }
+
+
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
@@ -270,8 +285,9 @@ def main() -> None:
         recent_vars: list[float] = []
 
         def _on_step(step: int, total: int, result: StepResult) -> None:
-            recent_losses.append(result.loss)
-            recent_vars.append(result.variance)
+            progress = _training_progress_record(result)
+            recent_losses.append(result.total_objective)
+            recent_vars.append(result.shared_variance)
             if (step + 1) % args.log_every == 0 or step + 1 == total:
                 elapsed = time.monotonic() - epoch_start
                 per_example = elapsed / (step + 1)
@@ -281,9 +297,11 @@ def main() -> None:
                 _log(
                     f"  epoch {epoch}/{args.epochs} "
                     f"[{step + 1}/{total}] "
-                    f"loss={result.loss:.4f} avg={avg_loss:.4f} "
-                    f"var={result.variance:.6f} avg_var={avg_var:.6f} "
-                    f"best_fit={result.best_fitness:.4f} "
+                    f"loss={result.total_objective:.4f} avg={avg_loss:.4f} "
+                    f"var={result.shared_variance:.6f} avg_var={avg_var:.6f} "
+                    f"consumed={progress['consumed_record_count']} "
+                    f"next={progress['next_example_position']} "
+                    f"optimizer_calls={progress['optimizer_call_count']} "
                     f"ETA {_format_duration(remaining)}"
                 )
 

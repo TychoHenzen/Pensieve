@@ -35,6 +35,7 @@ from train.answer_objective import (
     validate_prompt_alignment_weight,
 )
 from train.training_results import ExperimentPosition, StepResult
+from train.stage0_data import FitnessBatch
 from train.training_state import TrainingState
 from train.eggroll_updates import apply_factorized_update
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
@@ -260,12 +261,18 @@ class EggrollTrainer:
         return directions  # type: ignore[return-value]
 
 
-    def train_step(
+    def _prepare_fitness_record(
         self,
         question: str,
         answer: str,
-        position: ExperimentPosition | None = None,
-    ) -> StepResult:
+    ) -> tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        PreparedQwenPrefix,
+    ]:
+        """Prepare one record without retaining its model activations."""
         with torch.no_grad():
             token_embeddings = self.encoder._token_embeddings(question)
             prepared = prepare_training_example(self.tokenizer, question, answer)
@@ -278,24 +285,27 @@ class EggrollTrainer:
                 self.latent_loop.model,
                 prepared.context_input_ids.to(self.device),
             )
+        return (
+            token_embeddings,
+            context_embeds,
+            answer_ids,
+            teacher_state,
+            context_prefix,
+        )
 
-        base_seed = int(torch.randint(0, 2**31, (1,)).item())
-
-        fitnesses = []
-        lm_losses = []
-        variances = []
-
-        candidates = []
-        for pair_index in range(self.pop_size // 2):
-            candidates.extend(
-                sample_antithetic_pair(
-                    self.trainable_params,
-                    seed=base_seed + pair_index,
-                    sigma=self.sigma,
-                    rank=self.rank,
-                )
-            )
-
+    def _evaluate_fitness_record(
+        self,
+        question: str,
+        answer: str,
+        candidates: list[SignedPerturbationSet],
+    ) -> tuple[list[float], float, float]:
+        """Evaluate one record and release its activations before the next record."""
+        token_embeddings, context_embeds, answer_ids, teacher_state, context_prefix = (
+            self._prepare_fitness_record(question, answer)
+        )
+        record_fitnesses: list[float] = []
+        language_model_loss_total = 0.0
+        variance_total = 0.0
         with torch.inference_mode(), torch.autocast(
             device_type=torch.device(self.device).type,
             dtype=torch.float16,
@@ -304,7 +314,6 @@ class EggrollTrainer:
             for start in range(0, self.pop_size, self.eval_batch_size):
                 stop = min(start + self.eval_batch_size, self.pop_size)
                 perturbations = candidates[start:stop]
-
                 batch_fitness, batch_losses, batch_variances = (
                     self._forward_fitness_batch(
                         token_embeddings,
@@ -316,10 +325,63 @@ class EggrollTrainer:
                         context_prefix=context_prefix,
                     )
                 )
-                fitnesses.extend(batch_fitness.tolist())
-                lm_losses.extend(batch_losses.tolist())
-                variances.extend(batch_variances.tolist())
+                record_fitnesses.extend(batch_fitness.tolist())
+                language_model_loss_total += sum(batch_losses.tolist())
+                variance_total += sum(batch_variances.tolist())
+        return record_fitnesses, language_model_loss_total, variance_total
 
+    def train_fitness_batch(
+        self,
+        fitness_batch: FitnessBatch,
+        position: ExperimentPosition | None = None,
+        *,
+        optimizer_call_count: int = 1,
+    ) -> StepResult:
+        """Apply one EGGROLL update from an ordered batch of training records."""
+        if not fitness_batch.records:
+            raise ValueError("fitness batches must contain at least one record")
+        if (
+            isinstance(optimizer_call_count, bool)
+            or not isinstance(optimizer_call_count, int)
+            or optimizer_call_count < 1
+        ):
+            raise ValueError("optimizer_call_count must be a positive integer")
+
+        base_seed = int(torch.randint(0, 2**31, (1,)).item())
+        candidates = []
+        for pair_index in range(self.pop_size // 2):
+            candidates.extend(
+                sample_antithetic_pair(
+                    self.trainable_params,
+                    seed=base_seed + pair_index,
+                    sigma=self.sigma,
+                    rank=self.rank,
+                )
+            )
+
+        candidate_fitness_totals = [0.0] * self.pop_size
+        language_model_loss_total = 0.0
+        variance_total = 0.0
+        for record in fitness_batch.records:
+            (
+                record_fitnesses,
+                record_language_model_loss_total,
+                record_variance_total,
+            ) = self._evaluate_fitness_record(
+                record.question,
+                record.target,
+                candidates,
+            )
+            for candidate_index, fitness in enumerate(record_fitnesses):
+                candidate_fitness_totals[candidate_index] += fitness
+            language_model_loss_total += record_language_model_loss_total
+            variance_total += record_variance_total
+
+        consumed_record_count = fitness_batch.consumed_record_count
+        fitnesses = [
+            fitness_total / consumed_record_count
+            for fitness_total in candidate_fitness_totals
+        ]
         apply_factorized_update(
             self.trainable_params,
             self.optimizer,
@@ -329,7 +391,9 @@ class EggrollTrainer:
             rank=self.rank,
         )
 
-        language_model_loss = sum(lm_losses) / len(lm_losses)
+        language_model_loss = language_model_loss_total / (
+            consumed_record_count * self.pop_size
+        )
         total_objective = -sum(fitnesses) / len(fitnesses)
         if position is None:
             position = ExperimentPosition(
@@ -346,7 +410,40 @@ class EggrollTrainer:
             language_model_loss=language_model_loss,
             total_objective=total_objective,
             regularizer_loss=total_objective - language_model_loss,
-            shared_variance=sum(variances) / len(variances),
+            shared_variance=variance_total / (consumed_record_count * self.pop_size),
+            consumed_record_count=consumed_record_count,
+            next_example_position=fitness_batch.next_position,
+            optimizer_call_count=optimizer_call_count,
+        )
+
+    def train_step(
+        self,
+        question: str,
+        answer: str,
+        position: ExperimentPosition | None = None,
+        *,
+        optimizer_call_count: int = 1,
+    ) -> StepResult:
+        """Apply one EGGROLL update for compatibility with one-record callers."""
+        from eval.stream.generators.asdiv_a import AsdivRecord
+
+        current_position = 0 if position is None else position.example_position
+        fitness_batch = FitnessBatch(
+            records=(
+                AsdivRecord(
+                    id=f"standalone-{current_position}",
+                    split="train",
+                    question=question,
+                    target=answer,
+                ),
+            ),
+            start_position=current_position,
+            next_position=current_position + 1,
+        )
+        return self.train_fitness_batch(
+            fitness_batch,
+            position,
+            optimizer_call_count=optimizer_call_count,
         )
 
     def train_epoch(
@@ -363,7 +460,11 @@ class EggrollTrainer:
         max_var = float("-inf")
 
         for i, (question, answer) in enumerate(dataset):
-            result = self.train_step(question, answer)
+            result = self.train_step(
+                question,
+                answer,
+                optimizer_call_count=i + 1,
+            )
             total_loss += result.total_objective
             total_var += result.shared_variance
             min_var = min(min_var, result.shared_variance)
