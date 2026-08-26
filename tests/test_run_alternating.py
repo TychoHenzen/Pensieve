@@ -279,7 +279,10 @@ def test_run_config_records_every_typed_alternating_setting(tmp_path: Path) -> N
     expected["stability_report_identity"] = hashlib.sha256(
         b'{"status":"passed"}'
     ).hexdigest()
-    assert run_alternating._run_config(args) == expected
+    assert run_alternating._run_config(
+        args,
+        report_identity=expected["stability_report_identity"],
+    ) == expected
 
 
 def test_incompatible_run_config_is_rejected_before_model_construction(
@@ -298,6 +301,11 @@ def test_incompatible_run_config_is_rejected_before_model_construction(
     )
     constructions: list[object] = []
 
+    monkeypatch.setattr(
+        run_alternating,
+        "load_guarded_stability_report",
+        lambda *_args, **_kwargs: SimpleNamespace(sha256="c" * 64),
+    )
     monkeypatch.setattr(run_alternating, "load_checkpoint", lambda _path: checkpoint)
     monkeypatch.setattr(run_alternating, "load_stage0_dataset", lambda: stage0_dataset)
     monkeypatch.setattr(run_alternating, "training_examples", lambda *_args, **_kwargs: [])
@@ -328,6 +336,8 @@ def test_incompatible_run_config_is_rejected_before_model_construction(
                 "2",
                 "--phase-steps",
                 "2",
+                "--stability-report",
+                str(tmp_path / "stability.json"),
             ]
         )
 
@@ -623,10 +633,16 @@ def test_main_builds_shared_production_run_and_executes_schedule(
         calls.update(kwargs)
 
     monkeypatch.setattr(run_alternating, "_run_schedule", run_schedule)
+    monkeypatch.setattr(
+        run_alternating,
+        "load_guarded_stability_report",
+        lambda *_args, **_kwargs: SimpleNamespace(sha256="c" * 64),
+    )
 
     run_alternating.main([
         "--epochs", "1", "--phase-steps", "2", "--problem-count", "1",
         "--eval-problem-count", "1", "--save-dir", str(tmp_path),
+        "--stability-report", str(tmp_path / "stability.json"),
     ])
 
     assert calls["gradient_state"] is shared_state
@@ -709,6 +725,11 @@ def test_main_phase_checkpoint_serializes_latest_boundary_evaluation(
         )
 
     monkeypatch.setattr(run_alternating, "_run_schedule", run_schedule)
+    monkeypatch.setattr(
+        run_alternating,
+        "load_guarded_stability_report",
+        lambda *_args, **_kwargs: SimpleNamespace(sha256="c" * 64),
+    )
 
     run_alternating.main(
         [
@@ -722,6 +743,8 @@ def test_main_phase_checkpoint_serializes_latest_boundary_evaluation(
             "1",
             "--save-dir",
             str(tmp_path),
+            "--stability-report",
+            str(tmp_path / "stability.json"),
         ]
     )
 
@@ -739,6 +762,7 @@ def test_main_phase_checkpoint_serializes_latest_boundary_evaluation(
         "answer_exact_match": 1.0,
         "phase_variance_sum": 0.0,
     }
+    assert captured_checkpoint["run_config"]["stability_report_identity"] == "c" * 64
 
 
 def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(

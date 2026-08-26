@@ -118,12 +118,16 @@
 
 ## 7. Gate Alignment Search and Long Runs
 
-- [ ] 7.1 Make EGGROLL alignment search validate its zero-weight stability result before positive trials. Emit `method_unhealthy` with no recommendation when it fails.
+- [x] 7.1 Make EGGROLL alignment search validate its zero-weight stability result before positive trials. Emit `method_unhealthy` with no recommendation when it fails.
+<!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Alignment search rejects an unhealthy zero-weight control :: Eggroll zero control is unhealthy -->
-- [ ] 7.2 Keep combined-search gradient execution independent when EGGROLL is unhealthy, including progress, results, and cleanup.
+- [x] 7.2 Keep combined-search gradient execution independent when EGGROLL is unhealthy, including progress, results, and cleanup.
+<!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Alignment search rejects an unhealthy zero-weight control :: Gradient search remains independent -->
-- [ ] 7.3 Require a compatible passing report for standalone runs beyond 256 examples and every alternating run. Add pre-model rejection tests for missing, failed, and stale reports.
-- [ ] 7.4 Run fixture-backed public alignment-search and guarded-training commands to prove unhealthy EGGROLL cannot produce a recommendation or start a long run.
+- [x] 7.3 Require a compatible passing report for standalone runs beyond 256 examples and every alternating run. Add pre-model rejection tests for missing, failed, and stale reports.
+<!-- status: completed -->
+- [x] 7.4 Run fixture-backed public alignment-search and guarded-training commands to prove unhealthy EGGROLL cannot produce a recommendation or start a long run.
+<!-- status: completed -->
 
 ## 8. End-to-End Verification
 

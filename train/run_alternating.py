@@ -20,7 +20,6 @@ from eval.stage0_identity import (
     ASDIV_DATASET,
     ASDIV_REVISION,
     training_identity,
-    stability_report_identity,
 )
 from eval.stream.generators.asdiv_a import (
     AsdivRecord,
@@ -70,6 +69,7 @@ from train.eggroll_trainer import (
     EggrollTrainer,
     validate_eggroll_config,
 )
+from train.eggroll_stability_guard import load_guarded_stability_report
 from train.stage0_data import FitnessBatch
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
 from train.training_state import (
@@ -618,7 +618,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
-def _run_config(args: argparse.Namespace) -> dict[str, object]:
+def _run_config(
+    args: argparse.Namespace,
+    *,
+    report_identity: str | None = None,
+) -> dict[str, object]:
     return {
         "dataset_selection": {
             "dataset": ASDIV_DATASET,
@@ -661,9 +665,7 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
             "seed": 0,
             "count": args.eval_problem_count,
         },
-        "stability_report_identity": stability_report_identity(
-            args.stability_report
-        ),
+        "stability_report_identity": report_identity,
         "logging_frequency": args.log_every,
     }
 
@@ -781,8 +783,22 @@ def main(argv: Sequence[str] | None = None) -> None:
     """Run a variance-controlled alternating experiment, optionally from a checkpoint."""
     configure_deterministic_runtime()
     args = _parse_args(argv)
+    if args.stability_report is None:
+        raise ValueError("--stability-report is required for alternating training")
+    validated_report = load_guarded_stability_report(
+        args.stability_report,
+        population=args.pop_size,
+        sigma=args.sigma,
+        rank=args.rank,
+        fitness_batch_size=args.fitness_batch_size,
+        evaluation_batch_size=args.eval_batch_size,
+        variance_weight=args.variance_weight,
+        prompt_alignment_weight=args.prompt_alignment_weight,
+        learning_rate=args.eggroll_lr,
+        require_passing=True,
+    )
     save_dir = Path(args.save_dir)
-    run_config = _run_config(args)
+    run_config = _run_config(args, report_identity=validated_report.sha256)
 
     _log(f"device={args.device}")
     _log(

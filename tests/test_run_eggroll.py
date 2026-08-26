@@ -115,7 +115,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
         use_amp=True,
         device="cpu",
         save_dir="unused",
-        problem_count=None,
+        problem_count=9,
         log_every=1,
         resume=None,
         stability_report=None,
@@ -350,9 +350,14 @@ def test_public_command_writes_inspects_and_resumes_real_sgd_checkpoint(
         problem_count=3,
         log_every=3,
         resume=None,
-        stability_report=None,
+        stability_report=str(tmp_path / "stability.json"),
     )
     monkeypatch.setattr(run_eggroll, "configure_deterministic_runtime", lambda: None)
+    monkeypatch.setattr(
+        run_eggroll,
+        "load_guarded_stability_report",
+        lambda *_args, **_kwargs: SimpleNamespace(sha256="e" * 64),
+    )
     monkeypatch.setattr(run_eggroll, "_parse_args", lambda: args)
     monkeypatch.setattr(
         run_eggroll,
@@ -377,6 +382,7 @@ def test_public_command_writes_inspects_and_resumes_real_sgd_checkpoint(
     assert first.metadata["run_config"]["eggroll_population"][
         "fitness_batch_size"
     ] == 8
+    assert first.metadata["run_config"]["stability_report_identity"] == "e" * 64
     assert first.metadata["schedule"]["consumed_examples"] == 3
     assert first.metadata["schedule"]["eggroll_optimizer_calls"] == 1
 

@@ -441,6 +441,43 @@ def load_compatible_stability_report(
     expected_configuration: StabilityConfiguration | Mapping[str, Any],
 ) -> ValidatedStabilityReport:
     """Parse and validate a passing report without loading models or datasets."""
+    return _load_matching_stability_report(
+        path,
+        expected_configuration,
+        require_passing=True,
+    )
+
+
+def load_matching_stability_report(
+    path: str | Path,
+    expected_configuration: StabilityConfiguration | Mapping[str, Any],
+) -> ValidatedStabilityReport:
+    """Parse a compatible report while preserving passed or failed health."""
+    return _load_matching_stability_report(
+        path,
+        expected_configuration,
+        require_passing=False,
+    )
+
+
+def read_stability_report(path: str | Path) -> ValidatedStabilityReport:
+    """Strictly parse a report before a caller constructs its expected identity."""
+    raw, report = _read_stability_report(path)
+    issues: list[str] = []
+    if report.schema_version != STABILITY_SCHEMA_VERSION:
+        issues.append(
+            f"$.schema_version: expected {STABILITY_SCHEMA_VERSION}, "
+            f"found {report.schema_version}"
+        )
+    if issues:
+        raise StabilityReportValidationError(issues)
+    return ValidatedStabilityReport(
+        report=report,
+        sha256=hashlib.sha256(raw).hexdigest(),
+    )
+
+
+def _read_stability_report(path: str | Path) -> tuple[bytes, StabilityReport]:
     report_path = Path(path)
     try:
         raw = report_path.read_bytes()
@@ -463,23 +500,57 @@ def load_compatible_stability_report(
         raise
     except (TypeError, ValueError) as error:
         raise StabilityReportValidationError((f"$: malformed report: {error}",)) from error
+    return raw, report
+
+
+def _load_matching_stability_report(
+    path: str | Path,
+    expected_configuration: StabilityConfiguration | Mapping[str, Any],
+    *,
+    require_passing: bool,
+) -> ValidatedStabilityReport:
+    raw, report = _read_stability_report(path)
     issues: list[str] = []
     if report.schema_version != STABILITY_SCHEMA_VERSION:
         issues.append(
             f"$.schema_version: expected {STABILITY_SCHEMA_VERSION}, "
             f"found {report.schema_version}"
         )
-    if report.status != "passed":
-        issues.append(f"$.status: expected 'passed', found {report.status!r}")
-    if report.outcome_code != 0:
-        issues.append(f"$.outcome_code: expected 0, found {report.outcome_code}")
-    if report.failed_thresholds:
-        issues.append("$.failed_thresholds: passing report must contain no failures")
-    if not report.checkpoints or report.checkpoints[-1].consumed_examples != DEVELOPMENT_EXAMPLE_COUNT:
-        issues.append(
-            f"$.checkpoints: passing report must end at {DEVELOPMENT_EXAMPLE_COUNT} examples"
-        )
-    elif report.status == "passed":
+    if report.status == "passed":
+        if report.outcome_code != 0:
+            issues.append(f"$.outcome_code: expected 0, found {report.outcome_code}")
+        if report.failed_thresholds:
+            issues.append("$.failed_thresholds: passing report must contain no failures")
+        if (
+            not report.checkpoints
+            or report.checkpoints[-1].consumed_examples
+            != DEVELOPMENT_EXAMPLE_COUNT
+        ):
+            issues.append(
+                "$.checkpoints: passing report must end at "
+                f"{DEVELOPMENT_EXAMPLE_COUNT} examples"
+            )
+    else:
+        if report.outcome_code == 0:
+            issues.append("$.outcome_code: failed report must be nonzero")
+        if not report.failed_thresholds:
+            issues.append("$.failed_thresholds: failed report must contain failures")
+        if (
+            report.checkpoints
+            and report.checkpoints[-1].failed_thresholds
+            != report.failed_thresholds
+        ):
+            issues.append(
+                "$.checkpoints[-1].failed_thresholds: must equal report failures"
+            )
+    if require_passing:
+        if report.status != "passed":
+            issues.append(f"$.status: expected 'passed', found {report.status!r}")
+        if report.outcome_code != 0:
+            issues.append(f"$.outcome_code: expected 0, found {report.outcome_code}")
+        if report.failed_thresholds:
+            issues.append("$.failed_thresholds: passing report must contain no failures")
+    if report.status == "passed" and report.checkpoints:
         expected_examples = (0, *DEVELOPMENT_CHECKPOINTS)
         actual_examples = tuple(item.consumed_examples for item in report.checkpoints)
         if actual_examples != expected_examples:

@@ -17,11 +17,19 @@ import torch
 
 from eval.stage0_identity import (
     ASDIV_DATASET,
+    ASDIV_PARTITION_COUNTS,
     ASDIV_REVISION,
-    stability_report_identity,
     training_identity,
 )
-from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
+from train.answer_objective import (
+    DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
+    validate_prompt_alignment_weight,
+)
+from train.eggroll_stability import DEVELOPMENT_EXAMPLE_COUNT
+from train.eggroll_stability_guard import (
+    load_guarded_stability_report,
+    standalone_consumed_example_limit,
+)
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
@@ -160,6 +168,19 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         args.eval_batch_size,
         args.fitness_batch_size,
     )
+    if isinstance(args.epochs, bool) or args.epochs < 1:
+        raise ValueError("--epochs must be at least 1")
+    if args.problem_count is not None and not (
+        1 <= args.problem_count <= ASDIV_PARTITION_COUNTS["train"]
+    ):
+        raise ValueError(
+            f"--problem-count must be from 1 through {ASDIV_PARTITION_COUNTS['train']}"
+        )
+    if isinstance(args.log_every, bool) or args.log_every < 1:
+        raise ValueError("--log-every must be at least 1")
+    validate_prompt_alignment_weight(args.prompt_alignment_weight)
+    if args.device.startswith("cuda") and not torch.cuda.is_available():
+        raise ValueError(f"requested CUDA device {args.device!r} is unavailable")
     return args
 
 
@@ -308,7 +329,36 @@ def _run_config(
 def main() -> None:
     configure_deterministic_runtime()
     args = _parse_args()
-    report_identity = stability_report_identity(args.stability_report)
+    consumed_limit = standalone_consumed_example_limit(
+        epochs=args.epochs,
+        problem_count=args.problem_count,
+        default_problem_count=ASDIV_PARTITION_COUNTS["train"],
+    )
+    report_required = consumed_limit > DEVELOPMENT_EXAMPLE_COUNT
+    if report_required and args.stability_report is None:
+        raise ValueError(
+            "--stability-report is required when standalone EGGROLL may consume "
+            f"more than {DEVELOPMENT_EXAMPLE_COUNT} examples"
+        )
+    validated_report = (
+        load_guarded_stability_report(
+            args.stability_report,
+            population=args.pop_size,
+            sigma=args.sigma,
+            rank=args.rank,
+            fitness_batch_size=args.fitness_batch_size,
+            evaluation_batch_size=args.eval_batch_size,
+            variance_weight=args.variance_weight,
+            prompt_alignment_weight=args.prompt_alignment_weight,
+            learning_rate=args.lr,
+            require_passing=True,
+        )
+        if args.stability_report is not None
+        else None
+    )
+    report_identity = (
+        validated_report.sha256 if validated_report is not None else None
+    )
     run_config = _run_config(args, report_identity=report_identity)
 
     _log(f"device={args.device}")
