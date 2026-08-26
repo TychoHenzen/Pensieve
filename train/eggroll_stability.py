@@ -34,6 +34,7 @@ DEVELOPMENT_EXAMPLE_COUNT = 256
 DEVELOPMENT_CHECKPOINTS = (8, 32, 256)
 MAX_LOSS_RATIO = 1.05
 MIN_SEPARATION_RATIO = 0.95
+MAX_UPDATE_RELATIVE_MATRIX_RMS = 0.01
 STABILITY_IMPLEMENTATION_PATHS = (
     "codecs_module/decoder.py",
     "codecs_module/encoder.py",
@@ -45,8 +46,10 @@ STABILITY_IMPLEMENTATION_PATHS = (
     "train/eggroll_factorized.py",
     "train/eggroll_perturbations.py",
     "train/eggroll_stability.py",
+    "train/eggroll_stability_evaluation.py",
     "train/eggroll_trainer.py",
     "train/eggroll_updates.py",
+    "train/run_eggroll_stability.py",
     "train/stage0_data.py",
     "train/training_results.py",
     "train/training_state.py",
@@ -272,12 +275,12 @@ class StabilityCheckpoint:
 
 @dataclass(frozen=True)
 class StabilityReport:
-    """The partial or development-complete result before final classification."""
+    """The classified result of one bounded development run."""
 
     schema_version: int
     configuration: StabilityConfiguration
-    status: Literal["development_complete", "failed_early"]
-    outcome_code: int | None
+    status: Literal["passed", "failed"]
+    outcome_code: int
     checkpoints: tuple[StabilityCheckpoint, ...]
     failed_thresholds: tuple[FailedThreshold, ...]
 
@@ -321,6 +324,22 @@ class StabilityProgress:
 
     consumed_examples: int = 0
     optimizer_call_count: int = 0
+
+
+@dataclass(frozen=True)
+class ValidatedStabilityReport:
+    """A compatible report and the SHA-256 identity of its exact bytes."""
+
+    report: StabilityReport
+    sha256: str
+
+
+class StabilityReportValidationError(ValueError):
+    """One or more strict parsing or compatibility failures."""
+
+    def __init__(self, issues: Sequence[str]) -> None:
+        self.issues = tuple(issues)
+        super().__init__("incompatible stability report: " + "; ".join(self.issues))
 
 
 @dataclass(frozen=True)
@@ -414,6 +433,86 @@ def build_stability_asset_identity(
     return training_identity(
         runtime=runtime,
         held_out_item_ids=[record.id for record in held_out_records],
+    )
+
+
+def load_compatible_stability_report(
+    path: str | Path,
+    expected_configuration: StabilityConfiguration | Mapping[str, Any],
+) -> ValidatedStabilityReport:
+    """Parse and validate a passing report without loading models or datasets."""
+    report_path = Path(path)
+    try:
+        raw = report_path.read_bytes()
+    except OSError as error:
+        raise StabilityReportValidationError((f"$: cannot read report: {error}",)) from error
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+            parse_constant=lambda value: (_ for _ in ()).throw(
+                ValueError(f"non-finite JSON number {value}")
+            ),
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
+        raise StabilityReportValidationError((f"$: malformed JSON: {error}",)) from error
+
+    try:
+        report = _parse_stability_report(payload)
+    except StabilityReportValidationError:
+        raise
+    except (TypeError, ValueError) as error:
+        raise StabilityReportValidationError((f"$: malformed report: {error}",)) from error
+    issues: list[str] = []
+    if report.schema_version != STABILITY_SCHEMA_VERSION:
+        issues.append(
+            f"$.schema_version: expected {STABILITY_SCHEMA_VERSION}, "
+            f"found {report.schema_version}"
+        )
+    if report.status != "passed":
+        issues.append(f"$.status: expected 'passed', found {report.status!r}")
+    if report.outcome_code != 0:
+        issues.append(f"$.outcome_code: expected 0, found {report.outcome_code}")
+    if report.failed_thresholds:
+        issues.append("$.failed_thresholds: passing report must contain no failures")
+    if not report.checkpoints or report.checkpoints[-1].consumed_examples != DEVELOPMENT_EXAMPLE_COUNT:
+        issues.append(
+            f"$.checkpoints: passing report must end at {DEVELOPMENT_EXAMPLE_COUNT} examples"
+        )
+    elif report.status == "passed":
+        expected_examples = (0, *DEVELOPMENT_CHECKPOINTS)
+        actual_examples = tuple(item.consumed_examples for item in report.checkpoints)
+        if actual_examples != expected_examples:
+            issues.append(
+                f"$.checkpoints: expected consumed examples {expected_examples!r}, "
+                f"found {actual_examples!r}"
+            )
+        final = report.checkpoints[-1]
+        for failure in _final_failures(
+            final.baseline,
+            final.current,
+            final.max_update_relative_matrix_rms,
+        ):
+            issues.append(
+                f"$.checkpoints[-1].{failure.metric}: passing report violates "
+                f"{failure.operator} {failure.threshold!r}"
+            )
+    expected_document = (
+        expected_configuration.to_dict()
+        if isinstance(expected_configuration, StabilityConfiguration)
+        else dict(expected_configuration)
+    )
+    _collect_configuration_mismatches(
+        report.configuration.to_dict(),
+        expected_document,
+        "$.configuration",
+        issues,
+    )
+    if issues:
+        raise StabilityReportValidationError(issues)
+    return ValidatedStabilityReport(
+        report=report,
+        sha256=hashlib.sha256(raw).hexdigest(),
     )
 
 
@@ -518,7 +617,15 @@ def run_bounded_stability_gate(
             evaluator,
         )
         elapsed = max(0.0, clock() - started_at)
-        failures = _early_failures(baseline_record.baseline, current)
+        failures = (
+            _final_failures(
+                baseline_record.baseline,
+                current,
+                maximum_relative_change,
+            )
+            if checkpoint_target == DEVELOPMENT_EXAMPLE_COUNT
+            else _early_failures(baseline_record.baseline, current)
+        )
         checkpoint = StabilityCheckpoint(
             consumed_examples=progress.consumed_examples,
             optimizer_call_count=progress.optimizer_call_count,
@@ -536,7 +643,7 @@ def run_bounded_stability_gate(
             return StabilityReport(
                 schema_version=STABILITY_SCHEMA_VERSION,
                 configuration=configuration,
-                status="failed_early",
+                status="failed",
                 outcome_code=1,
                 checkpoints=tuple(retained),
                 failed_thresholds=failures,
@@ -545,8 +652,8 @@ def run_bounded_stability_gate(
     return StabilityReport(
         schema_version=STABILITY_SCHEMA_VERSION,
         configuration=configuration,
-        status="development_complete",
-        outcome_code=None,
+        status="passed",
+        outcome_code=0,
         checkpoints=tuple(retained),
         failed_thresholds=(),
     )
@@ -713,6 +820,70 @@ def _early_failures(
     return tuple(failures)
 
 
+def _final_failures(
+    baseline: StabilityMetrics,
+    current: StabilityMetrics,
+    maximum_relative_change: float,
+) -> tuple[FailedThreshold, ...]:
+    """Return every unmet absolute-health condition in canonical order."""
+    failures: list[FailedThreshold] = []
+    checks = (
+        (
+            "language_model_loss",
+            current.language_model_loss,
+            "<",
+            baseline.language_model_loss,
+            current.language_model_loss < baseline.language_model_loss,
+            baseline.language_model_loss,
+        ),
+        (
+            "exact_accuracy",
+            current.exact_accuracy,
+            ">",
+            baseline.exact_accuracy,
+            current.exact_accuracy > baseline.exact_accuracy,
+            baseline.exact_accuracy,
+        ),
+        (
+            "first_token_accuracy",
+            current.first_token_accuracy,
+            ">",
+            baseline.first_token_accuracy,
+            current.first_token_accuracy > baseline.first_token_accuracy,
+            baseline.first_token_accuracy,
+        ),
+        (
+            "separation_retention",
+            current.separation_retention,
+            ">=",
+            baseline.separation_retention * MIN_SEPARATION_RATIO,
+            current.separation_retention
+            >= baseline.separation_retention * MIN_SEPARATION_RATIO,
+            baseline.separation_retention,
+        ),
+        (
+            "max_update_relative_matrix_rms",
+            maximum_relative_change,
+            "<=",
+            MAX_UPDATE_RELATIVE_MATRIX_RMS,
+            maximum_relative_change <= MAX_UPDATE_RELATIVE_MATRIX_RMS,
+            0.0,
+        ),
+    )
+    for metric, observed, operator, threshold, passed, baseline_value in checks:
+        if not passed:
+            failures.append(
+                FailedThreshold(
+                    metric=metric,
+                    observed=observed,
+                    operator=operator,
+                    threshold=threshold,
+                    baseline=baseline_value,
+                )
+            )
+    return tuple(failures)
+
+
 def _eta(elapsed_seconds: float, consumed_examples: int) -> float:
     if consumed_examples >= DEVELOPMENT_EXAMPLE_COUNT:
         return 0.0
@@ -796,6 +967,327 @@ def _require_finite(value: Any, path: str) -> None:
     elif isinstance(value, (list, tuple)):
         for index, item in enumerate(value):
             _require_finite(item, f"{path}[{index}]")
+
+
+def _reject_duplicate_json_keys(pairs: Sequence[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field {key!r}")
+        result[key] = value
+    return result
+
+
+def _parse_stability_report(value: Any) -> StabilityReport:
+    obj = _strict_object(
+        value,
+        "$",
+        {"schema_version", "configuration", "status", "outcome_code", "checkpoints", "failed_thresholds"},
+    )
+    status = _strict_string(obj["status"], "$.status")
+    if status not in {"passed", "failed"}:
+        raise StabilityReportValidationError((f"$.status: unknown value {status!r}",))
+    checkpoints = _strict_list(obj["checkpoints"], "$.checkpoints")
+    failures = _strict_list(obj["failed_thresholds"], "$.failed_thresholds")
+    return StabilityReport(
+        schema_version=_strict_int(obj["schema_version"], "$.schema_version"),
+        configuration=_parse_configuration(obj["configuration"]),
+        status=status,
+        outcome_code=_strict_int(obj["outcome_code"], "$.outcome_code"),
+        checkpoints=tuple(
+            _parse_checkpoint(item, f"$.checkpoints[{index}]")
+            for index, item in enumerate(checkpoints)
+        ),
+        failed_thresholds=tuple(
+            _parse_failed_threshold(item, f"$.failed_thresholds[{index}]")
+            for index, item in enumerate(failures)
+        ),
+    )
+
+
+def _parse_configuration(value: Any) -> StabilityConfiguration:
+    path = "$.configuration"
+    obj = _strict_object(
+        value,
+        path,
+        {
+            "asset_identity",
+            "implementation",
+            "eggroll",
+            "initialization_seed",
+            "held_out_problem_count",
+            "development_example_count",
+            "checkpoints",
+        },
+    )
+    asset_identity = _strict_object(obj["asset_identity"], f"{path}.asset_identity", None)
+    implementation = _strict_object(
+        obj["implementation"],
+        f"{path}.implementation",
+        {"sha256", "sources"},
+    )
+    sources = _strict_object(
+        implementation["sources"],
+        f"{path}.implementation.sources",
+        None,
+    )
+    eggroll = _strict_object(
+        obj["eggroll"],
+        f"{path}.eggroll",
+        {
+            "optimizer_contract",
+            "parameter_scope",
+            "population",
+            "sigma",
+            "rank",
+            "fitness_batch_size",
+            "evaluation_batch_size",
+            "variance_weight",
+            "prompt_alignment_weight",
+            "learning_rate",
+        },
+    )
+    scope = _strict_list(eggroll["parameter_scope"], f"{path}.eggroll.parameter_scope")
+    checkpoints = _strict_list(obj["checkpoints"], f"{path}.checkpoints")
+    try:
+        return StabilityConfiguration(
+            asset_identity=_freeze_mapping(asset_identity),
+            implementation=ImplementationIdentity(
+                sha256=_strict_string(
+                    implementation["sha256"], f"{path}.implementation.sha256"
+                ),
+                sources=tuple(
+                    sorted(
+                        (
+                            _strict_string(source_path, f"{path}.implementation.sources key"),
+                            _strict_string(
+                                digest,
+                                f"{path}.implementation.sources.{source_path}",
+                            ),
+                        )
+                        for source_path, digest in sources.items()
+                    )
+                ),
+            ),
+            optimizer_contract=_strict_string(
+                eggroll["optimizer_contract"], f"{path}.eggroll.optimizer_contract"
+            ),
+            parameter_scope=tuple(
+                _strict_string(item, f"{path}.eggroll.parameter_scope[{index}]")
+                for index, item in enumerate(scope)
+            ),
+            population=_strict_int(eggroll["population"], f"{path}.eggroll.population"),
+            sigma=_strict_float(eggroll["sigma"], f"{path}.eggroll.sigma"),
+            rank=_strict_int(eggroll["rank"], f"{path}.eggroll.rank"),
+            fitness_batch_size=_strict_int(
+                eggroll["fitness_batch_size"], f"{path}.eggroll.fitness_batch_size"
+            ),
+            evaluation_batch_size=_strict_int(
+                eggroll["evaluation_batch_size"], f"{path}.eggroll.evaluation_batch_size"
+            ),
+            variance_weight=_strict_float(
+                eggroll["variance_weight"], f"{path}.eggroll.variance_weight"
+            ),
+            prompt_alignment_weight=_strict_float(
+                eggroll["prompt_alignment_weight"],
+                f"{path}.eggroll.prompt_alignment_weight",
+            ),
+            learning_rate=_strict_float(
+                eggroll["learning_rate"], f"{path}.eggroll.learning_rate"
+            ),
+            initialization_seed=_strict_int(
+                obj["initialization_seed"], f"{path}.initialization_seed"
+            ),
+            held_out_problem_count=_strict_int(
+                obj["held_out_problem_count"], f"{path}.held_out_problem_count"
+            ),
+            development_example_count=_strict_int(
+                obj["development_example_count"], f"{path}.development_example_count"
+            ),
+            checkpoints=tuple(
+                _strict_int(item, f"{path}.checkpoints[{index}]")
+                for index, item in enumerate(checkpoints)
+            ),
+        )
+    except (TypeError, ValueError) as error:
+        if isinstance(error, StabilityReportValidationError):
+            raise
+        raise StabilityReportValidationError((f"{path}: {error}",)) from error
+
+
+def _parse_checkpoint(value: Any, path: str) -> StabilityCheckpoint:
+    obj = _strict_object(
+        value,
+        path,
+        {
+            "consumed_examples",
+            "optimizer_call_count",
+            "baseline",
+            "current",
+            "deltas",
+            "max_update_relative_matrix_rms",
+            "elapsed_seconds",
+            "eta_seconds",
+            "failed_thresholds",
+        },
+    )
+    deltas = _strict_object(obj["deltas"], f"{path}.deltas", None)
+    failures = _strict_list(obj["failed_thresholds"], f"{path}.failed_thresholds")
+    eta = obj["eta_seconds"]
+    return StabilityCheckpoint(
+        consumed_examples=_strict_int(obj["consumed_examples"], f"{path}.consumed_examples"),
+        optimizer_call_count=_strict_int(
+            obj["optimizer_call_count"], f"{path}.optimizer_call_count"
+        ),
+        baseline=_parse_metrics(obj["baseline"], f"{path}.baseline"),
+        current=_parse_metrics(obj["current"], f"{path}.current"),
+        deltas=tuple(
+            (name, _strict_float(item, f"{path}.deltas.{name}"))
+            for name, item in sorted(deltas.items())
+        ),
+        max_update_relative_matrix_rms=_strict_float(
+            obj["max_update_relative_matrix_rms"],
+            f"{path}.max_update_relative_matrix_rms",
+        ),
+        elapsed_seconds=_strict_float(obj["elapsed_seconds"], f"{path}.elapsed_seconds"),
+        eta_seconds=None if eta is None else _strict_float(eta, f"{path}.eta_seconds"),
+        failed_thresholds=tuple(
+            _parse_failed_threshold(item, f"{path}.failed_thresholds[{index}]")
+            for index, item in enumerate(failures)
+        ),
+    )
+
+
+def _parse_metrics(value: Any, path: str) -> StabilityMetrics:
+    fields = {
+        "problem_count",
+        "parameter_rms",
+        "language_model_loss",
+        "exact_accuracy",
+        "first_token_accuracy",
+        "valid_answer_rate",
+        "output_diversity",
+        "output_dominance",
+        "shared_slot_variance",
+        "student_teacher_mse",
+        "student_cross_problem_cosine",
+        "teacher_cross_problem_cosine",
+        "separation_retention",
+    }
+    obj = _strict_object(value, path, fields)
+    rms_values = _strict_list(obj["parameter_rms"], f"{path}.parameter_rms")
+    parsed_rms = []
+    for index, item in enumerate(rms_values):
+        item_path = f"{path}.parameter_rms[{index}]"
+        rms = _strict_object(item, item_path, {"path", "rms"})
+        parsed_rms.append(
+            ParameterRms(
+                _strict_string(rms["path"], f"{item_path}.path"),
+                _strict_float(rms["rms"], f"{item_path}.rms"),
+            )
+        )
+    return StabilityMetrics(
+        problem_count=_strict_int(obj["problem_count"], f"{path}.problem_count"),
+        parameter_rms=tuple(parsed_rms),
+        **{
+            name: _strict_float(obj[name], f"{path}.{name}")
+            for name in fields - {"problem_count", "parameter_rms"}
+        },
+    )
+
+
+def _parse_failed_threshold(value: Any, path: str) -> FailedThreshold:
+    obj = _strict_object(
+        value,
+        path,
+        {"metric", "observed", "operator", "threshold", "baseline"},
+    )
+    return FailedThreshold(
+        metric=_strict_string(obj["metric"], f"{path}.metric"),
+        observed=_strict_float(obj["observed"], f"{path}.observed"),
+        operator=_strict_string(obj["operator"], f"{path}.operator"),
+        threshold=_strict_float(obj["threshold"], f"{path}.threshold"),
+        baseline=_strict_float(obj["baseline"], f"{path}.baseline"),
+    )
+
+
+def _strict_object(
+    value: Any,
+    path: str,
+    fields: set[str] | None,
+) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise StabilityReportValidationError((f"{path}: expected object",))
+    if fields is not None:
+        actual = set(value)
+        missing = sorted(fields - actual)
+        extra = sorted(actual - fields)
+        issues = [f"{path}.{name}: missing field" for name in missing]
+        issues.extend(f"{path}.{name}: unexpected field" for name in extra)
+        if issues:
+            raise StabilityReportValidationError(issues)
+    return value
+
+
+def _strict_list(value: Any, path: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise StabilityReportValidationError((f"{path}: expected array",))
+    return value
+
+
+def _strict_string(value: Any, path: str) -> str:
+    if not isinstance(value, str):
+        raise StabilityReportValidationError((f"{path}: expected string",))
+    return value
+
+
+def _strict_int(value: Any, path: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise StabilityReportValidationError((f"{path}: expected integer",))
+    return value
+
+
+def _strict_float(value: Any, path: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise StabilityReportValidationError((f"{path}: expected number",))
+    result = float(value)
+    if not math.isfinite(result):
+        raise StabilityReportValidationError((f"{path}: expected finite number",))
+    return result
+
+
+def _collect_configuration_mismatches(
+    actual: Any,
+    expected: Any,
+    path: str,
+    issues: list[str],
+) -> None:
+    if isinstance(expected, Mapping):
+        if not isinstance(actual, Mapping):
+            issues.append(f"{path}: expected object")
+            return
+        for key in sorted(set(actual) | set(expected)):
+            child = f"{path}.{key}"
+            if key not in actual:
+                issues.append(f"{child}: missing field")
+            elif key not in expected:
+                issues.append(f"{child}: unexpected field")
+            else:
+                _collect_configuration_mismatches(actual[key], expected[key], child, issues)
+        return
+    if isinstance(expected, list):
+        if not isinstance(actual, list):
+            issues.append(f"{path}: expected array")
+            return
+        if len(actual) != len(expected):
+            issues.append(f"{path}: expected {len(expected)} items, found {len(actual)}")
+        for index, (actual_item, expected_item) in enumerate(zip(actual, expected)):
+            _collect_configuration_mismatches(
+                actual_item, expected_item, f"{path}[{index}]", issues
+            )
+        return
+    if isinstance(actual, bool) != isinstance(expected, bool) or actual != expected:
+        issues.append(f"{path}: expected {expected!r}, found {actual!r}")
 
 
 def _is_sha256(value: str) -> bool:

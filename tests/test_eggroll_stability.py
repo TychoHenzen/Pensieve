@@ -22,8 +22,10 @@ from train.eggroll_stability import (
     ParameterRms,
     StabilityMetrics,
     StabilityProgress,
+    StabilityReportValidationError,
     build_stability_asset_identity,
     build_stability_configuration,
+    load_compatible_stability_report,
     measure_fresh_baseline,
     run_bounded_stability_gate,
 )
@@ -102,6 +104,8 @@ def _metrics(
     *,
     language_model_loss: float = 1.0,
     separation_retention: float = 0.8,
+    exact_accuracy: float = 0.125,
+    first_token_accuracy: float = 0.25,
 ) -> StabilityMetrics:
     return StabilityMetrics(
         problem_count=BASELINE_PROBLEM_COUNT,
@@ -113,8 +117,8 @@ def _metrics(
             for path, parameter in trainer.state.trainable_params.items()
         ),
         language_model_loss=language_model_loss,
-        exact_accuracy=0.125,
-        first_token_accuracy=0.25,
+        exact_accuracy=exact_accuracy,
+        first_token_accuracy=first_token_accuracy,
         valid_answer_rate=0.75,
         output_diversity=0.5,
         output_dominance=0.25,
@@ -294,8 +298,8 @@ def test_healthy_development_emits_zero_eight_thirty_two_and_256() -> None:
     )
     records = report.checkpoints
 
-    assert report.status == "development_complete"
-    assert report.outcome_code is None
+    assert report.status == "failed"
+    assert report.outcome_code == 1
     assert [record.consumed_examples for record in records] == [0, 8, 32, 256]
     assert [record.optimizer_call_count for record in records] == [0, 1, 4, 32]
     assert tuple(trainer.seen_ids) == tuple(
@@ -330,7 +334,7 @@ def test_absolute_regression_stops_and_retains_exact_failed_thresholds() -> None
     )
     failures = report.failed_thresholds
 
-    assert report.status == "failed_early"
+    assert report.status == "failed"
     assert report.outcome_code == 1
     assert [record.consumed_examples for record in report.checkpoints] == [0, 8]
     assert len(trainer.seen_ids) == 8
@@ -380,3 +384,190 @@ def test_gate_uses_injected_metrics_without_importing_alignment_search(
     assert checkpoint.current.language_model_loss == 1.0
     assert checkpoint.consumed_examples == 0
     assert "train.search_alignment_weight" not in sys.modules
+
+
+# covers: train/eggroll-stability-gate :: Passing health requires task improvement and bounded updates :: Configuration passes the absolute gate
+def test_final_checkpoint_passes_only_when_every_health_condition_holds() -> None:
+    trainer = FakeTrainer()
+
+    def evaluator(_trainer, problems):
+        assert len(problems) == BASELINE_PROBLEM_COUNT
+        if not trainer.seen_ids:
+            return _metrics(
+                trainer,
+                language_model_loss=1.0,
+                exact_accuracy=0.0,
+                first_token_accuracy=0.0,
+            )
+        return _metrics(
+            trainer,
+            language_model_loss=0.9,
+            exact_accuracy=0.125,
+            first_token_accuracy=0.25,
+        )
+
+    report = run_bounded_stability_gate(
+        trainer,
+        _records("train", 300),
+        _records("validation", BASELINE_PROBLEM_COUNT),
+        _configuration(trainer),
+        evaluator,
+        clock=lambda: 1.0,
+    )
+
+    assert report.status == "passed"
+    assert report.outcome_code == 0
+    assert report.failed_thresholds == ()
+    assert report.checkpoints[-1].failed_thresholds == ()
+    assert report.checkpoints[-1].consumed_examples == 256
+    assert report.checkpoints[-1].current.language_model_loss < report.checkpoints[0].current.language_model_loss
+    assert report.checkpoints[-1].current.exact_accuracy > report.checkpoints[0].current.exact_accuracy
+    assert report.checkpoints[-1].current.first_token_accuracy > report.checkpoints[0].current.first_token_accuracy
+    assert report.checkpoints[-1].current.separation_retention >= 0.95 * report.checkpoints[0].current.separation_retention
+    assert report.checkpoints[-1].max_update_relative_matrix_rms <= 0.01
+
+
+# covers: train/eggroll-stability-gate :: Passing health requires task improvement and bounded updates :: Configuration lacks task improvement
+def test_final_checkpoint_lists_every_missing_task_improvement() -> None:
+    trainer = FakeTrainer()
+
+    def evaluator(_trainer, problems):
+        assert len(problems) == BASELINE_PROBLEM_COUNT
+        return _metrics(
+            trainer,
+            language_model_loss=1.0 if not trainer.seen_ids else 0.9,
+            exact_accuracy=0.125,
+            first_token_accuracy=0.25,
+        )
+
+    report = run_bounded_stability_gate(
+        trainer,
+        _records("train", 300),
+        _records("validation", BASELINE_PROBLEM_COUNT),
+        _configuration(trainer),
+        evaluator,
+        clock=lambda: 1.0,
+    )
+    failed_metrics = [failure.metric for failure in report.failed_thresholds]
+
+    assert report.status == "failed"
+    assert report.outcome_code != 0
+    assert failed_metrics == ["exact_accuracy", "first_token_accuracy"]
+    assert report.checkpoints[-1].failed_thresholds == report.failed_thresholds
+    assert report.checkpoints[-1].current.language_model_loss < report.checkpoints[0].current.language_model_loss
+    assert report.checkpoints[-1].current.separation_retention >= 0.95 * report.checkpoints[0].current.separation_retention
+
+
+def _passing_report(trainer: FakeTrainer):
+    def evaluator(_trainer, _problems):
+        if not trainer.seen_ids:
+            return _metrics(
+                trainer,
+                language_model_loss=1.0,
+                exact_accuracy=0.0,
+                first_token_accuracy=0.0,
+            )
+        return _metrics(
+            trainer,
+            language_model_loss=0.9,
+            exact_accuracy=0.125,
+            first_token_accuracy=0.25,
+        )
+
+    return run_bounded_stability_gate(
+        trainer,
+        _records("train", 300),
+        _records("validation", BASELINE_PROBLEM_COUNT),
+        _configuration(trainer),
+        evaluator,
+        clock=lambda: 1.0,
+    )
+
+
+# covers: train/eggroll-stability-gate :: Full EGGROLL workflows require a compatible passing report :: Start with a compatible passing report
+def test_compatible_passing_report_validates_without_loading_models_or_data(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trainer = FakeTrainer()
+    report = _passing_report(trainer)
+    report_path = tmp_path / "stability.json"
+    report_path.write_text(report.canonical_json() + "\n", encoding="utf-8")
+    original_import = builtins.__import__
+
+    def reject_runtime_loaders(name, globals=None, locals=None, fromlist=(), level=0):
+        if name in {"datasets", "transformers", "sentence_transformers"}:
+            raise AssertionError(f"validator loaded runtime dependency {name}")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", reject_runtime_loaders)
+    validated = load_compatible_stability_report(report_path, report.configuration)
+
+    assert validated.report.status == "passed"
+    assert validated.report.configuration == report.configuration
+    assert validated.report.checkpoints[-1].consumed_examples == 256
+    assert len(validated.sha256) == 64
+    assert all(character in "0123456789abcdef" for character in validated.sha256)
+
+
+# covers: train/eggroll-stability-gate :: Full EGGROLL workflows require a compatible passing report :: Reject a mismatched report
+def test_report_validator_names_every_mismatched_canonical_field(tmp_path) -> None:
+    trainer = FakeTrainer()
+    report = _passing_report(trainer)
+    payload = report.to_dict()
+    payload["configuration"]["implementation"]["sha256"] = "c" * 64
+    payload["configuration"]["eggroll"]["population"] = 64
+    payload["configuration"]["eggroll"]["sigma"] = 0.002
+    report_path = tmp_path / "stale.json"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(StabilityReportValidationError) as caught:
+        load_compatible_stability_report(report_path, report.configuration)
+
+    issues = caught.value.issues
+    assert any("$.configuration.implementation.sha256" in issue for issue in issues)
+    assert any("$.configuration.eggroll.population" in issue for issue in issues)
+    assert any("$.configuration.eggroll.sigma" in issue for issue in issues)
+    assert len(issues) == 3
+    assert "implementation.sha256" in str(caught.value)
+
+
+def test_report_validator_rejects_missing_failed_and_malformed_reports(tmp_path) -> None:
+    trainer = FakeTrainer()
+    configuration = _configuration(trainer)
+    missing = tmp_path / "missing.json"
+
+    with pytest.raises(StabilityReportValidationError, match="cannot read report"):
+        load_compatible_stability_report(missing, configuration)
+
+    malformed = tmp_path / "malformed.json"
+    malformed.write_text('{"status":"passed",', encoding="utf-8")
+    with pytest.raises(StabilityReportValidationError, match="malformed JSON"):
+        load_compatible_stability_report(malformed, configuration)
+
+    report = _passing_report(trainer).to_dict()
+    report["status"] = "failed"
+    report["outcome_code"] = 1
+    failed = tmp_path / "failed.json"
+    failed.write_text(json.dumps(report), encoding="utf-8")
+    with pytest.raises(StabilityReportValidationError) as caught:
+        load_compatible_stability_report(failed, configuration)
+
+    assert any("$.status" in issue for issue in caught.value.issues)
+    assert any("$.outcome_code" in issue for issue in caught.value.issues)
+
+
+def test_report_validator_recomputes_passing_health_conditions(tmp_path) -> None:
+    trainer = FakeTrainer()
+    report = _passing_report(trainer)
+    payload = report.to_dict()
+    payload["checkpoints"][-1]["current"]["exact_accuracy"] = payload[
+        "checkpoints"
+    ][-1]["baseline"]["exact_accuracy"]
+    report_path = tmp_path / "false-pass.json"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    with pytest.raises(StabilityReportValidationError) as caught:
+        load_compatible_stability_report(report_path, report.configuration.to_dict())
+
+    assert any("$.checkpoints[-1].exact_accuracy" in issue for issue in caught.value.issues)

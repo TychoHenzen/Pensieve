@@ -103,14 +103,18 @@
 <!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Stability gate runs bounded development checkpoints :: Emit every healthy development checkpoint -->
   <!-- covers: train/eggroll-stability-gate :: Stability gate runs bounded development checkpoints :: Stop on absolute regression -->
-- [ ] 6.3 Implement final pass and failure classification for loss, exact accuracy, first-token accuracy, separation retention, and the 1% relative-RMS ceiling.
+- [x] 6.3 Implement final pass and failure classification for loss, exact accuracy, first-token accuracy, separation retention, and the 1% relative-RMS ceiling.
+<!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Passing health requires task improvement and bounded updates :: Configuration passes the absolute gate -->
   <!-- covers: train/eggroll-stability-gate :: Passing health requires task improvement and bounded updates :: Configuration lacks task improvement -->
-- [ ] 6.4 Validate compatible passing reports before guarded workflows load models or data, and report every mismatched canonical field.
+- [x] 6.4 Validate compatible passing reports before guarded workflows load models or data, and report every mismatched canonical field.
+<!-- status: completed -->
   <!-- covers: train/eggroll-stability-gate :: Full EGGROLL workflows require a compatible passing report :: Start with a compatible passing report -->
   <!-- covers: train/eggroll-stability-gate :: Full EGGROLL workflows require a compatible passing report :: Reject a mismatched report -->
-- [ ] 6.5 Add `python -m train.run_eggroll_stability` with continuous checkpoint progress, bounded development execution, retained failure reports, and a final machine-readable summary.
-- [ ] 6.6 Run the stability command on dependency-light fixtures for passing, early-regression, missing-improvement, stale-report, and mismatched-configuration outcomes.
+- [x] 6.5 Add `python -m train.run_eggroll_stability` with continuous checkpoint progress, bounded development execution, retained failure reports, and a final machine-readable summary.
+<!-- status: completed -->
+- [x] 6.6 Run the stability command on dependency-light fixtures for passing, early-regression, missing-improvement, stale-report, and mismatched-configuration outcomes.
+<!-- status: completed -->
 
 ## 7. Gate Alignment Search and Long Runs
 
