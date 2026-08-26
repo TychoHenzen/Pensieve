@@ -261,3 +261,36 @@ def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     assert not output_path.with_name(f".{output_path.name}.tmp").exists()
     data = json.loads(output_path.read_text(encoding="utf-8"))
     assert data["overall_status"] == "inconclusive"
+
+
+def test_pre_existing_output_rejected_before_model_loading(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Pre-existing output path is rejected BEFORE model loading."""
+    report = tmp_path / "report.json"
+    report_data = {"status": "failed"}
+    report.write_text(json.dumps(report_data), encoding="utf-8")
+    output = tmp_path / "output.json"
+    output.write_text("pre-existing", encoding="utf-8")
+
+    model_load_called = False
+
+    def fake_configure():
+        nonlocal model_load_called
+        model_load_called = True
+
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "configure_deterministic_runtime",
+        fake_configure,
+    )
+
+    with pytest.raises(FileExistsError):
+        run_stage0_trainability.main([
+            "--stability-report",
+            str(report),
+            "--final-output",
+            str(output),
+        ])
+
+    assert not model_load_called, "Model loading should not occur when path exists"
