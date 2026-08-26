@@ -44,6 +44,7 @@ def test_benchmark_protocol_restores_and_alternates_complete_steps() -> None:
     results = benchmark_eggroll.run_benchmark_protocol(
         run_step=run_step,
         restore_state=restore,
+        consumed_examples_per_step=8,
         device="cuda:0",
         cuda=cuda,
         clock=lambda: next(clock_values),
@@ -61,6 +62,27 @@ def test_benchmark_protocol_restores_and_alternates_complete_steps() -> None:
     assert results["optimized"].median_seconds == 1.0
     assert results["reference"].peak_allocated_bytes == 400
     assert results["optimized"].peak_allocated_bytes == 300
+    assert results["reference"].consumed_examples_per_step == 8
+    assert results["optimized"].consumed_examples_per_step == 8
+    assert results["reference"].durations_seconds_per_consumed_example == (
+        0.125,
+    ) * 5
+    assert results["optimized"].median_seconds_per_consumed_example == 0.125
+    assert results["reference"].peak_allocated_bytes_per_consumed_example == 50.0
+    assert results["optimized"].peak_allocated_bytes_per_consumed_example == 37.5
+
+
+def test_benchmark_protocol_rejects_invalid_consumed_example_count() -> None:
+    with pytest.raises(
+        ValueError,
+        match="consumed_examples_per_step must be positive",
+    ):
+        benchmark_eggroll.run_benchmark_protocol(
+            run_step=lambda _: None,
+            restore_state=lambda: None,
+            consumed_examples_per_step=0,
+            device="cuda:0",
+        )
 
 
 def test_performance_gate_rejects_insufficient_speedup() -> None:

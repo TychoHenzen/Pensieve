@@ -27,6 +27,7 @@ from tests.eggroll_reference import (
 from train import eggroll_trainer as trainer_module
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_FITNESS_BATCH_SIZE,
     DEFAULT_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
@@ -35,7 +36,7 @@ from train.eggroll_trainer import (
     DEFAULT_VARIANCE_WEIGHT,
     EggrollTrainer,
 )
-from train.stage0_data import load_stage0_dataset
+from train.stage0_data import FitnessBatch, load_stage0_dataset
 from train.standalone_checkpoint import (
     configure_deterministic_runtime,
     runtime_identity,
@@ -87,6 +88,22 @@ class PathMeasurements:
     durations_seconds: tuple[float, ...]
     median_seconds: float
     peak_allocated_bytes: int
+    consumed_examples_per_step: int = 1
+
+    @property
+    def durations_seconds_per_consumed_example(self) -> tuple[float, ...]:
+        return tuple(
+            duration / self.consumed_examples_per_step
+            for duration in self.durations_seconds
+        )
+
+    @property
+    def median_seconds_per_consumed_example(self) -> float:
+        return self.median_seconds / self.consumed_examples_per_step
+
+    @property
+    def peak_allocated_bytes_per_consumed_example(self) -> float:
+        return self.peak_allocated_bytes / self.consumed_examples_per_step
 
 
 @dataclass(frozen=True)
@@ -306,11 +323,14 @@ def run_benchmark_protocol(
     *,
     run_step: Callable[[BenchmarkPath], Any],
     restore_state: Callable[[], None],
+    consumed_examples_per_step: int,
     device: torch.device | str | int,
     cuda: CudaMeasurements = torch.cuda,
     clock: Callable[[], float] = time.perf_counter,
 ) -> dict[BenchmarkPath, PathMeasurements]:
     """Run the pinned warm-up and alternating measurement schedule."""
+    if consumed_examples_per_step < 1:
+        raise ValueError("consumed_examples_per_step must be positive")
     durations: dict[BenchmarkPath, list[float]] = {
         "reference": [],
         "optimized": [],
@@ -344,6 +364,7 @@ def run_benchmark_protocol(
             durations_seconds=tuple(durations[path]),
             median_seconds=statistics.median(durations[path]),
             peak_allocated_bytes=max(peaks[path]),
+            consumed_examples_per_step=consumed_examples_per_step,
         )
         for path in PATHS
     }
@@ -424,10 +445,14 @@ def _require_cuda_device() -> torch.device:
     return device
 
 
-def _example_identity(record: Any, selection_identity: str) -> dict[str, Any]:
+def _example_identity(
+    record: Any,
+    selection_identity: str,
+    selection_index: int,
+) -> dict[str, Any]:
     return {
         "selection_identity": selection_identity,
-        "selection_index": 0,
+        "selection_index": selection_index,
         "item_id": record.id,
         "split": record.split,
         "question_sha256": hashlib.sha256(record.question.encode("utf-8")).hexdigest(),
@@ -444,11 +469,13 @@ def _benchmark_config(device: torch.device) -> dict[str, Any]:
         "pop_size": DEFAULT_POP_SIZE,
         "antithetic_pair_count": DEFAULT_POP_SIZE // 2,
         "eval_batch_size": DEFAULT_EVAL_BATCH_SIZE,
+        "fitness_batch_size": DEFAULT_FITNESS_BATCH_SIZE,
         "sigma": DEFAULT_SIGMA,
         "rank": DEFAULT_RANK,
         "learning_rate": DEFAULT_LR,
         "variance_weight": DEFAULT_VARIANCE_WEIGHT,
-        "optimizer": "Adam",
+        "optimizer": "SGD",
+        "optimizer_momentum": 0.0,
         "use_amp": False,
         "warmup_runs_per_path": WARMUP_RUNS_PER_PATH,
         "measured_runs_per_path": MEASURED_RUNS_PER_PATH,
@@ -458,12 +485,23 @@ def _benchmark_config(device: torch.device) -> dict[str, Any]:
 
 
 def run_cuda_benchmark() -> dict[str, Any]:
-    """Load the pinned assets once and benchmark one persisted example."""
+    """Load the pinned assets once and benchmark one persisted fitness batch."""
     device = _require_cuda_device()
     configure_deterministic_runtime()
 
     dataset = load_stage0_dataset()
-    record = dataset.training_records(mode="eggroll", epoch=1)[0]
+    records = dataset.training_records(mode="eggroll", epoch=1)
+    batch_records = tuple(records[:DEFAULT_FITNESS_BATCH_SIZE])
+    if len(batch_records) != DEFAULT_FITNESS_BATCH_SIZE:
+        raise RuntimeError(
+            "benchmark requires exactly "
+            f"{DEFAULT_FITNESS_BATCH_SIZE} training records"
+        )
+    fitness_batch = FitnessBatch(
+        records=batch_records,
+        start_position=0,
+        next_position=DEFAULT_FITNESS_BATCH_SIZE,
+    )
     trainer = EggrollTrainer(
         slot_count=DEFAULT_SLOT_COUNT,
         num_steps=DEFAULT_NUM_STEPS,
@@ -473,6 +511,7 @@ def run_cuda_benchmark() -> dict[str, Any]:
         rank=DEFAULT_RANK,
         variance_weight=DEFAULT_VARIANCE_WEIGHT,
         eval_batch_size=DEFAULT_EVAL_BATCH_SIZE,
+        fitness_batch_size=DEFAULT_FITNESS_BATCH_SIZE,
         use_amp=False,
         device=str(device),
     )
@@ -480,7 +519,7 @@ def run_cuda_benchmark() -> dict[str, Any]:
         raise RuntimeError("benchmark trainable parameters must use float32")
 
     for _ in range(STATE_PREPARATION_STEPS):
-        trainer.train_step(record.question, record.target)
+        trainer.train_fitness_batch(fitness_batch)
     for parameter in trainer.trainable_params:
         parameter.grad = None
 
@@ -502,14 +541,14 @@ def run_cuda_benchmark() -> dict[str, Any]:
 
     def run_step(path: BenchmarkPath) -> Any:
         with _execution_path(path, trainer):
-            return trainer.train_step(record.question, record.target)
+            return trainer.train_fitness_batch(fitness_batch)
 
     outcomes: dict[BenchmarkPath, CompleteStepOutcome] = {}
     for path in PATHS:
         restore_state()
         trace = _StepTrace()
         with _execution_path(path, trainer, trace):
-            result = trainer.train_step(record.question, record.target)
+            result = trainer.train_fitness_batch(fitness_batch)
         outcomes[path] = CompleteStepOutcome(
             result=result,
             state=capture_eggroll_step_snapshot(
@@ -528,21 +567,46 @@ def run_cuda_benchmark() -> dict[str, Any]:
     measurements = run_benchmark_protocol(
         run_step=run_step,
         restore_state=restore_state,
+        consumed_examples_per_step=fitness_batch.consumed_record_count,
         device=device,
     )
     reference_median = measurements["reference"].median_seconds
     optimized_median = measurements["optimized"].median_seconds
     gate = _performance_gate(measurements)
-    path_results = {
-        path: asdict(measurements[path])
-        for path in PATHS
-    }
+    path_results = {}
+    for path in PATHS:
+        path_measurements = measurements[path]
+        path_results[path] = {
+            **asdict(path_measurements),
+            "durations_seconds_per_consumed_example": (
+                path_measurements.durations_seconds_per_consumed_example
+            ),
+            "median_seconds_per_consumed_example": (
+                path_measurements.median_seconds_per_consumed_example
+            ),
+            "peak_allocated_bytes_per_consumed_example": (
+                path_measurements.peak_allocated_bytes_per_consumed_example
+            ),
+        }
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "device": _device_identity(device),
         "software": runtime_identity(),
         "assets": dict(STAGE0_IDENTITY),
-        "example": _example_identity(record, dataset.train_selection.identity),
+        "fitness_batch": {
+            "selection_identity": dataset.train_selection.identity,
+            "start_position": fitness_batch.start_position,
+            "next_position": fitness_batch.next_position,
+            "consumed_record_count": fitness_batch.consumed_record_count,
+            "examples": [
+                _example_identity(
+                    record,
+                    dataset.train_selection.identity,
+                    selection_index,
+                )
+                for selection_index, record in enumerate(fitness_batch.records)
+            ],
+        },
         "config": _benchmark_config(device),
         "equivalence": {
             "passed": True,
