@@ -13,6 +13,7 @@ import torch
 from safetensors.torch import save as save_safetensors
 
 from train.stage0_checkpoint import (
+    EGGROLL_MODEL_PARAMETER_PATHS,
     LoadedCheckpointContainer,
     read_checkpoint_container,
     validate_checkpoint_metadata,
@@ -41,6 +42,9 @@ class CheckpointSchedule:
     global_step: int
     epoch: int
     dataset_position: int
+    phase_variance_sum: float = 0.0
+    gradient_optimizer_calls: int = 0
+    eggroll_optimizer_calls: int = 0
 
     def to_dict(self) -> dict[str, int | str]:
         """Return a serializable schedule representation."""
@@ -50,6 +54,8 @@ class CheckpointSchedule:
             "global_step": self.global_step,
             "epoch": self.epoch,
             "dataset_position": self.dataset_position,
+            "gradient_optimizer_calls": self.gradient_optimizer_calls,
+            "eggroll_optimizer_calls": self.eggroll_optimizer_calls,
         }
 
     @classmethod
@@ -61,6 +67,8 @@ class CheckpointSchedule:
             global_step=int(value["global_step"]),
             epoch=int(value["epoch"]),
             dataset_position=int(value["dataset_position"]),
+            gradient_optimizer_calls=int(value.get("gradient_optimizer_calls", 0)),
+            eggroll_optimizer_calls=int(value.get("eggroll_optimizer_calls", 0)),
         )
 
 
@@ -82,6 +90,11 @@ class AlternatingCheckpoint:
             global_step=int(value["global_step"]),
             epoch=int(value["epoch"]),
             dataset_position=next_position - 1,
+            phase_variance_sum=float(
+                self.metadata.get("metrics", {}).get("phase_variance_sum", 0.0)
+            ),
+            gradient_optimizer_calls=int(value.get("gradient_optimizer_calls", 0)),
+            eggroll_optimizer_calls=int(value.get("eggroll_optimizer_calls", 0)),
         )
 
 
@@ -136,7 +149,7 @@ def _optimizer_checkpoint_state(
     tensors: dict[str, torch.Tensor],
     manifest: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    parameter_names = list(stage0_parameter_paths())
+    parameter_names = list(stage0_parameter_paths(method))
     state = optimizer.state_dict()
     groups = state["param_groups"]
     if len(groups) != 1 or len(groups[0]["params"]) != len(parameter_names):
@@ -199,10 +212,12 @@ def _optimizer_checkpoint_state(
     }
 
 
-def stage0_parameter_paths() -> tuple[str, ...]:
+def stage0_parameter_paths(method: str | None = None) -> tuple[str, ...]:
     """Return the canonical trainable-parameter order used by optimizers."""
     from train.stage0_checkpoint import ALLOWED_MODEL_PARAMETER_PATHS
 
+    if method == "eggroll":
+        return EGGROLL_MODEL_PARAMETER_PATHS
     return ALLOWED_MODEL_PARAMETER_PATHS
 
 
@@ -273,11 +288,19 @@ def build_alternating_checkpoint(
             "completed_phase_steps": schedule.completed_phase_steps,
             "phase_steps": phase_steps,
             "global_step": schedule.global_step,
+            "consumed_examples": schedule.global_step,
+            "gradient_optimizer_calls": schedule.gradient_optimizer_calls,
+            "eggroll_optimizer_calls": schedule.eggroll_optimizer_calls,
             "epoch": schedule.epoch,
             "next_dataset_position": next_dataset_position,
         },
         "selections": dict(selections),
-        "metrics": dict(metrics),
+        "metrics": {
+            **dict(metrics),
+            "consumed_examples": schedule.global_step,
+            "gradient_optimizer_calls": schedule.gradient_optimizer_calls,
+            "eggroll_optimizer_calls": schedule.eggroll_optimizer_calls,
+        },
         "rng": {
             "python": {
                 "version": python_state[0],

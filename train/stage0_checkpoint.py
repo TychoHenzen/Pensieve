@@ -42,6 +42,11 @@ ALLOWED_MODEL_PARAMETER_PATHS = (
     "latent_loop.layer_norm.weight",
     "latent_loop.layer_norm.bias",
 )
+EGGROLL_MODEL_PARAMETER_PATHS = (
+    "encoder.projection.weight",
+    "encoder.slot_queries",
+    "latent_loop.projection.weight",
+)
 
 MAX_METADATA_BYTES = 1 * 1024 * 1024
 MAX_TENSOR_BYTES = 64 * 1024 * 1024
@@ -62,7 +67,7 @@ _ROOT_FIELDS = frozenset(
         "rng",
     }
 )
-_ALTERNATING_ROOT_FIELDS = _ROOT_FIELDS | {"run_config"}
+_RUN_CONFIG_ROOT_FIELDS = _ROOT_FIELDS | {"run_config"}
 _TENSOR_FIELDS = frozenset({"name", "shape", "dtype", "role"})
 _OPTIMIZER_FIELDS = frozenset(
     {
@@ -74,13 +79,26 @@ _OPTIMIZER_FIELDS = frozenset(
         "tensor_references",
     }
 )
-_SCHEDULE_FIELDS = frozenset(
+_LEGACY_ALTERNATING_SCHEDULE_FIELDS = frozenset(
     {
         "active_phase",
         "completed_phase_steps",
         "phase_steps",
         "global_step",
         "epoch",
+        "next_dataset_position",
+    }
+)
+_ALTERNATING_SCHEDULE_FIELDS = _LEGACY_ALTERNATING_SCHEDULE_FIELDS | {
+    "consumed_examples",
+    "gradient_optimizer_calls",
+    "eggroll_optimizer_calls",
+}
+_EGGROLL_SCHEDULE_FIELDS = frozenset(
+    {
+        "epoch",
+        "consumed_examples",
+        "eggroll_optimizer_calls",
         "next_dataset_position",
     }
 )
@@ -119,14 +137,47 @@ _RUN_CONFIG_FIELDS = frozenset(
         "logging_frequency",
     }
 )
+_STABILIZED_RUN_CONFIG_FIELDS = _RUN_CONFIG_FIELDS | {"stability_report_identity"}
+_STANDALONE_EGGROLL_RUN_CONFIG_FIELDS = frozenset(
+    {
+        "dataset_selection",
+        "epochs",
+        "model_shape",
+        "eggroll_optimizer",
+        "eggroll_population",
+        "held_out_selection",
+        "stability_report_identity",
+        "logging_frequency",
+    }
+)
 _RUN_SELECTION_FIELDS = frozenset(
     {"dataset", "revision", "split", "seed", "count"}
 )
 _MODEL_SHAPE_FIELDS = frozenset({"slot_count", "num_steps"})
 _OPTIMIZER_CONFIG_FIELDS = frozenset({"learning_rate"})
-_EGGROLL_POPULATION_FIELDS = frozenset(
-    {"size", "sigma", "rank", "variance_weight", "eval_batch_size", "use_amp"}
+_STABILIZED_OPTIMIZER_CONFIG_FIELDS = frozenset(
+    {"type", "momentum", "learning_rate", "parameter_paths"}
 )
+_EGGROLL_POPULATION_FIELDS = frozenset(
+    {
+        "size",
+        "sigma",
+        "rank",
+        "variance_weight",
+        "prompt_alignment_weight",
+        "variance_lower_threshold",
+        "variance_upper_threshold",
+        "eval_batch_size",
+        "fitness_batch_size",
+        "use_amp",
+    }
+)
+_LEGACY_EGGROLL_POPULATION_FIELDS = _EGGROLL_POPULATION_FIELDS - {
+    "prompt_alignment_weight",
+    "variance_lower_threshold",
+    "variance_upper_threshold",
+    "fitness_batch_size",
+}
 _DTYPE_TO_SAFETENSORS = {
     "float32": "F32",
     "float16": "F16",
@@ -475,7 +526,14 @@ def _validate_optimizer_manifests(
                     validator.add(item_path, "is not an allowed parameter")
                 if parameter in parameter_names[:position]:
                     validator.add(item_path, "duplicates an earlier parameter")
-            if parameter_names != expected:
+            canonical_subset = [
+                parameter for parameter in expected if parameter in parameter_names
+            ]
+            if (
+                method == "gradient" and parameter_names != expected
+            ) or (
+                method == "eggroll" and parameter_names != canonical_subset
+            ):
                 validator.add(f"{path}.parameter_names", "must use the canonical order")
             orders.append(parameter_names)
 
@@ -561,24 +619,35 @@ def _validate_optimizer_manifests(
 
     if [item.get("method") for item in value if isinstance(item, Mapping)] != expected_methods:
         validator.add("$.optimizer_manifests", f"must declare methods {expected_methods!r}")
-    if len(orders) > 1 and any(order != orders[0] for order in orders[1:]):
-        validator.add(
-            "$.optimizer_manifests[1].parameter_names",
-            "must match the first optimizer parameter order",
-        )
-
-
 def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
     obj = validator.object(schedule, "$.schedule")
     if obj is None:
         return
-    if mode in {"gradient", "eggroll"}:
+    if mode == "gradient":
         if obj:
             validator.add("$.schedule", "must be empty for a standalone mode")
         return
+    if mode == "eggroll":
+        if not obj:
+            return
+        validator.exact_fields(obj, _EGGROLL_SCHEDULE_FIELDS, "$.schedule")
+        for field, minimum in {
+            "epoch": 1,
+            "consumed_examples": 0,
+            "eggroll_optimizer_calls": 0,
+            "next_dataset_position": 0,
+        }.items():
+            if field in obj:
+                validator.integer(obj[field], f"$.schedule.{field}", minimum=minimum)
+        return
     if mode != "alternating":
         return
-    validator.exact_fields(obj, _SCHEDULE_FIELDS, "$.schedule")
+    schedule_fields = (
+        _ALTERNATING_SCHEDULE_FIELDS
+        if "consumed_examples" in obj
+        else _LEGACY_ALTERNATING_SCHEDULE_FIELDS
+    )
+    validator.exact_fields(obj, schedule_fields, "$.schedule")
     if "active_phase" in obj and obj["active_phase"] not in OPTIMIZER_METHODS:
         validator.add("$.schedule.active_phase", "must be gradient or eggroll")
     integer_bounds = {
@@ -587,6 +656,9 @@ def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
         "global_step": 0,
         "epoch": 1,
         "next_dataset_position": 0,
+        "consumed_examples": 0,
+        "gradient_optimizer_calls": 0,
+        "eggroll_optimizer_calls": 0,
     }
     for field, minimum in integer_bounds.items():
         if field in obj:
@@ -602,6 +674,13 @@ def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
     ):
         validator.add(
             "$.schedule.completed_phase_steps", "must be less than phase_steps"
+        )
+    if (
+        "consumed_examples" in obj
+        and obj.get("consumed_examples") != obj.get("global_step")
+    ):
+        validator.add(
+            "$.schedule.consumed_examples", "must equal $.schedule.global_step"
         )
 
 
@@ -641,12 +720,20 @@ def _validate_run_selection(
 def _validate_run_config(
     validator: _Validator, value: Any, mode: Any, schedule: Any
 ) -> None:
-    if mode != "alternating":
+    if mode not in {"eggroll", "alternating"}:
+        return
+    if mode == "eggroll" and value is None:
         return
     obj = validator.object(value, "$.run_config")
     if obj is None:
         return
-    validator.exact_fields(obj, _RUN_CONFIG_FIELDS, "$.run_config")
+    if mode == "eggroll":
+        run_config_fields = _STANDALONE_EGGROLL_RUN_CONFIG_FIELDS
+    elif "stability_report_identity" in obj:
+        run_config_fields = _STABILIZED_RUN_CONFIG_FIELDS
+    else:
+        run_config_fields = _RUN_CONFIG_FIELDS
+    validator.exact_fields(obj, run_config_fields, "$.run_config")
     _validate_run_selection(
         validator,
         obj.get("dataset_selection"),
@@ -686,11 +773,18 @@ def _validate_run_config(
             )
 
     for optimizer_name in ("gradient_optimizer", "eggroll_optimizer"):
+        if optimizer_name not in obj:
+            continue
         path = f"$.run_config.{optimizer_name}"
         optimizer = validator.object(obj.get(optimizer_name), path)
         if optimizer is None:
             continue
-        validator.exact_fields(optimizer, _OPTIMIZER_CONFIG_FIELDS, path)
+        optimizer_fields = (
+            _STABILIZED_OPTIMIZER_CONFIG_FIELDS
+            if "type" in optimizer
+            else _OPTIMIZER_CONFIG_FIELDS
+        )
+        validator.exact_fields(optimizer, optimizer_fields, path)
         if "learning_rate" in optimizer:
             validator.number(
                 optimizer["learning_rate"],
@@ -698,14 +792,43 @@ def _validate_run_config(
                 minimum=0.0,
                 exclusive_minimum=True,
             )
+        if "type" in optimizer:
+            validator.string(optimizer["type"], f"{path}.type")
+        if "momentum" in optimizer:
+            validator.number(optimizer["momentum"], f"{path}.momentum", minimum=0.0)
+        parameter_paths = optimizer.get("parameter_paths")
+        if "parameter_paths" in optimizer:
+            if not isinstance(parameter_paths, list):
+                validator.add(f"{path}.parameter_paths", "must be a list")
+            else:
+                for index, parameter in enumerate(parameter_paths):
+                    item_path = f"{path}.parameter_paths[{index}]"
+                    if (
+                        not validator.string(parameter, item_path)
+                        or parameter not in ALLOWED_MODEL_PARAMETER_PATHS
+                    ):
+                        validator.add(item_path, "is not an allowed parameter")
 
     population = validator.object(
         obj.get("eggroll_population"), "$.run_config.eggroll_population"
     )
     if population is not None:
         path = "$.run_config.eggroll_population"
-        validator.exact_fields(population, _EGGROLL_POPULATION_FIELDS, path)
-        for field in ("size", "rank", "eval_batch_size"):
+        population_fields = _LEGACY_EGGROLL_POPULATION_FIELDS
+        if (
+            "variance_lower_threshold" in population
+            or "variance_upper_threshold" in population
+        ):
+            population_fields = population_fields | {
+                "variance_lower_threshold",
+                "variance_upper_threshold",
+            }
+        if "prompt_alignment_weight" in population:
+            population_fields = population_fields | {"prompt_alignment_weight"}
+        if "fitness_batch_size" in population:
+            population_fields = population_fields | {"fitness_batch_size"}
+        validator.exact_fields(population, population_fields, path)
+        for field in ("size", "rank", "eval_batch_size", "fitness_batch_size"):
             if field in population:
                 validator.integer(population[field], f"{path}.{field}", minimum=1)
         if "sigma" in population:
@@ -721,8 +844,48 @@ def _validate_run_config(
                 f"{path}.variance_weight",
                 minimum=0.0,
             )
+        if "prompt_alignment_weight" in population:
+            validator.number(
+                population["prompt_alignment_weight"],
+                f"{path}.prompt_alignment_weight",
+                minimum=0.0,
+            )
+        lower = population.get("variance_lower_threshold")
+        upper = population.get("variance_upper_threshold")
+        if "variance_lower_threshold" in population:
+            validator.number(lower, f"{path}.variance_lower_threshold", minimum=0.0)
+        if "variance_upper_threshold" in population:
+            validator.number(
+                upper,
+                f"{path}.variance_upper_threshold",
+                minimum=0.0,
+                exclusive_minimum=True,
+            )
+        if (
+            isinstance(lower, (int, float))
+            and not isinstance(lower, bool)
+            and isinstance(upper, (int, float))
+            and not isinstance(upper, bool)
+            and lower >= upper
+        ):
+            validator.add(
+                f"{path}.variance_lower_threshold",
+                "must be less than variance_upper_threshold",
+            )
         if "use_amp" in population and not isinstance(population["use_amp"], bool):
             validator.add(f"{path}.use_amp", "must be a boolean")
+
+    if "stability_report_identity" in obj:
+        report_identity = obj["stability_report_identity"]
+        if report_identity is not None and (
+            not isinstance(report_identity, str)
+            or len(report_identity) != 64
+            or any(character not in "0123456789abcdef" for character in report_identity)
+        ):
+            validator.add(
+                "$.run_config.stability_report_identity",
+                "must be null or a lowercase SHA-256 digest",
+            )
 
 
 def _validate_selections(validator: _Validator, selections: Any) -> None:
@@ -902,7 +1065,11 @@ def validate_checkpoint_metadata(
     if root is None:
         raise CheckpointMetadataError("; ".join(validator.errors))
     mode = root.get("mode")
-    root_fields = _ALTERNATING_ROOT_FIELDS if mode == "alternating" else _ROOT_FIELDS
+    root_fields = (
+        _RUN_CONFIG_ROOT_FIELDS
+        if mode == "alternating" or (mode == "eggroll" and "run_config" in root)
+        else _ROOT_FIELDS
+    )
     validator.exact_fields(root, root_fields, "$")
     version = root.get("schema_version")
     if (

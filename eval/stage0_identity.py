@@ -186,6 +186,13 @@ def identity_sha256(identity: Mapping[str, Any] = STAGE0_IDENTITY) -> str:
     return hashlib.sha256(canonical_json_bytes(identity)).hexdigest()
 
 
+def stability_report_identity(path: str | Path | None) -> str | None:
+    """Return the byte identity persisted for a supplied stability report."""
+    if path is None:
+        return None
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def digest_bytes(content: bytes, algorithm: str) -> str:
     """Digest raw bytes with the declared Hugging Face manifest semantics."""
     if algorithm == "sha256":

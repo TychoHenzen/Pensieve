@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 from io import StringIO
 import json
 from pathlib import Path
@@ -26,6 +27,7 @@ from train.alternating_config import (
 from train.alternating_scheduler import EvaluationRecord
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_FITNESS_BATCH_SIZE,
     DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
@@ -33,6 +35,7 @@ from train.eggroll_trainer import (
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
 )
+from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
 from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
@@ -146,12 +149,14 @@ def test_alternating_command_defaults() -> None:
     assert args.variance_weight == DEFAULT_VARIANCE_WEIGHT
     assert args.prompt_alignment_weight == DEFAULT_PROMPT_ALIGNMENT_WEIGHT
     assert args.eval_batch_size == DEFAULT_EVAL_BATCH_SIZE
+    assert args.fitness_batch_size == DEFAULT_FITNESS_BATCH_SIZE
     assert args.use_amp is False
     assert args.eval_problem_count == DEFAULT_EVAL_PROBLEM_COUNT
     assert args.problem_count is None
     assert args.log_every == 50
     assert args.save_dir == "checkpoints/alternating/"
     assert args.resume is None
+    assert args.stability_report is None
 
 
 # covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Default stabilized configuration
@@ -201,6 +206,7 @@ def test_alternating_command_accepts_overrides() -> None:
             "--variance-weight", "0.7",
             "--prompt-alignment-weight", "0.6",
             "--eval-batch-size", "4",
+            "--fitness-batch-size", "6",
             "--amp",
             "--eval-problem-count", "16",
             "--problem-count", "100",
@@ -208,6 +214,7 @@ def test_alternating_command_accepts_overrides() -> None:
             "--log-every", "8",
             "--save-dir", "runs/alternating",
             "--resume", "latest",
+            "--stability-report", "report.json",
         ]
     )
 
@@ -226,6 +233,7 @@ def test_alternating_command_accepts_overrides() -> None:
         "variance_weight": 0.7,
         "prompt_alignment_weight": 0.6,
         "eval_batch_size": 4,
+        "fitness_batch_size": 6,
         "use_amp": True,
         "eval_problem_count": 16,
         "problem_count": 100,
@@ -233,24 +241,44 @@ def test_alternating_command_accepts_overrides() -> None:
         "log_every": 8,
         "save_dir": "runs/alternating",
         "resume": "latest",
+        "stability_report": "report.json",
     }
 
 
-def test_run_config_records_every_typed_alternating_setting() -> None:
+def test_run_config_records_every_typed_alternating_setting(tmp_path: Path) -> None:
+    report_path = tmp_path / "stability.json"
+    report_path.write_text('{"status":"passed"}', encoding="utf-8")
     args = run_alternating._parse_args(
         [
             "--problem-count", "3", "--eval-problem-count", "2", "--phase-steps", "2",
             "--sigma", "0.02", "--eggroll-lr", "0.001",
+            "--stability-report", str(report_path),
         ]
     )
 
     expected = copy.deepcopy(RUN_CONFIG)
+    expected["gradient_optimizer"] = {
+        "type": "Adam",
+        "momentum": 0.0,
+        "learning_rate": DEFAULT_GRADIENT_LR,
+        "parameter_paths": list(GRADIENT_PARAMETER_PATHS),
+    }
+    expected["eggroll_optimizer"] = {
+        "type": "SGD",
+        "momentum": 0.0,
+        "learning_rate": 0.001,
+        "parameter_paths": list(EGGROLL_PARAMETER_PATHS),
+    }
     expected["eggroll_population"].update(
         {
             "variance_lower_threshold": 0.01,
             "variance_upper_threshold": 0.02,
+            "fitness_batch_size": DEFAULT_FITNESS_BATCH_SIZE,
         }
     )
+    expected["stability_report_identity"] = hashlib.sha256(
+        b'{"status":"passed"}'
+    ).hexdigest()
     assert run_alternating._run_config(args) == expected
 
 
@@ -721,9 +749,13 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
         for index, name in enumerate(stage0_parameter_paths())
     }
     gradient = torch.optim.Adam(parameters.values(), lr=1e-4)
-    eggroll = torch.optim.Adam(parameters.values(), lr=1e-3)
-    for optimizer in (gradient, eggroll):
-        for parameter in parameters.values():
+    eggroll_parameters = [parameters[name] for name in EGGROLL_PARAMETER_PATHS]
+    eggroll = torch.optim.SGD(eggroll_parameters, lr=0.1, momentum=0.0)
+    for optimizer, owned_parameters in (
+        (gradient, list(parameters.values())),
+        (eggroll, eggroll_parameters),
+    ):
+        for parameter in owned_parameters:
             parameter.grad = torch.ones_like(parameter)
         optimizer.step()
         optimizer.zero_grad()
@@ -746,7 +778,11 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
     for parameter in parameters.values():
         parameter.data.add_(100.0)
     restored_gradient = torch.optim.Adam(parameters.values(), lr=9e-4)
-    restored_eggroll = torch.optim.Adam(parameters.values(), lr=9e-3)
+    restored_eggroll = torch.optim.SGD(
+        [parameters[name] for name in EGGROLL_PARAMETER_PATHS],
+        lr=9e-3,
+        momentum=0.0,
+    )
     random.random()
     np.random.random()
     torch.rand(1)
@@ -769,9 +805,9 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
         for name, parameter in parameters.items()
     )
     assert restored_gradient.param_groups[0]["lr"] == 1e-4
-    assert restored_eggroll.param_groups[0]["lr"] == 1e-3
+    assert restored_eggroll.param_groups[0]["lr"] == 0.1
     assert all(restored_gradient.state[parameter] for parameter in parameters.values())
-    assert all(restored_eggroll.state[parameter] for parameter in parameters.values())
+    assert set(restored_eggroll.state) == set()
     python_rng = checkpoint.metadata["rng"]["python"]
     assert random.getstate() == (
         python_rng["version"],
@@ -895,6 +931,11 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "phase_step": 1,
             "language_model_loss": 1.0,
             "shared_variance": 0.005,
+            "next_example_position": 3,
+            "observation_window_examples": 1,
+            "records_consumed": 1,
+            "batch_size": 1,
+            "optimizer_call_count": 1,
         },
         {
             "record_type": "training",
@@ -906,6 +947,11 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "phase_step": 2,
             "language_model_loss": 1.0,
             "shared_variance": 0.03,
+            "next_example_position": 3,
+            "observation_window_examples": 2,
+            "records_consumed": 1,
+            "batch_size": 1,
+            "optimizer_call_count": 2,
         },
     ]
     evaluation_records = [
@@ -929,12 +975,37 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         },
     ]
     assert saved == [
-        CheckpointSchedule("gradient", 0, 2, 1, 1),
         CheckpointSchedule(
-            "gradient", 1, 3, 1, 2, phase_variance_sum=0.005
+            "gradient", 0, 2, 1, 1, eggroll_optimizer_calls=2
         ),
-        CheckpointSchedule("eggroll", 0, 4, 2, 0),
-        CheckpointSchedule("gradient", 0, 6, 2, 2),
+        CheckpointSchedule(
+            "gradient",
+            1,
+            3,
+            1,
+            2,
+            phase_variance_sum=0.005,
+            gradient_optimizer_calls=1,
+            eggroll_optimizer_calls=2,
+        ),
+        CheckpointSchedule(
+            "eggroll",
+            0,
+            4,
+            2,
+            0,
+            gradient_optimizer_calls=2,
+            eggroll_optimizer_calls=2,
+        ),
+        CheckpointSchedule(
+            "gradient",
+            0,
+            6,
+            2,
+            2,
+            gradient_optimizer_calls=2,
+            eggroll_optimizer_calls=4,
+        ),
     ]
     assert [record.boundaries for record in saved_evaluations] == [
         frozenset({"phase"}),
@@ -943,6 +1014,21 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         frozenset({"epoch", "phase"}),
     ]
     assert saved[1] == CheckpointSchedule(
-        "gradient", 1, 3, 1, 2, phase_variance_sum=0.005
+        "gradient",
+        1,
+        3,
+        1,
+        2,
+        phase_variance_sum=0.005,
+        gradient_optimizer_calls=1,
+        eggroll_optimizer_calls=2,
     )
-    assert saved[-1] == CheckpointSchedule("gradient", 0, 6, 2, 2)
+    assert saved[-1] == CheckpointSchedule(
+        "gradient",
+        0,
+        6,
+        2,
+        2,
+        gradient_optimizer_calls=2,
+        eggroll_optimizer_calls=4,
+    )

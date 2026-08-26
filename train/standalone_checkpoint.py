@@ -21,6 +21,7 @@ from eval.stream.generators.calc_mawps import (
 )
 from train.stage0_checkpoint import (
     ALLOWED_MODEL_PARAMETER_PATHS,
+    EGGROLL_MODEL_PARAMETER_PATHS,
     LoadedCheckpointContainer,
     read_checkpoint_container,
     validate_checkpoint_metadata,
@@ -126,7 +127,11 @@ def _optimizer_manifest(
     tensors: dict[str, torch.Tensor],
     tensor_manifest: list[dict[str, object]],
 ) -> dict[str, object]:
-    parameter_names = list(ALLOWED_MODEL_PARAMETER_PATHS)
+    parameter_names = list(
+        EGGROLL_MODEL_PARAMETER_PATHS
+        if method == "eggroll"
+        else ALLOWED_MODEL_PARAMETER_PATHS
+    )
     state = optimizer.state_dict()
     groups = state["param_groups"]
     if len(groups) != 1 or len(groups[0]["params"]) != len(parameter_names):
@@ -179,6 +184,8 @@ def build_checkpoint(
     model_state: Mapping[str, torch.Tensor],
     optimizer: torch.optim.Optimizer,
     metrics: Mapping[str, Any],
+    schedule: Mapping[str, Any] | None = None,
+    run_config: Mapping[str, Any] | None = None,
 ) -> LoadedCheckpointContainer:
     if mode not in {"gradient", "eggroll"}:
         raise ValueError("standalone checkpoint mode must be gradient or eggroll")
@@ -209,15 +216,26 @@ def build_checkpoint(
         tensor_manifest.append(_manifest(name, tensor, "pytorch_cuda_rng_state"))
         cuda.append({"device": f"cuda:{index}", "state_tensor": name})
     python_state = random.getstate()
+    saved_schedule = dict(schedule or {})
+    saved_metrics = dict(metrics)
+    if mode == "eggroll" and saved_schedule:
+        saved_metrics.update(
+            {
+                "consumed_examples": saved_schedule["consumed_examples"],
+                "eggroll_optimizer_calls": saved_schedule[
+                    "eggroll_optimizer_calls"
+                ],
+            }
+        )
     metadata = {
         "schema_version": 2,
         "identity": dict(identity),
         "mode": mode,
         "tensor_manifest": tensor_manifest,
         "optimizer_manifests": [optimizer_manifest],
-        "schedule": {},
+        "schedule": saved_schedule,
         "selections": dict(selections),
-        "metrics": dict(metrics),
+        "metrics": saved_metrics,
         "rng": {
             "python": {
                 "version": python_state[0],
@@ -235,6 +253,8 @@ def build_checkpoint(
             "cuda": cuda,
         },
     }
+    if run_config is not None:
+        metadata["run_config"] = dict(run_config)
     validated = validate_checkpoint_metadata(metadata)
     return LoadedCheckpointContainer(validated.to_dict(), tensors)
 

@@ -191,3 +191,106 @@ def test_eggroll_updates_leave_non_matrix_trainables_bitwise_unchanged(monkeypat
         for parameter, original in zip(excluded, before, strict=True)
     )
     assert set(eggroll_trainer.optimizer.state) == set()
+
+
+def _parameter_ids(optimizer: torch.optim.Optimizer) -> tuple[int, ...]:
+    return tuple(id(parameter) for parameter in optimizer.param_groups[0]["params"])
+
+
+# covers: train/alternating-cycle :: Continuous model and optimizer state :: Switch from Eggroll to gradient training
+def test_switch_from_eggroll_preserves_shared_parameters_and_prior_adam_state(monkeypatch) -> None:
+    _patch_training_dependencies(monkeypatch)
+
+    state = TrainingState(slot_count=3, num_steps=1)
+    gradient_trainer = LatentCoreTrainer(lr=0.1, state=state)
+    eggroll_trainer = EggrollTrainer(pop_size=2, lr=0.1, state=state)
+    assert eggroll_trainer.state is gradient_trainer.state is state
+    assert eggroll_trainer.latent_loop is gradient_trainer.latent_loop
+    gradient_params = list(state.parameters())
+    eggroll_params = list(state.eggroll_parameters())
+    gradient_optimizer_id = id(gradient_trainer.optimizer)
+    eggroll_optimizer_id = id(eggroll_trainer.optimizer)
+    gradient_group_ids = _parameter_ids(gradient_trainer.optimizer)
+    eggroll_group_ids = _parameter_ids(eggroll_trainer.optimizer)
+
+    _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=1.0)
+    adam_before_eggroll = {
+        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone()
+        for parameter in gradient_params
+    }
+    _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=2.0)
+    eggroll_values = [parameter.detach().clone() for parameter in eggroll_params]
+
+    assert all(
+        torch.equal(
+            gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state
+        )
+        for parameter, saved_state in adam_before_eggroll.items()
+    )
+    assert id(gradient_trainer.optimizer) == gradient_optimizer_id
+    assert id(eggroll_trainer.optimizer) == eggroll_optimizer_id
+    assert _parameter_ids(gradient_trainer.optimizer) == gradient_group_ids
+    assert _parameter_ids(eggroll_trainer.optimizer) == eggroll_group_ids
+    assert gradient_group_ids == tuple(id(parameter) for parameter in gradient_params)
+    assert eggroll_group_ids == tuple(id(parameter) for parameter in eggroll_params)
+
+    _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=3.0)
+
+    assert id(gradient_trainer.optimizer) == gradient_optimizer_id
+    assert _parameter_ids(gradient_trainer.optimizer) == gradient_group_ids
+    assert any(
+        not torch.equal(parameter, expected)
+        for parameter, expected in zip(eggroll_params, eggroll_values, strict=True)
+    )
+    assert all(
+        torch.allclose(
+            gradient_trainer.optimizer.state[parameter]["exp_avg"],
+            torch.full_like(parameter, 0.39),
+        )
+        for parameter in gradient_params
+    )
+    assert id(eggroll_trainer.optimizer) == eggroll_optimizer_id
+    assert _parameter_ids(eggroll_trainer.optimizer) == eggroll_group_ids
+    assert set(eggroll_trainer.optimizer.state) == set()
+
+
+# covers: train/alternating-cycle :: Continuous model and optimizer state :: Return to Eggroll
+def test_return_to_eggroll_preserves_shared_matrices_and_inactive_adam_state(monkeypatch) -> None:
+    _patch_training_dependencies(monkeypatch)
+
+    state = TrainingState(slot_count=3, num_steps=1)
+    gradient_trainer = LatentCoreTrainer(lr=0.1, state=state)
+    eggroll_trainer = EggrollTrainer(pop_size=2, lr=0.1, state=state)
+    gradient_params = list(state.parameters())
+    eggroll_params = list(state.eggroll_parameters())
+    gradient_optimizer_id = id(gradient_trainer.optimizer)
+    eggroll_optimizer_id = id(eggroll_trainer.optimizer)
+    gradient_group_ids = _parameter_ids(gradient_trainer.optimizer)
+    eggroll_group_ids = _parameter_ids(eggroll_trainer.optimizer)
+
+    _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=2.0)
+    _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=3.0)
+
+    adam_before_return = {
+        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone()
+        for parameter in gradient_params
+    }
+    gradient_values = [parameter.detach().clone() for parameter in eggroll_params]
+    _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=4.0)
+
+    assert id(eggroll_trainer.optimizer) == eggroll_optimizer_id
+    assert _parameter_ids(eggroll_trainer.optimizer) == eggroll_group_ids
+    assert eggroll_group_ids == tuple(id(parameter) for parameter in eggroll_params)
+    assert set(eggroll_trainer.optimizer.state) == set()
+    assert id(gradient_trainer.optimizer) == gradient_optimizer_id
+    assert _parameter_ids(gradient_trainer.optimizer) == gradient_group_ids
+    assert all(
+        torch.equal(
+            gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state
+        )
+        for parameter, saved_state in adam_before_return.items()
+    )
+    assert all(
+        torch.allclose(parameter, expected - 0.4)
+        for parameter, expected in zip(eggroll_params, gradient_values, strict=True)
+    )

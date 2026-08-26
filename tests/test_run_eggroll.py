@@ -60,6 +60,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
                 avg_variance=0.25,
                 min_variance=0.25,
                 max_variance=0.25,
+                steps=optimizer_call_count,
             )
 
     fake_trainer_module = ModuleType("train.eggroll_trainer")
@@ -96,6 +97,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
         lr=0.2,
         rank=5,
         variance_weight=0.3,
+        prompt_alignment_weight=0.4,
         eval_batch_size=2,
         fitness_batch_size=8,
         use_amp=True,
@@ -104,6 +106,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
         problem_count=None,
         log_every=1,
         resume=None,
+        stability_report=None,
     )
     monkeypatch.setattr(run_eggroll, "_parse_args", lambda: args)
     monkeypatch.setattr(
@@ -137,6 +140,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
             "lr": 0.2,
             "rank": 5,
             "variance_weight": 0.3,
+            "prompt_alignment_weight": 0.4,
             "eval_batch_size": 2,
             "fitness_batch_size": 8,
             "use_amp": True,

@@ -65,17 +65,21 @@
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Epoch boundary within an observation window -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Full default run -->
   <!-- covers: train/alternating-cycle :: Complete multi-epoch dataset traversal :: Invalid epoch count -->
-- [ ] 4.3 Preserve complete-registry Adam state and matrix-only SGD state across both switch directions without reinitializing shared tensors.
+- [x] 4.3 Preserve complete-registry Adam state and matrix-only SGD state across both switch directions without reinitializing shared tensors.
+<!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Continuous model and optimizer state :: Switch from Eggroll to gradient training -->
   <!-- covers: train/alternating-cycle :: Continuous model and optimizer state :: Return to Eggroll -->
-- [ ] 4.4 Aggregate comparable per-example metrics and extend experiment positions with consumed examples, batch size, and method-specific optimizer-call counts.
+- [x] 4.4 Aggregate comparable per-example metrics and extend experiment positions with consumed examples, batch size, and method-specific optimizer-call counts.
+<!-- status: completed -->
   <!-- covers: train/alternating-cycle :: Comparable phase measurements :: Compare phase metrics -->
   <!-- covers: train/alternating-cycle :: Comparable phase measurements :: Record experiment position -->
-- [ ] 4.5 Run a small alternating fixture with batch, observation, log, and epoch boundaries at different positions. Assert exact record visits, switches, metrics, and progress records.
+- [x] 4.5 Run a small alternating fixture with batch, observation, log, and epoch boundaries at different positions. Assert exact record visits, switches, metrics, and progress records.
+<!-- status: completed -->
 
 ## 5. Migrate Checkpoint and Resume Contracts
 
-- [ ] 5.1 Extend standalone and alternating run configuration, optimizer manifests, metrics, and schedules with SGD type, matrix scope, fitness-batch size, consumed-example progress, optimizer-call counts, and stability-report identity.
+- [x] 5.1 Extend standalone and alternating run configuration, optimizer manifests, metrics, and schedules with SGD type, matrix scope, fitness-batch size, consumed-example progress, optimizer-call counts, and stability-report identity.
+<!-- status: completed -->
   <!-- covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Save stabilized Eggroll identity -->
 - [ ] 5.2 Reject legacy Adam EGGROLL state, non-matrix EGGROLL optimizer entries, impossible cursor accounting, and every guarded run-configuration mismatch before applying state.
   <!-- covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Reject legacy Adam Eggroll checkpoint -->

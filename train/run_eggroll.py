@@ -15,7 +15,13 @@ from collections.abc import Sequence
 
 import torch
 
-from eval.stage0_identity import training_identity
+from eval.stage0_identity import (
+    ASDIV_DATASET,
+    ASDIV_REVISION,
+    stability_report_identity,
+    training_identity,
+)
+from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
@@ -30,6 +36,7 @@ from train.eggroll_trainer import (
     validate_eggroll_config,
 )
 from train.stage0_data import load_stage0_dataset, training_examples
+from train.training_state import EGGROLL_PARAMETER_PATHS
 from train.standalone_checkpoint import (
     build_checkpoint,
     checkpoint_epoch,
@@ -115,6 +122,11 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--variance-weight", type=float, default=DEFAULT_VARIANCE_WEIGHT
     )
     parser.add_argument(
+        "--prompt-alignment-weight",
+        type=float,
+        default=DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default="cuda" if torch.cuda.is_available() else "cpu",
@@ -132,6 +144,12 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         type=str,
         default=None,
         help="Checkpoint to resume from. 'latest' finds the highest epoch in --save-dir.",
+    )
+    parser.add_argument(
+        "--stability-report",
+        type=str,
+        default=None,
+        help="Passing stability-report artifact whose byte digest identifies this run.",
     )
     args = parser.parse_args(argv)
     validate_eggroll_config(
@@ -213,6 +231,8 @@ def _save_checkpoint(
     identity: dict[str, object],
     selections: dict[str, object],
     metrics: dict[str, object],
+    schedule: dict[str, object],
+    run_config: dict[str, object],
 ) -> str:
     os.makedirs(save_dir, exist_ok=True)
     checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.ckpt")
@@ -223,14 +243,65 @@ def _save_checkpoint(
         model_state=trainer.state.trainable_params,
         optimizer=trainer.optimizer,
         metrics=metrics,
+        schedule=schedule,
+        run_config=run_config,
     )
     save_checkpoint(checkpoint_path, checkpoint)
     return checkpoint_path
 
 
+def _run_config(
+    args: argparse.Namespace,
+    *,
+    report_identity: str | None,
+) -> dict[str, object]:
+    """Return the complete standalone EGGROLL checkpoint identity."""
+    return {
+        "dataset_selection": {
+            "dataset": ASDIV_DATASET,
+            "revision": ASDIV_REVISION,
+            "split": "train",
+            "seed": 0,
+            "count": args.problem_count,
+        },
+        "epochs": args.epochs,
+        "model_shape": {
+            "slot_count": args.slot_count,
+            "num_steps": args.num_steps,
+        },
+        "eggroll_optimizer": {
+            "type": "SGD",
+            "momentum": 0.0,
+            "learning_rate": args.lr,
+            "parameter_paths": list(EGGROLL_PARAMETER_PATHS),
+        },
+        "eggroll_population": {
+            "size": args.pop_size,
+            "sigma": args.sigma,
+            "rank": args.rank,
+            "variance_weight": args.variance_weight,
+            "prompt_alignment_weight": args.prompt_alignment_weight,
+            "eval_batch_size": args.eval_batch_size,
+            "fitness_batch_size": args.fitness_batch_size,
+            "use_amp": args.use_amp,
+        },
+        "held_out_selection": {
+            "dataset": ASDIV_DATASET,
+            "revision": ASDIV_REVISION,
+            "split": "validation",
+            "seed": 0,
+            "count": 128,
+        },
+        "stability_report_identity": report_identity,
+        "logging_frequency": args.log_every,
+    }
+
+
 def main() -> None:
     configure_deterministic_runtime()
     args = _parse_args()
+    report_identity = stability_report_identity(args.stability_report)
+    run_config = _run_config(args, report_identity=report_identity)
 
     _log(f"device={args.device}")
     _log(
@@ -238,6 +309,7 @@ def main() -> None:
         f"steps={args.num_steps} pop={args.pop_size} "
         f"sigma={args.sigma} optimizer=SGD lr={args.lr} rank={args.rank} "
         f"var_weight={args.variance_weight} eval_batch={args.eval_batch_size} "
+        f"alignment_weight={args.prompt_alignment_weight} "
         f"fitness_batch={args.fitness_batch_size} "
         f"amp={args.use_amp}"
     )
@@ -272,6 +344,7 @@ def main() -> None:
         lr=args.lr,
         rank=args.rank,
         variance_weight=args.variance_weight,
+        prompt_alignment_weight=args.prompt_alignment_weight,
         eval_batch_size=args.eval_batch_size,
         fitness_batch_size=args.fitness_batch_size,
         use_amp=args.use_amp,
@@ -296,6 +369,7 @@ def main() -> None:
 
     epoch_losses: list[float] = []
     training_start = time.monotonic()
+    eggroll_optimizer_calls = 0
 
     for epoch in range(start_epoch + 1, args.epochs + 1):
         epoch_start = time.monotonic()
@@ -324,6 +398,7 @@ def main() -> None:
                 )
 
         stats = trainer.train_epoch(dataset, on_step=_on_step)
+        eggroll_optimizer_calls += stats.steps
         epoch_dt = time.monotonic() - epoch_start
         epoch_losses.append(stats.avg_loss)
 
@@ -346,6 +421,13 @@ def main() -> None:
                 "min_variance": stats.min_variance,
                 "max_variance": stats.max_variance,
             },
+            schedule={
+                "epoch": epoch,
+                "consumed_examples": epoch * len(dataset),
+                "eggroll_optimizer_calls": eggroll_optimizer_calls,
+                "next_dataset_position": 0,
+            },
+            run_config=run_config,
         )
         _log(f"saved: {checkpoint_path}")
 

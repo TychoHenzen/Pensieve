@@ -20,6 +20,7 @@ from eval.stage0_identity import (
     ASDIV_DATASET,
     ASDIV_REVISION,
     training_identity,
+    stability_report_identity,
 )
 from eval.stream.generators.asdiv_a import (
     AsdivRecord,
@@ -59,6 +60,7 @@ from train.answer_objective import (
 )
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
+    DEFAULT_FITNESS_BATCH_SIZE,
     DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
@@ -70,7 +72,11 @@ from train.eggroll_trainer import (
 )
 from train.stage0_data import FitnessBatch
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
-from train.training_state import TrainingState
+from train.training_state import (
+    EGGROLL_PARAMETER_PATHS,
+    GRADIENT_PARAMETER_PATHS,
+    TrainingState,
+)
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from train.stage0_data import load_stage0_dataset, training_examples
 from train.standalone_checkpoint import configure_deterministic_runtime
@@ -353,6 +359,7 @@ def _run_schedule(
     if resume is None:
         next_epoch = 1
         next_example_position = 0
+        optimizer_call_offsets = {"gradient": 0, "eggroll": 0}
     else:
         scheduler.restore(
             active_phase=resume.active_phase,
@@ -362,6 +369,10 @@ def _run_schedule(
         )
         next_epoch = resume.epoch
         next_example_position = resume.dataset_position + 1
+        optimizer_call_offsets = {
+            "gradient": resume.gradient_optimizer_calls,
+            "eggroll": resume.eggroll_optimizer_calls,
+        }
         if resume.dataset_position < 0:
             next_epoch += 1
         elif next_example_position == len(examples):
@@ -369,6 +380,7 @@ def _run_schedule(
             next_example_position = 0
 
     latest_schedule = resume
+    optimizer_call_counts = dict(optimizer_call_offsets)
     training_start = time.monotonic()
     for epoch in range(next_epoch, epochs + 1):
         first_position = next_example_position if epoch == next_epoch else 0
@@ -385,6 +397,10 @@ def _run_schedule(
                 records_until_logging_boundary=(
                     log_every - (scheduler.completed_steps % log_every)
                 ),
+            )
+            optimizer_call_counts[result.position.update_method] = (
+                optimizer_call_offsets[result.position.update_method]
+                + result.position.optimizer_call_count
             )
             recent_losses.append(result.language_model_loss)
             recent_vars.append(result.shared_variance)
@@ -434,6 +450,8 @@ def _run_schedule(
                     active_phase=scheduler.active_phase,
                     completed_phase_steps=scheduler.completed_phase_steps,
                     phase_variance_sum=scheduler.phase_variance_sum,
+                    gradient_optimizer_calls=optimizer_call_counts["gradient"],
+                    eggroll_optimizer_calls=optimizer_call_counts["eggroll"],
                 )
                 paths = save_boundary(
                     latest_schedule,
@@ -471,6 +489,8 @@ def _checkpoint_schedule(
     active_phase: str,
     completed_phase_steps: int,
     phase_variance_sum: float,
+    gradient_optimizer_calls: int = 0,
+    eggroll_optimizer_calls: int = 0,
 ) -> CheckpointSchedule:
     return CheckpointSchedule(
         active_phase=active_phase,
@@ -479,6 +499,8 @@ def _checkpoint_schedule(
         epoch=position.epoch,
         dataset_position=position.example_position,
         phase_variance_sum=phase_variance_sum,
+        gradient_optimizer_calls=gradient_optimizer_calls,
+        eggroll_optimizer_calls=eggroll_optimizer_calls,
     )
 
 
@@ -525,6 +547,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Perturbed candidates evaluated together.",
     )
     parser.add_argument(
+        "--fitness-batch-size",
+        type=int,
+        default=DEFAULT_FITNESS_BATCH_SIZE,
+        help="Training records averaged into one Eggroll optimizer update.",
+    )
+    parser.add_argument(
         "--amp",
         action="store_true",
         dest="use_amp",
@@ -558,6 +586,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Checkpoint path to resume from. 'latest' uses the largest global step.",
     )
+    parser.add_argument(
+        "--stability-report",
+        type=str,
+        default=None,
+        help="Passing stability-report artifact whose byte digest identifies this run.",
+    )
     return parser
 
 
@@ -577,6 +611,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         args.eggroll_lr,
         args.rank,
         args.eval_batch_size,
+        args.fitness_batch_size,
     )
     return args
 
@@ -593,8 +628,18 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
         "epochs": args.epochs,
         "phase_steps": args.phase_steps,
         "model_shape": {"slot_count": args.slot_count, "num_steps": args.num_steps},
-        "gradient_optimizer": {"learning_rate": args.gradient_lr},
-        "eggroll_optimizer": {"learning_rate": args.eggroll_lr},
+        "gradient_optimizer": {
+            "type": "Adam",
+            "momentum": 0.0,
+            "learning_rate": args.gradient_lr,
+            "parameter_paths": list(GRADIENT_PARAMETER_PATHS),
+        },
+        "eggroll_optimizer": {
+            "type": "SGD",
+            "momentum": 0.0,
+            "learning_rate": args.eggroll_lr,
+            "parameter_paths": list(EGGROLL_PARAMETER_PATHS),
+        },
         "eggroll_population": {
             "size": args.pop_size,
             "sigma": args.sigma,
@@ -604,6 +649,7 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
             "variance_lower_threshold": args.variance_lower_threshold,
             "variance_upper_threshold": args.variance_upper_threshold,
             "eval_batch_size": args.eval_batch_size,
+            "fitness_batch_size": args.fitness_batch_size,
             "use_amp": args.use_amp,
         },
         "held_out_selection": {
@@ -613,6 +659,9 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
             "seed": 0,
             "count": args.eval_problem_count,
         },
+        "stability_report_identity": stability_report_identity(
+            args.stability_report
+        ),
         "logging_frequency": args.log_every,
     }
 
@@ -745,6 +794,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         f"rank={args.rank} var_weight={args.variance_weight} "
         f"alignment_weight={args.prompt_alignment_weight} "
         f"eval_batch={args.eval_batch_size} amp={args.use_amp}"
+        f" fitness_batch={args.fitness_batch_size}"
     )
 
     load_start = time.monotonic()
@@ -806,6 +856,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         variance_weight=args.variance_weight,
         prompt_alignment_weight=args.prompt_alignment_weight,
         eval_batch_size=args.eval_batch_size,
+        fitness_batch_size=args.fitness_batch_size,
         use_amp=args.use_amp,
         device=args.device,
         state=state,

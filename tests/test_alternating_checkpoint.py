@@ -20,6 +20,8 @@ from train.alternating_checkpoint import (
     save_boundary_checkpoints,
     save_checkpoint,
 )
+from train.stage0_checkpoint import EGGROLL_MODEL_PARAMETER_PATHS
+from train.standalone_checkpoint import build_checkpoint as build_standalone_checkpoint
 from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata, _plain, _tensor_values
 
 
@@ -48,9 +50,13 @@ def test_typed_builder_captures_real_model_optimizer_and_rng_state(
         for index, name in enumerate(alternating_checkpoint.stage0_parameter_paths())
     }
     gradient = torch.optim.Adam(parameters.values(), lr=1e-4)
-    eggroll = torch.optim.Adam(parameters.values(), lr=1e-3)
-    for optimizer in (gradient, eggroll):
-        for parameter in parameters.values():
+    eggroll_parameters = [parameters[name] for name in EGGROLL_MODEL_PARAMETER_PATHS]
+    eggroll = torch.optim.SGD(eggroll_parameters, lr=0.1, momentum=0.0)
+    for optimizer, owned_parameters in (
+        (gradient, list(parameters.values())),
+        (eggroll, eggroll_parameters),
+    ):
+        for parameter in owned_parameters:
             parameter.grad = torch.ones_like(parameter)
         optimizer.step()
         optimizer.zero_grad()
@@ -84,6 +90,132 @@ def test_typed_builder_captures_real_model_optimizer_and_rng_state(
         torch.equal(loaded.tensors[f"model.{name}"], parameter.detach())
         for name, parameter in parameters.items()
     )
+
+
+def _stabilized_run_config() -> dict[str, object]:
+    config = dict(RUN_CONFIG)
+    config["gradient_optimizer"] = {
+        "type": "Adam",
+        "momentum": 0.0,
+        "learning_rate": 1e-4,
+        "parameter_paths": list(alternating_checkpoint.stage0_parameter_paths()),
+    }
+    config["eggroll_optimizer"] = {
+        "type": "SGD",
+        "momentum": 0.0,
+        "learning_rate": 0.1,
+        "parameter_paths": list(EGGROLL_MODEL_PARAMETER_PATHS),
+    }
+    config["eggroll_population"] = {
+        **RUN_CONFIG["eggroll_population"],
+        "fitness_batch_size": 8,
+    }
+    config["stability_report_identity"] = "c" * 64
+    return config
+
+
+# covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Save stabilized Eggroll identity
+def test_alternating_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) -> None:
+    parameters = {
+        name: nn.Parameter(torch.tensor([float(index)]))
+        for index, name in enumerate(alternating_checkpoint.stage0_parameter_paths())
+    }
+    gradient = torch.optim.Adam(parameters.values(), lr=1e-4)
+    eggroll = torch.optim.SGD(
+        [parameters[name] for name in EGGROLL_MODEL_PARAMETER_PATHS],
+        lr=0.1,
+        momentum=0.0,
+    )
+    fixture = _metadata()
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+
+    checkpoint = build_alternating_checkpoint(
+        identity=fixture["identity"],
+        selections=fixture["selections"],
+        model_state=parameters,
+        eggroll_optimizer=eggroll,
+        gradient_optimizer=gradient,
+        schedule=CheckpointSchedule(
+            "gradient",
+            0,
+            24,
+            1,
+            23,
+            gradient_optimizer_calls=8,
+            eggroll_optimizer_calls=2,
+        ),
+        phase_steps=2,
+        next_dataset_position=24,
+        metrics={"loss": 1.25},
+        run_config=_stabilized_run_config(),
+    )
+
+    eggroll_manifest = checkpoint.metadata["optimizer_manifests"][1]
+    assert eggroll_manifest["optimizer_type"] == "SGD"
+    assert list(eggroll_manifest["parameter_names"]) == list(
+        EGGROLL_MODEL_PARAMETER_PATHS
+    )
+    assert eggroll_manifest["parameter_groups"][0]["scalars"]["momentum"] == 0.0
+    assert checkpoint.metadata["schedule"]["consumed_examples"] == 24
+    assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 2
+    assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 2
+    assert checkpoint.metadata["run_config"]["eggroll_population"][
+        "fitness_batch_size"
+    ] == 8
+    assert checkpoint.metadata["run_config"]["stability_report_identity"] == "c" * 64
+
+
+# covers: train/stage0-training :: Stabilized EGGROLL identity is resumable and incompatible changes are rejected :: Save stabilized Eggroll identity
+def test_standalone_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) -> None:
+    parameters = {
+        name: nn.Parameter(torch.tensor([float(index)]))
+        for index, name in enumerate(alternating_checkpoint.stage0_parameter_paths())
+    }
+    eggroll = torch.optim.SGD(
+        [parameters[name] for name in EGGROLL_MODEL_PARAMETER_PATHS],
+        lr=0.1,
+        momentum=0.0,
+    )
+    fixture = _metadata()
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    run_config = _stabilized_run_config()
+    standalone_config = {
+        key: value
+        for key, value in run_config.items()
+        if key
+        not in {
+            "phase_steps",
+            "gradient_optimizer",
+        }
+    }
+
+    checkpoint = build_standalone_checkpoint(
+        mode="eggroll",
+        identity=fixture["identity"],
+        selections=fixture["selections"],
+        model_state=parameters,
+        optimizer=eggroll,
+        metrics={"avg_loss": 1.25},
+        schedule={
+            "epoch": 1,
+            "consumed_examples": 24,
+            "eggroll_optimizer_calls": 3,
+            "next_dataset_position": 0,
+        },
+        run_config=standalone_config,
+    )
+
+    manifest = checkpoint.metadata["optimizer_manifests"][0]
+    assert manifest["optimizer_type"] == "SGD"
+    assert list(manifest["parameter_names"]) == list(EGGROLL_MODEL_PARAMETER_PATHS)
+    assert manifest["parameter_groups"][0]["scalars"]["momentum"] == 0.0
+    assert checkpoint.metadata["schedule"]["consumed_examples"] == 24
+    assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 3
+    assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 3
+    assert checkpoint.metadata["run_config"]["eggroll_population"][
+        "fitness_batch_size"
+    ] == 8
+    assert checkpoint.metadata["run_config"]["stability_report_identity"] == "c" * 64
 
 
 def test_phase_boundary_resume_starts_next_example_in_saved_phase(tmp_path) -> None:
