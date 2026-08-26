@@ -2188,6 +2188,107 @@ class TestArmIntegration:
             )
 
 
+class TestTableDrivenClassification:
+    """Table-driven tests for all classification and eligibility branches."""
+
+    @pytest.mark.parametrize(
+        "overfit_status,method_statuses,expected_overall",
+        [
+            ("objective_untrainable", {}, "objective_untrainable"),
+            ("passed", {"gradient": "viable"}, "bounded_trainability"),
+            ("passed", {"gradient": "viable", "eggroll": "viable"}, "bounded_trainability"),
+            ("passed", {"gradient": "no_improvement", "eggroll": "unsafe_update"}, "method_specific_failure"),
+            ("passed", {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"}, "shared_conflict"),
+            ("passed", {}, "inconclusive"),
+        ],
+    )
+    def test_overall_classification_table(
+        self, overfit_status, method_statuses, expected_overall
+    ) -> None:
+        """Test overall classification precedence with all status combinations."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, _ = classify_overall_trainability(overfit_status, method_statuses)
+        assert overall == expected_overall
+
+    @pytest.mark.parametrize(
+        "overfit,method_status,causal,expected_eligible",
+        [
+            ("passed", "viable", "passed", True),
+            ("passed", "viable", "direction_mismatch", True),
+            ("objective_untrainable", "viable", "passed", False),
+            ("passed", "no_improvement", "passed", False),
+            ("passed", "viable", "unsafe_update", False),
+            ("objective_untrainable", "no_improvement", "unsafe_update", False),
+        ],
+    )
+    def test_eligibility_table(
+        self, overfit, method_status, causal, expected_eligible
+    ) -> None:
+        """Test recalibration eligibility with all prerequisite combinations."""
+        from train.stage0_trainability import compute_recalibration_eligibility
+
+        eligible, _ = compute_recalibration_eligibility(
+            "gradient", overfit, method_status, causal_status=causal
+        )
+        assert eligible is expected_eligible
+
+    def test_method_status_all_viable_conditions(self) -> None:
+        """Test that viable status requires all conditions: loss, exact, first-token, separation, RMS."""
+        from train.stage0_trainability import (
+            ArmCheckpoint,
+            classify_method_status,
+        )
+        from train.eggroll_stability import StabilityMetrics
+
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.6,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        final_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.8,
+            exact_accuracy=0.7,
+            first_token_accuracy=0.8,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.8,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+
+        baseline_cp = ArmCheckpoint(
+            consumed_examples=0,
+            optimizer_call_count=0,
+            metrics=baseline_metrics,
+        )
+        final_cp = ArmCheckpoint(
+            consumed_examples=32,
+            optimizer_call_count=32,
+            metrics=final_metrics,
+        )
+
+        status, _, _ = classify_method_status(baseline_cp, final_cp, "gradient", "passed")
+
+        assert status == "viable"
+
+
 class TestTrainabilityDistinctness:
     """Test that trainability evidence is distinct from stability credentials."""
 
