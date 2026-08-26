@@ -7,24 +7,17 @@ import torch
 from torch import nn
 
 
-class StubAutoTokenizer:
-    @staticmethod
-    def from_pretrained(name: str) -> None:
-        return None
-
-
-transformers = ModuleType("transformers")
-transformers.AutoTokenizer = StubAutoTokenizer
-transformers.AutoModelForCausalLM = object
-sys.modules.setdefault("transformers", transformers)
-
 sentence_transformers = ModuleType("sentence_transformers")
 sentence_transformers.SentenceTransformer = object
 sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
 from train.eggroll_trainer import EggrollTrainer
 from train.trainer import LatentCoreTrainer
-from train.training_state import TrainingState
+from train.training_state import (
+    EGGROLL_PARAMETER_PATHS,
+    GRADIENT_PARAMETER_PATHS,
+    TrainingState,
+)
 
 
 class FakeWorkspace:
@@ -76,41 +69,50 @@ def _optimizer_step(optimizer, params, gradient: float) -> None:
     optimizer.step()
 
 
-def test_shared_state_registry_is_used_by_both_trainers(monkeypatch) -> None:
+# covers: train/stage0-training :: Training methods own separate optimizer parameter scopes :: Construct method-specific optimizers
+def test_shared_state_uses_explicit_method_parameter_registries(monkeypatch) -> None:
     _patch_training_dependencies(monkeypatch)
 
     state = TrainingState(slot_count=3, num_steps=1)
     gradient_trainer = LatentCoreTrainer(state=state)
     eggroll_trainer = EggrollTrainer(pop_size=2, state=state)
 
-    expected_names = (
-        "encoder.projection.weight",
-        "encoder.projection.bias",
-        "encoder.slot_queries",
-        "encoder.attn_log_temp",
-        "latent_loop.projection.weight",
-        "latent_loop.projection.bias",
-        "latent_loop.proj_norm.weight",
-        "latent_loop.proj_norm.bias",
-        "latent_loop.layer_norm.weight",
-        "latent_loop.layer_norm.bias",
-    )
-    assert tuple(state.trainable_params) == expected_names
+    assert tuple(state.trainable_params) == GRADIENT_PARAMETER_PATHS
     assert len(state.trainable_params) == 10
+    assert tuple(EGGROLL_PARAMETER_PATHS) == (
+        "encoder.projection.weight",
+        "encoder.slot_queries",
+        "latent_loop.projection.weight",
+    )
     assert gradient_trainer.state is state
     assert eggroll_trainer.state is state
     assert gradient_trainer.encoder is eggroll_trainer.encoder
     assert gradient_trainer.latent_loop is eggroll_trainer.latent_loop
     assert gradient_trainer.optimizer is not eggroll_trainer.optimizer
-    assert all(
-        gradient_param is eggroll_param is state_param
-        for gradient_param, eggroll_param, state_param in zip(
-            gradient_trainer.trainable_params,
-            eggroll_trainer.trainable_params,
-            state.parameters(),
-            strict=True,
-        )
+    assert gradient_trainer.trainable_params == list(state.parameters())
+    assert eggroll_trainer.trainable_params == list(state.eggroll_parameters())
+    gradient_optimizer_ids = {
+        id(parameter) for parameter in gradient_trainer.optimizer.param_groups[0]["params"]
+    }
+    eggroll_optimizer_ids = {
+        id(parameter) for parameter in eggroll_trainer.optimizer.param_groups[0]["params"]
+    }
+    gradient_optimizer_paths = tuple(
+        name
+        for name, parameter in state.trainable_params.items()
+        if id(parameter) in gradient_optimizer_ids
     )
+    eggroll_optimizer_paths = tuple(
+        name
+        for name, parameter in state.trainable_params.items()
+        if id(parameter) in eggroll_optimizer_ids
+    )
+    assert gradient_optimizer_paths == GRADIENT_PARAMETER_PATHS
+    assert eggroll_optimizer_paths == EGGROLL_PARAMETER_PATHS
+    assert type(gradient_trainer.optimizer) is torch.optim.Adam
+    assert type(eggroll_trainer.optimizer) is torch.optim.SGD
+    assert eggroll_trainer.optimizer.defaults["momentum"] == 0.0
+    assert set(eggroll_trainer.optimizer.state) == set()
 
 
 def test_trainers_create_independent_state_when_none_is_supplied(monkeypatch) -> None:
@@ -121,50 +123,71 @@ def test_trainers_create_independent_state_when_none_is_supplied(monkeypatch) ->
 
     assert gradient_trainer.state is not eggroll_trainer.state
     assert len(gradient_trainer.trainable_params) == 10
-    assert len(eggroll_trainer.trainable_params) == 10
+    assert len(eggroll_trainer.trainable_params) == 3
 
 
-def test_optimizer_state_survives_both_shared_model_phase_transitions(monkeypatch) -> None:
+# covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Vector perturbation remains compatible
+def test_eggroll_keeps_biases_vectors_and_temperature_at_base_values(monkeypatch) -> None:
+    _patch_training_dependencies(monkeypatch)
+
+    state = TrainingState(slot_count=3, num_steps=1)
+    trainer = EggrollTrainer(pop_size=2, lr=0.1, state=state)
+    excluded_paths = tuple(
+        path for path in GRADIENT_PARAMETER_PATHS if path not in EGGROLL_PARAMETER_PATHS
+    )
+    base_values = {
+        path: state.trainable_params[path].detach().clone() for path in excluded_paths
+    }
+
+    _optimizer_step(trainer.optimizer, trainer.trainable_params, gradient=1.0)
+    _optimizer_step(trainer.optimizer, trainer.trainable_params, gradient=2.0)
+
+    assert excluded_paths == (
+        "encoder.projection.bias",
+        "encoder.attn_log_temp",
+        "latent_loop.projection.bias",
+        "latent_loop.proj_norm.weight",
+        "latent_loop.proj_norm.bias",
+        "latent_loop.layer_norm.weight",
+        "latent_loop.layer_norm.bias",
+    )
+    assert all(
+        torch.equal(state.trainable_params[path], base_values[path])
+        for path in excluded_paths
+    )
+    assert set(trainer.optimizer.state) == set()
+
+
+# covers: train/stage0-training :: Training methods own separate optimizer parameter scopes :: Eggroll leaves non-matrix trainables unchanged
+def test_eggroll_updates_leave_non_matrix_trainables_bitwise_unchanged(monkeypatch) -> None:
     _patch_training_dependencies(monkeypatch)
 
     state = TrainingState(slot_count=3, num_steps=1)
     gradient_trainer = LatentCoreTrainer(lr=0.1, state=state)
     eggroll_trainer = EggrollTrainer(pop_size=2, lr=0.1, state=state)
-    params = list(state.parameters())
-    param_ids = tuple(id(parameter) for parameter in params)
-
-    _optimizer_step(gradient_trainer.optimizer, params, gradient=1.0)
+    gradient_params = list(state.parameters())
+    eggroll_params = list(state.eggroll_parameters())
+    excluded = [
+        parameter
+        for name, parameter in state.trainable_params.items()
+        if name not in EGGROLL_PARAMETER_PATHS
+    ]
+    _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=1.0)
     gradient_state_before_eggroll = {
         parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone()
-        for parameter in params
+        for parameter in gradient_params
     }
+    before = [parameter.detach().clone() for parameter in excluded]
 
-    _optimizer_step(eggroll_trainer.optimizer, params, gradient=2.0)
-    eggroll_output = tuple(parameter.detach().clone() for parameter in params)
+    _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=2.0)
+    _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=3.0)
 
-    assert tuple(id(parameter) for parameter in state.parameters()) == param_ids
     assert all(
         torch.equal(gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state)
         for parameter, saved_state in gradient_state_before_eggroll.items()
     )
     assert all(
-        torch.equal(parameter, produced_value)
-        for parameter, produced_value in zip(params, eggroll_output, strict=True)
+        torch.equal(parameter, original)
+        for parameter, original in zip(excluded, before, strict=True)
     )
-
-    eggroll_state_before_gradient = {
-        parameter: eggroll_trainer.optimizer.state[parameter]["exp_avg"].clone()
-        for parameter in params
-    }
-    _optimizer_step(gradient_trainer.optimizer, params, gradient=3.0)
-    gradient_output = tuple(parameter.detach().clone() for parameter in params)
-
-    assert tuple(id(parameter) for parameter in state.parameters()) == param_ids
-    assert all(
-        torch.equal(eggroll_trainer.optimizer.state[parameter]["exp_avg"], saved_state)
-        for parameter, saved_state in eggroll_state_before_gradient.items()
-    )
-    assert all(
-        torch.equal(parameter, produced_value)
-        for parameter, produced_value in zip(params, gradient_output, strict=True)
-    )
+    assert set(eggroll_trainer.optimizer.state) == set()

@@ -15,12 +15,15 @@
 
 ## 2. Separate Gradient and EGGROLL Optimizers
 
-- [ ] 2.1 Add an explicit ordered EGGROLL registry for the three declared matrix paths. Add tests proving gradient owns all ten paths and EGGROLL excludes vectors and scalars.
+- [x] 2.1 Add an explicit ordered EGGROLL registry for the three declared matrix paths. Add tests proving gradient owns all ten paths and EGGROLL excludes vectors and scalars.
+<!-- status: completed -->
   <!-- covers: train/stage0-training :: Training methods own separate optimizer parameter scopes :: Construct method-specific optimizers -->
   <!-- covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Vector perturbation remains compatible -->
-- [ ] 2.2 Construct momentum-free SGD for EGGROLL and retain Adam for gradient training. Verify repeated EGGROLL updates leave every non-matrix tensor bitwise unchanged.
+- [x] 2.2 Construct momentum-free SGD for EGGROLL and retain Adam for gradient training. Verify repeated EGGROLL updates leave every non-matrix tensor bitwise unchanged.
+<!-- status: completed -->
   <!-- covers: train/stage0-training :: Training methods own separate optimizer parameter scopes :: Eggroll leaves non-matrix trainables unchanged -->
-- [ ] 2.3 Change Stage 0 EGGROLL defaults to population 128, candidate batch 8, rank 4, sigma 0.001, fitness batch 8, and SGD learning rate 0.1. Reject every invalid value before model or data loading.
+- [x] 2.3 Change Stage 0 EGGROLL defaults to population 128, candidate batch 8, rank 4, sigma 0.001, fitness batch 8, and SGD learning rate 0.1. Reject every invalid value before model or data loading.
+<!-- status: completed -->
   <!-- covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Default stabilized configuration -->
   <!-- covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Invalid stabilized configuration -->
 - [ ] 2.4 Update optimized and materialized complete-step fixtures to compare matrix-only SGD state and untouched non-matrix tensors.

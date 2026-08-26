@@ -1,9 +1,9 @@
-"""Alternating training on filtered Calc-MAWPS with frozen Qwen and MiniLM."""
+"""Alternating training on filtered Calc-ASDiv_A with frozen Qwen and MiniLM."""
 
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 import importlib.metadata
 import json
 import os
@@ -12,20 +12,24 @@ import platform
 import random
 import sys
 import time
-from typing import Any, TextIO
+from typing import Any, Protocol, TextIO
 
 import torch
 
 from eval.stage0_identity import (
-    CALC_MAWPS_DATASET,
-    CALC_MAWPS_REVISION,
+    ASDIV_DATASET,
+    ASDIV_REVISION,
     training_identity,
 )
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsSelection,
-    calc_mawps_selection_identity,
+from eval.stream.generators.asdiv_a import (
+    AsdivSelection,
+    asdiv_a_selection_identity,
 )
-from train.alternating_config import validate_scheduler_config
+from train.alternating_config import (
+    DEFAULT_VARIANCE_LOWER_THRESHOLD,
+    DEFAULT_VARIANCE_UPPER_THRESHOLD,
+    validate_scheduler_config,
+)
 from train.alternating_checkpoint import (
     AlternatingCheckpoint,
     CheckpointSchedule,
@@ -44,9 +48,13 @@ from train.alternating_evaluation import (
 )
 from train.alternating_scheduler import (
     EvaluationRecord,
-    FixedBudgetScheduler,
+    VarianceHysteresisScheduler,
     PhaseEvaluator,
     TrainingEngine,
+)
+from train.answer_objective import (
+    DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
+    validate_prompt_alignment_weight,
 )
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
@@ -57,6 +65,7 @@ from train.eggroll_trainer import (
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
     EggrollTrainer,
+    validate_eggroll_config,
 )
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
 from train.training_state import TrainingState
@@ -67,7 +76,7 @@ from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
 DEFAULT_EPOCHS = 5
-DEFAULT_PHASE_STEPS = 500
+DEFAULT_PHASE_STEPS = 50
 
 
 def _dependency_version(distribution: str) -> str:
@@ -98,19 +107,19 @@ def _runtime_identity() -> dict[str, object]:
 
 
 def _selection_metadata(
-    selection: CalcMawpsSelection, count: int | None
+    selection: AsdivSelection, count: int | None
 ) -> dict[str, object]:
     normalized_count = selection.problem_count if count is None else count
     records = selection.records[:normalized_count]
     identity = (
         selection.identity
         if normalized_count == selection.problem_count
-        else calc_mawps_selection_identity(
+        else asdiv_a_selection_identity(
             records=records,
             split=selection.split,
             seed=selection.seed,
             problem_count=normalized_count,
-            revision=CALC_MAWPS_REVISION,
+            revision=ASDIV_REVISION,
         )
     )
     return {
@@ -165,6 +174,10 @@ def _validate_resume_metadata(
             completed_epochs=int(metadata["schedule"]["epoch"]),
         )
     )
+    completed_phase_steps = int(metadata["schedule"]["completed_phase_steps"])
+    metrics = metadata["metrics"]
+    if completed_phase_steps > 0 and "phase_variance_sum" not in metrics:
+        conflicts.append("$.metrics.phase_variance_sum")
     if conflicts:
         raise ValueError(
             "incompatible resume configuration: "
@@ -202,11 +215,20 @@ class _Evaluator:
     def __init__(self, model: object, problems: Sequence[HeldOutProblem]) -> None:
         self._model = model
         self._problems = problems
-        self.latest: EvaluationResult | None = None
 
     def evaluate(self, position: ExperimentPosition) -> EvaluationResult:
-        self.latest = evaluate_unperturbed(self._model, self._problems, position)  # type: ignore[arg-type]
-        return self.latest
+        return evaluate_unperturbed(self._model, self._problems, position)  # type: ignore[arg-type]
+
+
+class _BoundarySaver(Protocol):
+    def __call__(
+        self,
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> Sequence[str | Path]: ...
 
 
 def _position_record(position: ExperimentPosition) -> dict[str, int | str]:
@@ -264,24 +286,32 @@ def _run_schedule(
     examples: Sequence[object],
     epochs: int,
     phase_steps: int,
+    variance_lower_threshold: float = DEFAULT_VARIANCE_LOWER_THRESHOLD,
+    variance_upper_threshold: float = DEFAULT_VARIANCE_UPPER_THRESHOLD,
     log_every: int = 50,
     eggroll_engine: TrainingEngine[StepResult],
     gradient_engine: TrainingEngine[StepResult],
     evaluator: PhaseEvaluator[EvaluationResult],
-    save_boundary: Callable[..., Sequence[str | Path]],
+    save_boundary: _BoundarySaver,
     output: TextIO = sys.stdout,
     log_output: TextIO | None = None,
     resume: CheckpointSchedule | None = None,
 ) -> CheckpointSchedule | None:
     """Run injected alternating components without loading production dependencies."""
     validate_scheduler_config(
-        phase_steps=phase_steps, epochs=epochs, log_every=log_every
+        phase_steps=phase_steps,
+        epochs=epochs,
+        log_every=log_every,
+        variance_lower_threshold=variance_lower_threshold,
+        variance_upper_threshold=variance_upper_threshold,
     )
     if not examples:
         return resume
 
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=phase_steps,
+        variance_lower_threshold=variance_lower_threshold,
+        variance_upper_threshold=variance_upper_threshold,
         eggroll_engine=eggroll_engine,
         gradient_engine=gradient_engine,
         evaluator=evaluator,
@@ -290,7 +320,12 @@ def _run_schedule(
         next_epoch = 1
         next_example_position = 0
     else:
-        scheduler._completed_steps = resume.global_step
+        scheduler.restore(
+            active_phase=resume.active_phase,
+            completed_steps=resume.global_step,
+            completed_phase_steps=resume.completed_phase_steps,
+            phase_variance_sum=resume.phase_variance_sum,
+        )
         next_epoch = resume.epoch
         next_example_position = resume.dataset_position + 1
         if resume.dataset_position < 0:
@@ -341,7 +376,8 @@ def _run_schedule(
                 if epoch == epochs:
                     scheduler.evaluate_final_partial_phase(result.position)
 
-            for record in scheduler.evaluation_results[evaluation_count:]:
+            boundary_evaluations = scheduler.evaluation_results[evaluation_count:]
+            for record in boundary_evaluations:
                 if "epoch" in record.boundaries:
                     _write_progress_record(_evaluation_record(record), output)
                     if log_output is not None:
@@ -355,11 +391,17 @@ def _run_schedule(
                         )
 
             if phase_boundary or epoch_boundary:
-                latest_schedule = _checkpoint_schedule(result.position, phase_steps)
+                latest_schedule = _checkpoint_schedule(
+                    result.position,
+                    active_phase=scheduler.active_phase,
+                    completed_phase_steps=scheduler.completed_phase_steps,
+                    phase_variance_sum=scheduler.phase_variance_sum,
+                )
                 paths = save_boundary(
                     latest_schedule,
                     phase_boundary=phase_boundary,
                     epoch_boundary=epoch_boundary,
+                    evaluation_record=boundary_evaluations[-1],
                 )
                 if epoch_boundary:
                     _write_progress_record(_checkpoint_record(paths), output)
@@ -384,28 +426,42 @@ def _run_schedule(
 
 
 def _checkpoint_schedule(
-    position: ExperimentPosition, phase_steps: int
+    position: ExperimentPosition,
+    *,
+    active_phase: str,
+    completed_phase_steps: int,
+    phase_variance_sum: float,
 ) -> CheckpointSchedule:
-    next_phase_index = position.global_step // phase_steps
     return CheckpointSchedule(
-        active_phase="eggroll" if next_phase_index % 2 == 0 else "gradient",
-        completed_phase_steps=position.global_step % phase_steps,
+        active_phase=active_phase,
+        completed_phase_steps=completed_phase_steps,
         global_step=position.global_step,
         epoch=position.epoch,
         dataset_position=position.example_position,
+        phase_variance_sum=phase_variance_sum,
     )
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Train one shared latent core on filtered Calc-MAWPS with alternating "
+            "Train one shared latent core on filtered Calc-ASDiv_A with alternating "
             "Eggroll and gradient phases through the frozen "
             "Qwen/Qwen2.5-0.5B-Instruct backbone."
         )
     )
     parser.add_argument("--epochs", type=int, default=DEFAULT_EPOCHS)
     parser.add_argument("--phase-steps", type=int, default=DEFAULT_PHASE_STEPS)
+    parser.add_argument(
+        "--variance-lower-threshold",
+        type=float,
+        default=DEFAULT_VARIANCE_LOWER_THRESHOLD,
+    )
+    parser.add_argument(
+        "--variance-upper-threshold",
+        type=float,
+        default=DEFAULT_VARIANCE_UPPER_THRESHOLD,
+    )
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
     parser.add_argument("--gradient-lr", type=float, default=DEFAULT_GRADIENT_LR)
@@ -415,6 +471,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rank", type=int, default=DEFAULT_RANK)
     parser.add_argument(
         "--variance-weight", type=float, default=DEFAULT_VARIANCE_WEIGHT
+    )
+    parser.add_argument(
+        "--prompt-alignment-weight",
+        type=float,
+        default=DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
+        help="Weight for preserving Qwen's question-conditioned decoder state.",
     )
     parser.add_argument(
         "--eval-batch-size",
@@ -433,7 +495,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=int,
         default=DEFAULT_EVAL_PROBLEM_COUNT,
         help=(
-            "Number of filtered Calc-MAWPS validation records used at each "
+            "Number of filtered Calc-ASDiv_A validation records used at each "
             "held-out evaluation. Default uses 128 validation records."
         ),
     )
@@ -441,7 +503,7 @@ def _build_parser() -> argparse.ArgumentParser:
         "--problem-count",
         type=int,
         default=None,
-        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
+        help="Limit Calc-ASDiv_A training records. Default uses all 570 train records.",
     )
     parser.add_argument(
         "--device",
@@ -462,7 +524,19 @@ def _build_parser() -> argparse.ArgumentParser:
 def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = _build_parser().parse_args(argv)
     validate_scheduler_config(
-        phase_steps=args.phase_steps, epochs=args.epochs, log_every=args.log_every
+        phase_steps=args.phase_steps,
+        epochs=args.epochs,
+        log_every=args.log_every,
+        variance_lower_threshold=args.variance_lower_threshold,
+        variance_upper_threshold=args.variance_upper_threshold,
+    )
+    validate_prompt_alignment_weight(args.prompt_alignment_weight)
+    validate_eggroll_config(
+        args.pop_size,
+        args.sigma,
+        args.eggroll_lr,
+        args.rank,
+        args.eval_batch_size,
     )
     return args
 
@@ -470,8 +544,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 def _run_config(args: argparse.Namespace) -> dict[str, object]:
     return {
         "dataset_selection": {
-            "dataset": CALC_MAWPS_DATASET,
-            "revision": CALC_MAWPS_REVISION,
+            "dataset": ASDIV_DATASET,
+            "revision": ASDIV_REVISION,
             "split": "train",
             "seed": 0,
             "count": args.problem_count,
@@ -486,12 +560,15 @@ def _run_config(args: argparse.Namespace) -> dict[str, object]:
             "sigma": args.sigma,
             "rank": args.rank,
             "variance_weight": args.variance_weight,
+            "prompt_alignment_weight": args.prompt_alignment_weight,
+            "variance_lower_threshold": args.variance_lower_threshold,
+            "variance_upper_threshold": args.variance_upper_threshold,
             "eval_batch_size": args.eval_batch_size,
             "use_amp": args.use_amp,
         },
         "held_out_selection": {
-            "dataset": CALC_MAWPS_DATASET,
-            "revision": CALC_MAWPS_REVISION,
+            "dataset": ASDIV_DATASET,
+            "revision": ASDIV_REVISION,
             "split": "validation",
             "seed": 0,
             "count": args.eval_problem_count,
@@ -610,7 +687,7 @@ def _restore_checkpoint_state(
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Run a fixed-budget alternating experiment, optionally from a checkpoint."""
+    """Run a variance-controlled alternating experiment, optionally from a checkpoint."""
     configure_deterministic_runtime()
     args = _parse_args(argv)
     save_dir = Path(args.save_dir)
@@ -618,11 +695,15 @@ def main(argv: Sequence[str] | None = None) -> None:
 
     _log(f"device={args.device}")
     _log(
-        f"config: epochs={args.epochs} phase_steps={args.phase_steps} "
+        f"config: epochs={args.epochs} variance_window={args.phase_steps} "
+        f"variance_hysteresis={args.variance_lower_threshold}:"
+        f"{args.variance_upper_threshold} "
         f"slots={args.slot_count} steps={args.num_steps} "
         f"pop={args.pop_size} sigma={args.sigma} "
-        f"gradient_lr={args.gradient_lr} eggroll_lr={args.eggroll_lr} "
+        f"gradient_lr={args.gradient_lr} eggroll_optimizer=SGD "
+        f"eggroll_lr={args.eggroll_lr} "
         f"rank={args.rank} var_weight={args.variance_weight} "
+        f"alignment_weight={args.prompt_alignment_weight} "
         f"eval_batch={args.eval_batch_size} amp={args.use_amp}"
     )
 
@@ -671,7 +752,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     build_start = time.monotonic()
     state = TrainingState(args.slot_count, args.num_steps, args.device)
     gradient = LatentCoreTrainer(
-        lr=args.gradient_lr, device=args.device, state=state
+        lr=args.gradient_lr,
+        variance_weight=args.variance_weight,
+        prompt_alignment_weight=args.prompt_alignment_weight,
+        device=args.device,
+        state=state,
     )
     eggroll = EggrollTrainer(
         pop_size=args.pop_size,
@@ -679,6 +764,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         lr=args.eggroll_lr,
         rank=args.rank,
         variance_weight=args.variance_weight,
+        prompt_alignment_weight=args.prompt_alignment_weight,
         eval_batch_size=args.eval_batch_size,
         use_amp=args.use_amp,
         device=args.device,
@@ -696,7 +782,10 @@ def main(argv: Sequence[str] | None = None) -> None:
     )
     _log("=" * 60)
     _log(f"  alternating training: {args.epochs} epochs x {len(examples)} examples")
-    _log(f"  phase budget={args.phase_steps} steps (eggroll / gradient)")
+    _log(
+        f"  variance controller={args.phase_steps}-step averages "
+        f"({args.variance_lower_threshold:.6f}, {args.variance_upper_threshold:.6f})"
+    )
     _log("=" * 60)
     evaluator = _Evaluator(gradient, held_out)
 
@@ -706,7 +795,11 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     def save_boundary(
-        schedule: CheckpointSchedule, *, phase_boundary: bool, epoch_boundary: bool
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
     ) -> Sequence[Path]:
         checkpoint = build_alternating_checkpoint(
             identity=checkpoint_identity,
@@ -720,11 +813,10 @@ def main(argv: Sequence[str] | None = None) -> None:
             schedule=schedule,
             phase_steps=args.phase_steps,
             next_dataset_position=0 if epoch_boundary else schedule.dataset_position + 1,
-            metrics=(
-                _evaluation_record(evaluator.latest)
-                if evaluator.latest is not None
-                else {}
-            ),
+            metrics={
+                **_evaluation_record(evaluation_record),
+                "phase_variance_sum": schedule.phase_variance_sum,
+            },
             run_config=run_config,
         )
         return save_boundary_checkpoints(
@@ -738,6 +830,8 @@ def main(argv: Sequence[str] | None = None) -> None:
         examples=examples,
         epochs=args.epochs,
         phase_steps=args.phase_steps,
+        variance_lower_threshold=args.variance_lower_threshold,
+        variance_upper_threshold=args.variance_upper_threshold,
         log_every=args.log_every,
         eggroll_engine=_TrainerEngine(eggroll),
         gradient_engine=_TrainerEngine(gradient),

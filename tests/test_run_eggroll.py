@@ -41,6 +41,7 @@ def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
     fake_trainer_module.DEFAULT_VARIANCE_WEIGHT = 1.0
     fake_trainer_module.EggrollTrainer = FakeEggrollTrainer
     fake_trainer_module.StepResult = SimpleNamespace
+    fake_trainer_module.validate_eggroll_config = lambda *_: None
     monkeypatch.setitem(sys.modules, "train.eggroll_trainer", fake_trainer_module)
 
     original_import = builtins.__import__

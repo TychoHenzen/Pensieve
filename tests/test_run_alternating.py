@@ -19,6 +19,10 @@ from train.alternating_checkpoint import (
     build_alternating_checkpoint,
     stage0_parameter_paths,
 )
+from train.alternating_config import (
+    DEFAULT_VARIANCE_LOWER_THRESHOLD,
+    DEFAULT_VARIANCE_UPPER_THRESHOLD,
+)
 from train.alternating_scheduler import EvaluationRecord
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
@@ -29,6 +33,7 @@ from train.eggroll_trainer import (
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
 )
+from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
@@ -127,7 +132,9 @@ def test_alternating_command_defaults() -> None:
     args = run_alternating._parse_args([])
 
     assert args.epochs == 5
-    assert args.phase_steps == 500
+    assert args.phase_steps == 50
+    assert args.variance_lower_threshold == DEFAULT_VARIANCE_LOWER_THRESHOLD
+    assert args.variance_upper_threshold == DEFAULT_VARIANCE_UPPER_THRESHOLD
     assert args.slot_count == DEFAULT_SLOT_COUNT
     assert args.num_steps == DEFAULT_NUM_STEPS
     assert args.gradient_lr == DEFAULT_GRADIENT_LR
@@ -136,6 +143,7 @@ def test_alternating_command_defaults() -> None:
     assert args.sigma == DEFAULT_SIGMA
     assert args.rank == DEFAULT_RANK
     assert args.variance_weight == DEFAULT_VARIANCE_WEIGHT
+    assert args.prompt_alignment_weight == DEFAULT_PROMPT_ALIGNMENT_WEIGHT
     assert args.eval_batch_size == DEFAULT_EVAL_BATCH_SIZE
     assert args.use_amp is False
     assert args.eval_problem_count == DEFAULT_EVAL_PROBLEM_COUNT
@@ -145,11 +153,43 @@ def test_alternating_command_defaults() -> None:
     assert args.resume is None
 
 
+# covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Default stabilized configuration
+def test_eggroll_defaults_use_the_stabilized_sgd_configuration() -> None:
+    args = run_alternating._parse_args([])
+
+    assert (args.pop_size, args.eval_batch_size, args.rank) == (128, 8, 4)
+    assert args.sigma == 0.001
+    assert args.eggroll_lr == 0.1
+
+
+# covers: train/eggroll-execution :: EGGROLL uses safe Stage 0 defaults :: Invalid stabilized configuration
+def test_invalid_eggroll_values_fail_during_argument_parsing() -> None:
+    invalid_values = [
+        ("--pop-size", "1", "pop_size must be an even integer of at least 2"),
+        ("--pop-size", "3", "pop_size must be an even integer of at least 2"),
+        ("--rank", "0", "rank must be at least 1"),
+        ("--sigma", "0", "sigma must be finite and positive"),
+        ("--sigma", "nan", "sigma must be finite and positive"),
+        ("--eggroll-lr", "inf", "lr must be finite and positive"),
+        ("--eval-batch-size", "1", "eval_batch_size must be at least 2"),
+    ]
+    observed_messages: list[str] = []
+
+    for option, value, expected_message in invalid_values:
+        with pytest.raises(ValueError) as error:
+            run_alternating._parse_args([option, value])
+        observed_messages.append(str(error.value))
+
+    assert observed_messages == [item[2] for item in invalid_values]
+
+
 def test_alternating_command_accepts_overrides() -> None:
     args = run_alternating._parse_args(
         [
             "--epochs", "7",
             "--phase-steps", "25",
+            "--variance-lower-threshold", "0.03",
+            "--variance-upper-threshold", "0.08",
             "--slot-count", "6",
             "--num-steps", "4",
             "--gradient-lr", "0.03",
@@ -158,6 +198,7 @@ def test_alternating_command_accepts_overrides() -> None:
             "--sigma", "0.05",
             "--rank", "3",
             "--variance-weight", "0.7",
+            "--prompt-alignment-weight", "0.6",
             "--eval-batch-size", "4",
             "--amp",
             "--eval-problem-count", "16",
@@ -172,6 +213,8 @@ def test_alternating_command_accepts_overrides() -> None:
     assert vars(args) == {
         "epochs": 7,
         "phase_steps": 25,
+        "variance_lower_threshold": 0.03,
+        "variance_upper_threshold": 0.08,
         "slot_count": 6,
         "num_steps": 4,
         "gradient_lr": 0.03,
@@ -180,6 +223,7 @@ def test_alternating_command_accepts_overrides() -> None:
         "sigma": 0.05,
         "rank": 3,
         "variance_weight": 0.7,
+        "prompt_alignment_weight": 0.6,
         "eval_batch_size": 4,
         "use_amp": True,
         "eval_problem_count": 16,
@@ -193,7 +237,10 @@ def test_alternating_command_accepts_overrides() -> None:
 
 def test_run_config_records_every_typed_alternating_setting() -> None:
     args = run_alternating._parse_args(
-        ["--problem-count", "3", "--eval-problem-count", "2", "--phase-steps", "2"]
+        [
+            "--problem-count", "3", "--eval-problem-count", "2", "--phase-steps", "2",
+            "--sigma", "0.02", "--eggroll-lr", "0.001",
+        ]
     )
 
     assert run_alternating._run_config(args) == RUN_CONFIG
@@ -251,6 +298,35 @@ def test_incompatible_run_config_is_rejected_before_model_construction(
     assert constructions == []
 
 
+def test_partial_window_resume_requires_saved_variance_sum() -> None:
+    fixture = _metadata(epoch_boundary=True)
+    del fixture["metrics"]["phase_variance_sum"]
+
+    with pytest.raises(ValueError, match=r"\$\.metrics\.phase_variance_sum"):
+        run_alternating._validate_resume_metadata(
+            SimpleNamespace(metadata=fixture),
+            identity=fixture["identity"],
+            selections=fixture["selections"],
+            run_config=fixture["run_config"],
+        )
+
+
+def test_pre_alignment_checkpoint_cannot_resume_changed_objective() -> None:
+    fixture = _metadata()
+    del fixture["run_config"]["eggroll_population"]["prompt_alignment_weight"]
+
+    with pytest.raises(
+        ValueError,
+        match=r"\$\.run_config\.eggroll_population",
+    ):
+        run_alternating._validate_resume_metadata(
+            SimpleNamespace(metadata=fixture),
+            identity=fixture["identity"],
+            selections=fixture["selections"],
+            run_config=RUN_CONFIG,
+        )
+
+
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_invalid_log_every_is_rejected_before_production_loading(
     value: str, monkeypatch: pytest.MonkeyPatch
@@ -275,6 +351,20 @@ def test_non_integer_log_every_is_rejected_by_cli_before_production_loading(
     with pytest.raises(SystemExit):
         run_alternating.main(["--log-every", "not-an-integer"])
     assert "--log-every" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("weight", ["-0.1", "nan", "inf"])
+def test_invalid_prompt_alignment_weight_is_rejected_before_production_loading(
+    weight: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def reject_production_loading(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("production loading was attempted")
+
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", reject_production_loading)
+    monkeypatch.setattr(run_alternating, "TrainingState", reject_production_loading)
+
+    with pytest.raises(ValueError, match="prompt_alignment_weight"):
+        run_alternating.main(["--prompt-alignment-weight", weight])
 
 
 @pytest.mark.parametrize("epochs", ["0", "-1"])
@@ -374,6 +464,110 @@ def test_main_builds_shared_production_run_and_executes_schedule(
     assert calls["evaluator"] == "evaluator"
 
 
+def test_main_phase_checkpoint_serializes_latest_boundary_evaluation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    position = ExperimentPosition("eggroll", 1, 2, 1, 1, 2)
+    evaluation = EvaluationResult(position, 0.75, 0.5, 1.0)
+    evaluator = SimpleNamespace(latest=None)
+    evaluator.evaluate = lambda _position: setattr(evaluator, "latest", evaluation) or evaluation
+    state = SimpleNamespace(trainable_params={})
+    gradient = SimpleNamespace(optimizer=object())
+    eggroll = SimpleNamespace(optimizer=object())
+    stage0_dataset = SimpleNamespace(
+        train_selection=object(),
+        held_out_selection=object(),
+        held_out_records=lambda: ["validation-record"],
+    )
+    captured_checkpoint: dict[str, object] = {}
+
+    monkeypatch.setattr(run_alternating, "load_stage0_dataset", lambda: stage0_dataset)
+    monkeypatch.setattr(
+        run_alternating,
+        "training_examples",
+        lambda *_args, **_kwargs: [("q", "1"), ("q2", "2")],
+    )
+    monkeypatch.setattr(
+        run_alternating,
+        "load_held_out_problems",
+        lambda _records, _count: ["held-out"],
+    )
+    monkeypatch.setattr(
+        run_alternating,
+        "_selection_metadata",
+        lambda selection, _count: {
+            "identity": "a" * 64,
+            "split": (
+                "train" if selection is stage0_dataset.train_selection else "validation"
+            ),
+            "seed": 0,
+            "problem_count": 1,
+            "ordered_item_ids": ["item-0"],
+        },
+    )
+    monkeypatch.setattr(run_alternating, "TrainingState", lambda *_args: state)
+    monkeypatch.setattr(run_alternating, "LatentCoreTrainer", lambda **_kwargs: gradient)
+    monkeypatch.setattr(run_alternating, "EggrollTrainer", lambda **_kwargs: eggroll)
+    monkeypatch.setattr(run_alternating, "_Evaluator", lambda _model, _held: evaluator)
+
+    def capture_checkpoint(**kwargs: object) -> object:
+        captured_checkpoint.update(kwargs)
+        return object()
+
+    monkeypatch.setattr(run_alternating, "build_alternating_checkpoint", capture_checkpoint)
+    monkeypatch.setattr(
+        run_alternating,
+        "save_boundary_checkpoints",
+        lambda *_args, **_kwargs: (tmp_path / "phase-2.ckpt",),
+    )
+
+    def run_schedule(**kwargs: object) -> None:
+        result = kwargs["evaluator"].evaluate(position)  # type: ignore[attr-defined]
+        assert result is evaluation
+        kwargs["save_boundary"](  # type: ignore[operator]
+            CheckpointSchedule("gradient", 0, 2, 1, 1),
+            phase_boundary=True,
+            epoch_boundary=False,
+            evaluation_record=EvaluationRecord(
+                result=evaluation,
+                position=position,
+                boundaries=frozenset({"phase"}),
+            ),
+        )
+
+    monkeypatch.setattr(run_alternating, "_run_schedule", run_schedule)
+
+    run_alternating.main(
+        [
+            "--epochs",
+            "1",
+            "--phase-steps",
+            "2",
+            "--problem-count",
+            "2",
+            "--eval-problem-count",
+            "1",
+            "--save-dir",
+            str(tmp_path),
+        ]
+    )
+
+    assert captured_checkpoint["metrics"] == {
+        "record_type": "evaluation",
+        "update_method": "eggroll",
+        "cycle": 1,
+        "global_step": 2,
+        "epoch": 1,
+        "example_position": 1,
+        "phase_step": 2,
+        "boundaries": ["phase"],
+        "language_model_loss": 0.75,
+        "shared_variance": 0.5,
+        "answer_exact_match": 1.0,
+        "phase_variance_sum": 0.0,
+    }
+
+
 def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -469,18 +663,25 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             visits.append(
                 (str(example), position.epoch, position.example_position, self.method)
             )
-            return StepResult(position, 1.0, 1.0, 0.0, 0.5)
+            variance = 0.03 if self.method == "eggroll" else 0.005
+            return StepResult(position, 1.0, 1.0, 0.0, variance)
 
     class FakeEvaluator:
         def evaluate(self, position: ExperimentPosition) -> EvaluationResult:
             return EvaluationResult(position, 0.75, 0.5, 1.0)
 
     saved: list[CheckpointSchedule] = []
+    saved_evaluations: list[EvaluationRecord[EvaluationResult]] = []
 
     def save(
-        schedule: CheckpointSchedule, *, phase_boundary: bool, epoch_boundary: bool
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
     ) -> tuple[Path, ...]:
         saved.append(schedule)
+        saved_evaluations.append(evaluation_record)
         names = []
         if phase_boundary:
             names.append(tmp_path / f"phase-{schedule.global_step}.pt")
@@ -495,6 +696,8 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         examples=["a", "b", "c"],
         epochs=1,
         phase_steps=2,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
         log_every=3,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
@@ -508,6 +711,8 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         examples=["a", "b", "c"],
         epochs=2,
         phase_steps=2,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
         log_every=3,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
@@ -544,7 +749,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "example_position": 2,
             "phase_step": 1,
             "language_model_loss": 1.0,
-            "shared_variance": 0.5,
+            "shared_variance": 0.005,
         },
         {
             "record_type": "training",
@@ -555,7 +760,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "example_position": 2,
             "phase_step": 2,
             "language_model_loss": 1.0,
-            "shared_variance": 0.5,
+            "shared_variance": 0.03,
         },
     ]
     evaluation_records = [
@@ -580,9 +785,19 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
     ]
     assert saved == [
         CheckpointSchedule("gradient", 0, 2, 1, 1),
-        CheckpointSchedule("gradient", 1, 3, 1, 2),
+        CheckpointSchedule(
+            "gradient", 1, 3, 1, 2, phase_variance_sum=0.005
+        ),
         CheckpointSchedule("eggroll", 0, 4, 2, 0),
         CheckpointSchedule("gradient", 0, 6, 2, 2),
     ]
-    assert saved[1] == CheckpointSchedule("gradient", 1, 3, 1, 2)
+    assert [record.boundaries for record in saved_evaluations] == [
+        frozenset({"phase"}),
+        frozenset({"epoch", "partial_phase"}),
+        frozenset({"phase"}),
+        frozenset({"epoch", "phase"}),
+    ]
+    assert saved[1] == CheckpointSchedule(
+        "gradient", 1, 3, 1, 2, phase_variance_sum=0.005
+    )
     assert saved[-1] == CheckpointSchedule("gradient", 0, 6, 2, 2)

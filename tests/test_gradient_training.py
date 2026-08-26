@@ -8,17 +8,6 @@ import torch
 from torch import nn
 
 
-class StubAutoTokenizer:
-    @staticmethod
-    def from_pretrained(name: str) -> None:
-        return None
-
-
-transformers = ModuleType("transformers")
-transformers.AutoTokenizer = StubAutoTokenizer
-transformers.AutoModelForCausalLM = object
-sys.modules.setdefault("transformers", transformers)
-
 sentence_transformers = ModuleType("sentence_transformers")
 sentence_transformers.SentenceTransformer = object
 sys.modules.setdefault("sentence_transformers", sentence_transformers)
@@ -61,7 +50,9 @@ class FakeEncoder(nn.Module):
         super().__init__()
         self.slot_count = 2
         self.projection = nn.Linear(3, 3)
-        self.slot_queries = nn.Parameter(torch.tensor([[0.0, 0.0, 0.0], [2.0, 2.0, 2.0]]))
+        self.slot_queries = nn.Parameter(
+            torch.tensor([[0.0, 0.0, 0.0], [0.1, 0.1, 0.1]])
+        )
         self.attn_log_temp = nn.Parameter(torch.tensor(0.0))
 
     def encode(self, question: str) -> torch.Tensor:
@@ -89,12 +80,30 @@ class FakeLanguageModel(nn.Module):
         super().__init__()
         self.embedding = nn.Embedding(4, 3)
         self.output = nn.Linear(3, 4, bias=False)
+        self.model = FakeLanguageModelBody(self.embedding)
+        self.lm_head = self.output
 
     def get_input_embeddings(self) -> nn.Module:
         return self.embedding
 
     def forward(self, *, inputs_embeds: torch.Tensor, **_: object) -> SimpleNamespace:
         return SimpleNamespace(logits=self.output(inputs_embeds))
+
+
+class FakeLanguageModelBody(nn.Module):
+    def __init__(self, embedding: nn.Embedding) -> None:
+        super().__init__()
+        self.embedding = embedding
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        **_: object,
+    ) -> SimpleNamespace:
+        hidden = self.embedding(input_ids) if inputs_embeds is None else inputs_embeds
+        return SimpleNamespace(last_hidden_state=hidden)
 
 
 class SharedState:
@@ -116,7 +125,7 @@ class SharedState:
             ]
         )
 
-    def create_optimizer(self, lr: float) -> torch.optim.Adam:
+    def create_gradient_optimizer(self, lr: float) -> torch.optim.Adam:
         return torch.optim.Adam(self.parameters(), lr=lr)
 
 
@@ -124,7 +133,7 @@ def test_gradient_step_uses_shared_state_and_emits_common_objective_metrics(
     monkeypatch,
 ) -> None:
     state = SharedState()
-    trainer = LatentCoreTrainer(state=state)
+    trainer = LatentCoreTrainer(state=state, variance_weight=0.5)
     position = ExperimentPosition("gradient", 3, 12, 2, 4, 1)
 
     result = trainer.train_step("question", "2", position)
@@ -132,10 +141,11 @@ def test_gradient_step_uses_shared_state_and_emits_common_objective_metrics(
     assert trainer.state is state
     assert trainer.encoder is state.encoder
     assert trainer.latent_loop is state.latent_loop
+    assert trainer.variance_weight == 0.5
     assert isinstance(result, StepResult)
     assert result.position is position
     assert state.latent_loop.run_calls == 2
-    assert result.shared_variance == pytest.approx(16.0)
+    assert result.shared_variance == pytest.approx(0.04)
     assert result.regularizer_loss > 0.0
     assert result.total_objective == pytest.approx(
         result.language_model_loss + result.regularizer_loss

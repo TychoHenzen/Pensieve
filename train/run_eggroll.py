@@ -1,4 +1,4 @@
-"""EGGROLL training on filtered Calc-MAWPS with the frozen Qwen backbone.
+"""EGGROLL training on filtered Calc-ASDiv_A with the frozen Qwen backbone.
 
 Same dataset and architecture as run_training.py, but replaces gradient
 descent with evolution strategies. Low-rank perturbations with antithetic
@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from collections.abc import Sequence
 
 import torch
 
@@ -25,6 +26,7 @@ from train.eggroll_trainer import (
     DEFAULT_VARIANCE_WEIGHT,
     EggrollTrainer,
     StepResult,
+    validate_eggroll_config,
 )
 from train.stage0_data import load_stage0_dataset, training_examples
 from train.standalone_checkpoint import (
@@ -61,10 +63,10 @@ def _format_duration(seconds: float) -> str:
     return f"{h}h{m:02d}m"
 
 
-def _parse_args() -> argparse.Namespace:
+def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train the latent core on filtered Calc-MAWPS using EGGROLL and "
+            "Train the latent core on filtered Calc-ASDiv_A using EGGROLL and "
             "the frozen Qwen/Qwen2.5-0.5B-Instruct backbone."
         )
     )
@@ -100,7 +102,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
+        help="Limit Calc-ASDiv_A training records. Default uses all 570 train records.",
     )
     parser.add_argument("--log-every", type=int, default=10)
     parser.add_argument(
@@ -109,11 +111,15 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Checkpoint to resume from. 'latest' finds the highest epoch in --save-dir.",
     )
-    return parser.parse_args()
+    args = parser.parse_args(argv)
+    validate_eggroll_config(
+        args.pop_size, args.sigma, args.lr, args.rank, args.eval_batch_size
+    )
+    return args
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
-    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
     dataset = training_examples(
@@ -127,7 +133,7 @@ def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
 
 
 def _load_dataset_context(problem_count: int | None):
-    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
     dataset = training_examples(
@@ -199,7 +205,7 @@ def main() -> None:
     _log(
         f"config: epochs={args.epochs} slots={args.slot_count} "
         f"steps={args.num_steps} pop={args.pop_size} "
-        f"sigma={args.sigma} lr={args.lr} rank={args.rank} "
+        f"sigma={args.sigma} optimizer=SGD lr={args.lr} rank={args.rank} "
         f"var_weight={args.variance_weight} eval_batch={args.eval_batch_size} "
         f"amp={args.use_amp}"
     )

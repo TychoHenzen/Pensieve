@@ -10,6 +10,7 @@ Based on: https://eshyperscale.github.io/
 
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -21,29 +22,51 @@ from core.latent_loop import LatentLoop
 from core.qwen_tap import PreparedQwenPrefix
 from train.eggroll_factorized import factorized_linear
 from train.eggroll_perturbations import (
-    DenseVectorNoise,
     MatrixFactors,
     SignedPerturbationSet,
     sample_antithetic_pair,
 )
 from train.answer_objective import (
+    DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     SUBJECT_LATENT_RUNS_PER_ANSWER,
-    decoder_aligned_answer_loss,
     prepare_training_example,
+    prompt_aligned_answer_objective,
+    prompt_teacher_state,
+    validate_prompt_alignment_weight,
 )
 from train.training_results import ExperimentPosition, StepResult
 from train.training_state import TrainingState
 from train.eggroll_updates import apply_factorized_update
-from train.vicreg import post_loop_slot_variance
+from train.vicreg import post_loop_slot_variance, slot_variance_penalty
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
 DEFAULT_POP_SIZE = 128
-DEFAULT_SIGMA = 0.02
-DEFAULT_LR = 1e-3
+DEFAULT_SIGMA = 0.001
+DEFAULT_LR = 0.1
 DEFAULT_RANK = 4
 DEFAULT_NUM_STEPS = 2
 DEFAULT_VARIANCE_WEIGHT = 1.0
 DEFAULT_EVAL_BATCH_SIZE = 8
+
+
+def validate_eggroll_config(
+    pop_size: int,
+    sigma: float,
+    lr: float,
+    rank: int,
+    eval_batch_size: int,
+) -> None:
+    """Reject invalid EGGROLL values before production dependencies load."""
+    if pop_size < 2 or pop_size % 2 != 0:
+        raise ValueError("pop_size must be an even integer of at least 2")
+    if rank < 1:
+        raise ValueError("rank must be at least 1")
+    if not math.isfinite(sigma) or sigma <= 0:
+        raise ValueError("sigma must be finite and positive")
+    if not math.isfinite(lr) or lr <= 0:
+        raise ValueError("lr must be finite and positive")
+    if eval_batch_size < 2:
+        raise ValueError("eval_batch_size must be at least 2")
 
 
 @dataclass
@@ -67,15 +90,13 @@ class EggrollTrainer:
         lr: float = DEFAULT_LR,
         rank: int = DEFAULT_RANK,
         variance_weight: float = DEFAULT_VARIANCE_WEIGHT,
+        prompt_alignment_weight: float = DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
         eval_batch_size: int = DEFAULT_EVAL_BATCH_SIZE,
         use_amp: bool = False,
         device: str = "cpu",
         state: TrainingState | None = None,
     ) -> None:
-        if pop_size % 2 != 0:
-            raise ValueError("pop_size must be even for antithetic sampling")
-        if eval_batch_size < 1:
-            raise ValueError("eval_batch_size must be at least 1")
+        validate_eggroll_config(pop_size, sigma, lr, rank, eval_batch_size)
 
         self.state = state or TrainingState(
             slot_count=slot_count, num_steps=num_steps, device=device
@@ -86,6 +107,9 @@ class EggrollTrainer:
         self.sigma = sigma
         self.rank = rank
         self.variance_weight = variance_weight
+        self.prompt_alignment_weight = validate_prompt_alignment_weight(
+            prompt_alignment_weight
+        )
         self.eval_batch_size = eval_batch_size
         self.use_amp = use_amp and torch.device(device).type == "cuda"
 
@@ -95,8 +119,8 @@ class EggrollTrainer:
         self.latent_loop.model.eval()
         self.tokenizer = self.state.tokenizer
 
-        self.trainable_params = list(self.state.parameters())
-        self.optimizer = self.state.create_optimizer(lr)
+        self.trainable_params = list(self.state.eggroll_parameters())
+        self.optimizer = self.state.create_eggroll_optimizer(lr)
 
     def trainable_param_count(self) -> int:
         return sum(p.numel() for p in self.trainable_params)
@@ -119,6 +143,7 @@ class EggrollTrainer:
         context_embeds: torch.Tensor,
         answer_ids: torch.Tensor,
         perturbations: list[SignedPerturbationSet],
+        teacher_state: torch.Tensor,
         eos_token_id: int | None = None,
         context_prefix: PreparedQwenPrefix | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -126,9 +151,6 @@ class EggrollTrainer:
         batch_size = len(perturbations)
         signs = [candidate.sign for candidate in perturbations]
         matrix_directions = lambda index: self._matrix_directions(
-            perturbations, index
-        )
-        dense_directions = lambda index: self._dense_directions(
             perturbations, index
         )
         expected_token_width = self.encoder.projection.weight.shape[1]
@@ -151,48 +173,29 @@ class EggrollTrainer:
             matrix_directions(0),
             signs,
             bias=self.encoder.projection.bias,
-            bias_noises=dense_directions(1),
         )
         attention_projection = factorized_linear(
             projected,
             self.encoder.slot_queries,
-            matrix_directions(2),
+            matrix_directions(1),
             signs,
         )
-        attn_log_temp = self._signed_dense_parameter(
-            self.encoder.attn_log_temp,
-            dense_directions(3),
-            signs,
-        )
-        scale = attn_log_temp.exp().view(batch_size, 1, 1)
+        attn_log_temp = self.encoder.attn_log_temp
+        scale = attn_log_temp.exp().expand(batch_size).view(batch_size, 1, 1)
         attn_logits = attention_projection.transpose(1, 2) / scale
         attn_weights = torch.softmax(attn_logits, dim=-1)
         slots = torch.bmm(attn_weights, projected)
 
-        proj_norm_weight = self._signed_dense_parameter(
-            self.latent_loop.proj_norm.weight, dense_directions(6), signs
-        )
-        proj_norm_bias = self._signed_dense_parameter(
-            self.latent_loop.proj_norm.bias, dense_directions(7), signs
-        )
-        layer_norm_weight = self._signed_dense_parameter(
-            self.latent_loop.layer_norm.weight, dense_directions(8), signs
-        )
-        layer_norm_bias = self._signed_dense_parameter(
-            self.latent_loop.layer_norm.bias, dense_directions(9), signs
-        )
+        proj_norm_weight = self.latent_loop.proj_norm.weight.expand(batch_size, -1)
+        proj_norm_bias = self.latent_loop.proj_norm.bias.expand(batch_size, -1)
+        layer_norm_weight = self.latent_loop.layer_norm.weight.expand(batch_size, -1)
+        layer_norm_bias = self.latent_loop.layer_norm.bias.expand(batch_size, -1)
 
         loop_slots = slots
         tap_adapter = self.latent_loop.tap_adapter
         if context_prefix is None:
             context_prefix = tap_adapter.prepare_prefix(context_embeds)
         for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
-            loop_slots = self._batched_layer_norm(
-                loop_slots,
-                layer_norm_weight,
-                layer_norm_bias,
-                self.latent_loop.layer_norm.eps,
-            )
             for _ in range(self.latent_loop.num_steps):
                 slot_hidden = tap_adapter.cached_partial(
                     context_prefix,
@@ -206,10 +209,9 @@ class EggrollTrainer:
                 transformed = factorized_linear(
                     slot_hidden,
                     self.latent_loop.projection.weight,
-                    matrix_directions(4),
+                    matrix_directions(2),
                     signs,
                     bias=self.latent_loop.projection.bias,
-                    bias_noises=dense_directions(5),
                 )
                 transformed = self._batched_layer_norm(
                     transformed,
@@ -224,18 +226,27 @@ class EggrollTrainer:
                     self.latent_loop.layer_norm.eps,
                 )
 
-        lm_loss = decoder_aligned_answer_loss(
+        answer_objective = prompt_aligned_answer_objective(
             self.latent_loop.model,
             loop_slots,
             answer_ids,
             eos_token_id,
+            teacher_state=teacher_state,
+        )
+        lm_loss = answer_objective.language_model_loss
+        prompt_alignment_penalty = (
+            self.prompt_alignment_weight * answer_objective.prompt_alignment_loss
         )
 
         variance = torch.stack(
             [post_loop_slot_variance(candidate_slots) for candidate_slots in loop_slots]
         )
-        log_var = variance.clamp_min(1e-10).log()
-        fitness = -lm_loss + self.variance_weight * log_var
+        collapse_penalty = slot_variance_penalty(loop_slots)
+        fitness = (
+            -lm_loss
+            - prompt_alignment_penalty
+            - self.variance_weight * collapse_penalty
+        )
         return fitness, lm_loss, variance
 
     @staticmethod
@@ -248,30 +259,6 @@ class EggrollTrainer:
             raise TypeError("matrix parameter received non-matrix direction")
         return directions  # type: ignore[return-value]
 
-    @staticmethod
-    def _dense_directions(
-        candidates: list[SignedPerturbationSet],
-        parameter_index: int,
-    ) -> list[DenseVectorNoise]:
-        directions = [candidate.directions[parameter_index] for candidate in candidates]
-        if not all(isinstance(direction, DenseVectorNoise) for direction in directions):
-            raise TypeError("non-matrix parameter received matrix direction")
-        return directions  # type: ignore[return-value]
-
-    @staticmethod
-    def _signed_dense_parameter(
-        parameter: torch.Tensor,
-        directions: list[DenseVectorNoise],
-        signs: list[float],
-    ) -> torch.Tensor:
-        noises = torch.stack([direction.noise for direction in directions])
-        coefficients = torch.tensor(
-            [sign * direction.scale for sign, direction in zip(signs, directions, strict=True)],
-            device=parameter.device,
-            dtype=parameter.dtype,
-        )
-        coefficient_shape = (len(directions),) + (1,) * parameter.ndim
-        return parameter.unsqueeze(0) + noises * coefficients.reshape(coefficient_shape)
 
     def train_step(
         self,
@@ -287,6 +274,10 @@ class EggrollTrainer:
                 context_embeds
             )
             answer_ids = prepared.answer_ids.to(self.device)
+            teacher_state = prompt_teacher_state(
+                self.latent_loop.model,
+                prepared.context_input_ids.to(self.device),
+            )
 
         base_seed = int(torch.randint(0, 2**31, (1,)).item())
 
@@ -320,7 +311,8 @@ class EggrollTrainer:
                         context_embeds,
                         answer_ids,
                         perturbations,
-                        getattr(self.tokenizer, "eos_token_id", None),
+                        teacher_state,
+                        eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
                         context_prefix=context_prefix,
                     )
                 )

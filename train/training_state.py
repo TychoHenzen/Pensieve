@@ -12,6 +12,25 @@ from core.latent_loop import LatentLoop
 from eval.stage0_identity import load_frozen_qwen_backbone
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
+GRADIENT_PARAMETER_PATHS = (
+    "encoder.projection.weight",
+    "encoder.projection.bias",
+    "encoder.slot_queries",
+    "encoder.attn_log_temp",
+    "latent_loop.projection.weight",
+    "latent_loop.projection.bias",
+    "latent_loop.proj_norm.weight",
+    "latent_loop.proj_norm.bias",
+    "latent_loop.layer_norm.weight",
+    "latent_loop.layer_norm.bias",
+)
+
+EGGROLL_PARAMETER_PATHS = (
+    "encoder.projection.weight",
+    "encoder.slot_queries",
+    "latent_loop.projection.weight",
+)
+
 
 class TrainingState:
     """Own the model objects and their named trainable-parameter registry."""
@@ -51,6 +70,13 @@ class TrainingState:
             "latent_loop.layer_norm.weight": self.latent_loop.layer_norm.weight,
             "latent_loop.layer_norm.bias": self.latent_loop.layer_norm.bias,
         }
+        if tuple(self.trainable_params) != GRADIENT_PARAMETER_PATHS:
+            raise ValueError("invalid Stage 0 gradient parameter registry order")
+        if any(
+            self.trainable_params[path].ndim != 2
+            for path in EGGROLL_PARAMETER_PATHS
+        ):
+            raise ValueError("invalid Stage 0 EGGROLL matrix parameter registry")
         self._validate_trainable_registry()
 
     def _validate_trainable_registry(self) -> None:
@@ -84,9 +110,21 @@ class TrainingState:
             raise ValueError("invalid Stage 0 trainable registry: " + "; ".join(details))
 
     def parameters(self) -> Iterator[nn.Parameter]:
-        """Yield trainable parameters in the registry's stable order."""
+        """Yield the complete gradient-training registry in stable order."""
         return iter(self.trainable_params.values())
 
-    def create_optimizer(self, lr: float) -> torch.optim.Adam:
-        """Create an independent Adam optimizer over the shared registry."""
+    def eggroll_parameters(self) -> Iterator[nn.Parameter]:
+        """Yield the declared matrix-only EGGROLL registry in stable order."""
+        return (self.trainable_params[path] for path in EGGROLL_PARAMETER_PATHS)
+
+    def create_gradient_optimizer(self, lr: float) -> torch.optim.Adam:
+        """Create Adam over every Stage 0 gradient-training parameter."""
         return torch.optim.Adam(self.parameters(), lr=lr)
+
+    def create_eggroll_optimizer(self, lr: float) -> torch.optim.SGD:
+        """Create momentum-free SGD over the matrix-only EGGROLL registry."""
+        return torch.optim.SGD(self.eggroll_parameters(), lr=lr, momentum=0.0)
+
+    def create_optimizer(self, lr: float) -> torch.optim.Adam:
+        """Backward-compatible name for the complete gradient optimizer."""
+        return self.create_gradient_optimizer(lr)

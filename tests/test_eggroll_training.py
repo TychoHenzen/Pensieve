@@ -14,7 +14,7 @@ sys.modules.setdefault("sentence_transformers", sentence_transformers)
 from train.eggroll_trainer import EggrollTrainer
 from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
 from train.training_results import ExperimentPosition, StepResult
-from train.vicreg import post_loop_slot_variance
+from train.vicreg import post_loop_slot_variance, slot_variance_penalty
 
 
 def test_fitness_uses_canonical_post_loop_slot_variance(
@@ -22,6 +22,7 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
 ) -> None:
     trainer = EggrollTrainer.__new__(EggrollTrainer)
     trainer.variance_weight = 2.0
+    trainer.prompt_alignment_weight = 1.0
     trainer.encoder = SimpleNamespace(
         projection=nn.Linear(2, 2),
         slot_queries=nn.Parameter(torch.zeros(2, 2)),
@@ -41,15 +42,8 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
     )
     trainer.trainable_params = [
         trainer.encoder.projection.weight,
-        trainer.encoder.projection.bias,
         trainer.encoder.slot_queries,
-        trainer.encoder.attn_log_temp,
         trainer.latent_loop.projection.weight,
-        trainer.latent_loop.projection.bias,
-        trainer.latent_loop.proj_norm.weight,
-        trainer.latent_loop.proj_norm.bias,
-        trainer.latent_loop.layer_norm.weight,
-        trainer.latent_loop.layer_norm.bias,
     ]
     perturbations = list(
         sample_antithetic_pair(
@@ -83,14 +77,28 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         context_embeds=torch.zeros(1, 2),
         answer_ids=torch.tensor([[0]]),
         perturbations=perturbations,
+        teacher_state=torch.tensor([[1.0, 0.0]]),
         eos_token_id=1,
     )
 
     assert variance.tolist() == pytest.approx(
         [post_loop_slot_variance(slots).item() for slots in observed_slots]
     )
+    collapse_penalty = torch.stack(
+        [slot_variance_penalty(slots) for slots in observed_slots]
+    )
+    student_states = torch.stack(observed_slots)[:, -1, :]
+    alignment_penalty = torch.nn.functional.mse_loss(
+        student_states,
+        torch.tensor([[1.0, 0.0]]).expand_as(student_states),
+        reduction="none",
+    ).mean(dim=-1)
     assert fitness.tolist() == pytest.approx(
-        (-losses + trainer.variance_weight * variance.clamp_min(1e-10).log()).tolist()
+        (
+            -losses
+            - alignment_penalty
+            - trainer.variance_weight * collapse_penalty
+        ).tolist()
     )
     assert model.forward_calls == 1
     assert len(tap_adapter.prepare_calls) == 1
@@ -112,8 +120,85 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
             context_embeds=torch.zeros(1, 2),
             answer_ids=torch.tensor([[0]]),
             perturbations=perturbations,
+            teacher_state=torch.tensor([[1.0, 0.0]]),
             eos_token_id=1,
         )
+
+
+def test_zero_perturbation_uses_the_canonical_latent_loop_equation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    trainer = EggrollTrainer.__new__(EggrollTrainer)
+    trainer.variance_weight = 0.0
+    trainer.prompt_alignment_weight = 0.0
+    trainer.encoder = SimpleNamespace(
+        projection=nn.Linear(2, 2),
+        slot_queries=nn.Parameter(torch.eye(2)),
+        attn_log_temp=nn.Parameter(torch.tensor(0.0)),
+    )
+    with torch.no_grad():
+        trainer.encoder.projection.weight.copy_(torch.eye(2))
+        trainer.encoder.projection.bias.zero_()
+    model = FakeLanguageModel()
+    trainer.latent_loop = SimpleNamespace(
+        projection=nn.Linear(2, 2),
+        proj_norm=nn.LayerNorm(2),
+        layer_norm=nn.LayerNorm(2),
+        residual_weight=0.5,
+        num_steps=1,
+        tap_layer=0,
+        model=model,
+        tap_adapter=FakeTapAdapter(),
+    )
+    with torch.no_grad():
+        trainer.latent_loop.projection.weight.copy_(torch.eye(2))
+        trainer.latent_loop.projection.bias.zero_()
+        trainer.latent_loop.proj_norm.weight.copy_(torch.tensor([0.8, 1.2]))
+        trainer.latent_loop.proj_norm.bias.copy_(torch.tensor([0.1, -0.2]))
+        trainer.latent_loop.layer_norm.weight.copy_(torch.tensor([1.4, 0.6]))
+        trainer.latent_loop.layer_norm.bias.copy_(torch.tensor([-0.3, 0.2]))
+    trainer.trainable_params = [
+        trainer.encoder.projection.weight,
+        trainer.encoder.slot_queries,
+        trainer.latent_loop.projection.weight,
+    ]
+    perturbations = list(
+        sample_antithetic_pair(
+            trainer.trainable_params,
+            seed=17,
+            sigma=0.0,
+            rank=1,
+        )
+    )
+    observed_slots: list[torch.Tensor] = []
+
+    def capture_variance(slots: torch.Tensor) -> torch.Tensor:
+        observed_slots.append(slots.detach().clone())
+        return post_loop_slot_variance(slots)
+
+    monkeypatch.setattr("train.eggroll_trainer.post_loop_slot_variance", capture_variance)
+    token_embeddings = torch.tensor([[[1.0, 0.0], [0.0, 1.0]]])
+
+    trainer._forward_fitness_batch(
+        token_embeddings=token_embeddings,
+        context_embeds=torch.zeros(1, 2),
+        answer_ids=torch.tensor([[0]]),
+        perturbations=perturbations,
+        teacher_state=torch.tensor([[1.0, 0.0]]),
+        eos_token_id=1,
+    )
+
+    projected = trainer.encoder.projection(token_embeddings.squeeze(0))
+    attention = torch.softmax(trainer.encoder.slot_queries @ projected.T, dim=-1)
+    expected = attention @ projected
+    for _ in range(2):
+        transformed = trainer.latent_loop.proj_norm(
+            trainer.latent_loop.projection(expected)
+        )
+        expected = trainer.latent_loop.layer_norm(
+            transformed + trainer.latent_loop.residual_weight * expected
+        )
+    torch.testing.assert_close(observed_slots[0], expected)
 
 
 def test_constructor_accepts_supplied_shared_state(
@@ -122,10 +207,10 @@ def test_constructor_accepts_supplied_shared_state(
     state = SimpleNamespace(
         workspace=object(),
         encoder=SimpleNamespace(slot_count=2),
-        latent_loop=SimpleNamespace(model=nn.Identity()),
-        tokenizer=object(),
-        parameters=lambda: iter(()),
-        create_optimizer=lambda _: object(),
+            latent_loop=SimpleNamespace(model=nn.Identity()),
+            tokenizer=object(),
+            eggroll_parameters=lambda: iter(()),
+            create_eggroll_optimizer=lambda _: object(),
     )
 
     trainer = EggrollTrainer(pop_size=2, state=state)
@@ -146,6 +231,7 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     trainer.latent_loop = SimpleNamespace(
         embed_tokens=lambda _: torch.zeros(1, 2),
         tap_adapter=tap_adapter,
+        model=FakeLanguageModel(),
     )
     trainer.tokenizer = FakeTokenizer()
     trainer.device = "cpu"
@@ -203,14 +289,36 @@ class FakeLanguageModel(nn.Module):
         super().__init__()
         self.forward_calls = 0
         self.embedding = nn.Embedding(2, 2)
+        self.model = FakeLanguageModelBody(self)
+        self.lm_head = nn.Linear(2, 2, bias=False)
+        with torch.no_grad():
+            self.lm_head.weight.zero_()
 
     def get_input_embeddings(self) -> nn.Module:
         return self.embedding
 
     def forward(self, *, inputs_embeds: torch.Tensor, **kwargs: object) -> SimpleNamespace:
         self.forward_calls += 1
-        logits = torch.zeros(*inputs_embeds.shape[:-1], 2)
+        logits = self.lm_head(inputs_embeds)
         return SimpleNamespace(logits=logits, hidden_states=[inputs_embeds])
+
+
+class FakeLanguageModelBody(nn.Module):
+    def __init__(self, parent: FakeLanguageModel) -> None:
+        super().__init__()
+        object.__setattr__(self, "parent", parent)
+
+    def forward(
+        self,
+        *,
+        input_ids: torch.Tensor | None = None,
+        inputs_embeds: torch.Tensor | None = None,
+        **_: object,
+    ) -> SimpleNamespace:
+        parent = self.parent
+        parent.forward_calls += 1
+        hidden = parent.embedding(input_ids) if inputs_embeds is None else inputs_embeds
+        return SimpleNamespace(last_hidden_state=hidden)
 
 
 class FakeTapAdapter:
