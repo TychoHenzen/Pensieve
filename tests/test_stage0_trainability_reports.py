@@ -2188,6 +2188,82 @@ class TestArmIntegration:
             )
 
 
+class TestOverallClassification:
+    """Test overall trainability classification from method results."""
+
+    def test_overall_objective_untrainable(self) -> None:
+        """Test objective_untrainable overrides everything."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, conditions = classify_overall_trainability(
+            "objective_untrainable",
+            {"gradient": "viable", "eggroll": "viable"},
+        )
+
+        assert overall == "objective_untrainable"
+        assert "objective_untrainable" in conditions
+
+    def test_overall_bounded_trainability_gradient_viable(self) -> None:
+        """Test bounded_trainability when at least one method is viable."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {"gradient": "viable", "eggroll": "no_improvement"},
+        )
+
+        assert overall == "bounded_trainability"
+        assert len(conditions) == 0
+
+    def test_overall_bounded_trainability_both_viable(self) -> None:
+        """Test bounded_trainability when both methods viable."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {"gradient": "viable", "eggroll": "viable"},
+        )
+
+        assert overall == "bounded_trainability"
+        assert len(conditions) == 0
+
+    def test_overall_shared_conflict(self) -> None:
+        """Test shared_conflict when both methods show same failure."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"},
+        )
+
+        assert overall == "shared_conflict"
+        assert "shared_direction_mismatch" in conditions
+
+    def test_overall_method_specific_failure(self) -> None:
+        """Test method_specific_failure when methods conflict."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {"gradient": "direction_mismatch", "eggroll": "no_improvement"},
+        )
+
+        assert overall == "method_specific_failure"
+        assert "mixed_method_failures" in conditions
+
+    def test_overall_inconclusive_no_methods(self) -> None:
+        """Test inconclusive when no method status provided."""
+        from train.stage0_trainability import classify_overall_trainability
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {},
+        )
+
+        assert overall == "inconclusive"
+        assert "no_method_status" in conditions
+
+
 class TestMethodStatusClassification:
     """Test method status classification from arm evidence."""
 

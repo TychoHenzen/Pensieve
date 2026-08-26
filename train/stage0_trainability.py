@@ -1137,6 +1137,59 @@ def validate_causal_safety_checks(
     return "passed", []
 
 
+def classify_overall_trainability(
+    overfit_status: str,
+    method_statuses: dict[MethodName, str],
+) -> tuple[str, list[str]]:
+    """Classify overall trainability from overfit probe and method results.
+
+    Args:
+        overfit_status: Status from overfit probe (passed/objective_untrainable)
+        method_statuses: Dict of method (gradient/eggroll) to status
+
+    Returns:
+        Tuple of (overall_status, failed_conditions) where status is one of:
+        - "objective_untrainable": overfit probe failed
+        - "bounded_trainability": at least one method viable
+        - "shared_conflict": both methods show same failure pattern
+        - "method_specific_failure": one method viable, one not
+        - "inconclusive": insufficient evidence
+
+    Raises:
+        ValueError: If inputs are invalid
+    """
+    failed_conditions = []
+
+    if overfit_status == "objective_untrainable":
+        failed_conditions.append("objective_untrainable")
+        return "objective_untrainable", failed_conditions
+
+    if not method_statuses:
+        failed_conditions.append("no_method_status")
+        return "inconclusive", failed_conditions
+
+    viable_methods = [
+        method for method, status in method_statuses.items()
+        if status == "viable"
+    ]
+
+    if len(viable_methods) >= 1:
+        return "bounded_trainability", []
+
+    if len(viable_methods) == 0:
+        non_viable_statuses = set(method_statuses.values())
+        if len(non_viable_statuses) == 1:
+            shared_status = list(non_viable_statuses)[0]
+            if shared_status in ("no_improvement", "direction_mismatch", "unsafe_update"):
+                failed_conditions.append(f"shared_{shared_status}")
+                return "shared_conflict", failed_conditions
+
+        failed_conditions.append("mixed_method_failures")
+        return "method_specific_failure", failed_conditions
+
+    return "inconclusive", failed_conditions
+
+
 def classify_method_status(
     baseline_checkpoint: ArmCheckpoint,
     final_checkpoint: ArmCheckpoint,
