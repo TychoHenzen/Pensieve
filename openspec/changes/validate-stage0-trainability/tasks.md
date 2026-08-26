@@ -72,7 +72,7 @@
 
 ## 7. Verify Without Starting Training
 
-- [ ] 7.1 Run the focused trainability, report, stability, gradient, EGGROLL, objective, and evaluation test modules.
+- [x] 7.1 Run the focused trainability, report, stability, gradient, EGGROLL, objective, and evaluation test modules.
 - [ ] 7.2 Run the complete suite with `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
 - [ ] 7.3 Run optimized-reference equivalence and the existing CUDA performance and memory gates to confirm diagnostic reuse did not change training math.
 - [ ] 7.4 Run `openspec validate validate-stage0-trainability --strict --no-interactive` and require complete scenario coverage with zero regressions.
