@@ -68,7 +68,7 @@
 - [x] 6.4 Reject either pre-existing output path before file modification, model construction, or dataset access.
   <!-- covers: train/stage0-trainability-gate :: Reports preserve complete bounded evidence :: Existing output is protected -->
 - [x] 6.5 Add command tests for argument validation, orchestration order, progress sequence, ETA fields, early exits, final schema, and exit codes.
-- [ ] 6.6 Run the command on deterministic fixtures and inspect both JSON and JSONL as an independently runnable end-to-end practice test.
+- [x] 6.6 Run the command on deterministic fixtures and inspect both JSON and JSONL as an independently runnable end-to-end practice test.
 
 ## 7. Verify Without Starting Training
 
