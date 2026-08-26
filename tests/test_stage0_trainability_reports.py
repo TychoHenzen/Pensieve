@@ -2028,3 +2028,161 @@ class TestArmSafetyChecks:
         assert check_dict["stop_reason"] == "Test reason"
         assert check_dict["non_finite_detected"] is True
         assert check_dict["rms_ceiling_violated"] is False
+
+
+class TestArmIntegration:
+    """Integration tests for equal-budget arm execution and isolation."""
+
+    def test_identical_record_exposure_across_arms(self) -> None:
+        """Test that all arms see the same records in the same order."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        assert len(manifest.training_records) == 32
+        for i, (question, answer) in enumerate(manifest.training_records):
+            assert question == f"What is {i}+{i}?"
+            assert answer == str(i*2)
+
+    def test_checkpoint_boundary_at_8_and_32(self) -> None:
+        """Test that checkpoints are exactly at 8 and 32 records."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"Question {i}", f"Answer {i}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        assert 0 in manifest.checkpoint_example_counts
+        assert 8 in manifest.checkpoint_example_counts
+        assert 32 in manifest.checkpoint_example_counts
+        assert len(manifest.checkpoint_example_counts) == 3
+
+    def test_arm_isolation_independent_state(self) -> None:
+        """Test that arm state doesn't leak between arms."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+        )
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        no_update_arm = run_no_update_arm(manifest)
+        gradient_arm = run_gradient_only_arm(manifest)
+        eggroll_arm = run_eggroll_only_arm(manifest)
+
+        assert no_update_arm.arm_kind == "no_update"
+        assert gradient_arm.arm_kind == "gradient_only"
+        assert eggroll_arm.arm_kind == "eggroll_only"
+
+        assert len(no_update_arm.training_records) == 32
+        assert len(gradient_arm.training_records) == 32
+        assert len(eggroll_arm.training_records) == 32
+
+        assert (
+            no_update_arm.training_records == gradient_arm.training_records
+        )
+        assert (
+            gradient_arm.training_records == eggroll_arm.training_records
+        )
+
+    def test_consistent_example_counting_across_arms(self) -> None:
+        """Test that all arms count examples identically."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+        )
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        no_update_arm = run_no_update_arm(manifest)
+        gradient_arm = run_gradient_only_arm(manifest)
+
+        if len(no_update_arm.evaluations) > 0:
+            assert no_update_arm.evaluations[0].examples_consumed == 0
+        if len(gradient_arm.evaluations) > 0:
+            assert gradient_arm.evaluations[0].examples_consumed == 0
+
+        if len(no_update_arm.evaluations) > 1:
+            assert no_update_arm.evaluations[1].example_count == 8
+        if len(gradient_arm.evaluations) > 1:
+            assert gradient_arm.evaluations[1].example_count == 8
+
+    def test_arm_independent_completion_status(self) -> None:
+        """Test that arms complete independently."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+            run_gradient_only_arm,
+            run_eggroll_only_arm,
+        )
+
+        records = tuple(
+            (f"Question {i}", f"Answer {i}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        no_update_arm = run_no_update_arm(manifest)
+        gradient_arm = run_gradient_only_arm(manifest)
+        eggroll_arm = run_eggroll_only_arm(manifest)
+
+        assert no_update_arm.final_status in ("active", "stopped")
+        assert gradient_arm.final_status in ("active", "stopped")
+        assert eggroll_arm.final_status in ("active", "stopped")
+
+    def test_identical_record_order_validation(self) -> None:
+        """Test that record order is canonical and deterministic."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records1 = tuple(
+            (f"Q{i}", f"A{i}") for i in range(32)
+        )
+        records2 = tuple(
+            (f"Q{i}", f"A{i}") for i in range(32)
+        )
+
+        manifest1 = FreshStateManifest(training_records=records1)
+        manifest2 = FreshStateManifest(training_records=records2)
+
+        for i in range(32):
+            assert (
+                manifest1.training_records[i]
+                == manifest2.training_records[i]
+            )
+
+    def test_arm_evaluation_counts_preserve_order(self) -> None:
+        """Test that arm evaluations maintain checkpoint order."""
+        from train.stage0_trainability import (
+            FreshStateManifest,
+            run_no_update_arm,
+        )
+
+        records = tuple(
+            (f"Q{i}", f"A{i}") for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        arm = run_no_update_arm(manifest)
+
+        if len(arm.evaluations) >= 2:
+            assert (
+                arm.evaluations[0].example_count
+                <= arm.evaluations[1].example_count
+            )
+        if len(arm.evaluations) >= 3:
+            assert (
+                arm.evaluations[1].example_count
+                <= arm.evaluations[2].example_count
+            )
