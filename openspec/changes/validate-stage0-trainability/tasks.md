@@ -65,7 +65,7 @@
 - [x] 6.2 Write exclusive-create JSONL progress after every declared event and flush records so interruption leaves readable evidence.
 - [x] 6.3 Write one canonical final report for scientific pass or failure, return a nonzero exit for every non-viable outcome, and retain completed progress.
   <!-- covers: train/stage0-trainability-gate :: Reports preserve complete bounded evidence :: Failed investigation retains evidence -->
-- [ ] 6.4 Reject either pre-existing output path before file modification, model construction, or dataset access.
+- [x] 6.4 Reject either pre-existing output path before file modification, model construction, or dataset access.
   <!-- covers: train/stage0-trainability-gate :: Reports preserve complete bounded evidence :: Existing output is protected -->
 - [ ] 6.5 Add command tests for argument validation, orchestration order, progress sequence, ETA fields, early exits, final schema, and exit codes.
 - [ ] 6.6 Run the command on deterministic fixtures and inspect both JSON and JSONL as an independently runnable end-to-end practice test.
