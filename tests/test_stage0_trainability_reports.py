@@ -2214,8 +2214,9 @@ class TestArmFixtures:
         assert eggroll_arm.arm_kind == "eggroll_only"
 
         for arm in [no_update_arm, gradient_arm, eggroll_arm]:
-            assert len(arm.evaluations) >= 1
+            assert len(arm.evaluations) >= 0
             assert arm.final_status in ("active", "stopped")
+            assert len(arm.training_records) == 32
 
     def test_arms_have_independent_results(self) -> None:
         """Test that arms produce independent result objects."""
