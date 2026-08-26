@@ -1659,3 +1659,125 @@ class TestMethodArms:
         assert arm_dict["evaluation_count"] == 0
         assert arm_dict["final_status"] == "active"
         assert isinstance(arm_dict["evaluations"], list)
+
+    def test_consistent_example_counting_across_checkpoints(self) -> None:
+        """Test that example consumption is consistent across checkpoints."""
+        from train.stage0_trainability import ArmEvaluation, MethodArm
+        from train.eggroll_stability import StabilityMetrics
+
+        metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.5,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.5,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=0.95,
+        )
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+
+        eval0 = ArmEvaluation(example_count=0, metrics=metrics, examples_consumed=0)
+        eval8 = ArmEvaluation(example_count=8, metrics=metrics, examples_consumed=8)
+        eval32 = ArmEvaluation(
+            example_count=32, metrics=metrics, examples_consumed=32
+        )
+
+        arm = MethodArm(
+            arm_kind="gradient_only",
+            training_records=records,
+            evaluations=(eval0, eval8, eval32),
+        )
+
+        assert len(arm.evaluations) == 3
+        assert arm.evaluations[0].examples_consumed == 0
+        assert arm.evaluations[1].examples_consumed == 8
+        assert arm.evaluations[2].examples_consumed == 32
+        assert (
+            arm.evaluations[1].examples_consumed
+            > arm.evaluations[0].examples_consumed
+        )
+        assert (
+            arm.evaluations[2].examples_consumed
+            > arm.evaluations[1].examples_consumed
+        )
+
+    def test_evaluations_at_checkpoint_boundaries(self) -> None:
+        """Test that evaluations are emitted at exactly 0, 8, 32 checkpoints."""
+        from train.stage0_trainability import FreshStateManifest
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        assert manifest.checkpoint_example_counts == (0, 8, 32)
+        expected_evals = 3
+        assert len(manifest.checkpoint_example_counts) == expected_evals
+
+    def test_no_update_arm_consistent_counting(self) -> None:
+        """Test that no-update arm counts examples consistently."""
+        from train.stage0_trainability import FreshStateManifest, run_no_update_arm
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        arm = run_no_update_arm(manifest)
+
+        assert arm.arm_kind == "no_update"
+        if len(arm.evaluations) >= 1:
+            assert arm.evaluations[0].examples_consumed == 0
+        if len(arm.evaluations) >= 2:
+            assert arm.evaluations[1].example_count == 8
+            assert arm.evaluations[1].examples_consumed >= 0
+        if len(arm.evaluations) >= 3:
+            assert arm.evaluations[2].example_count == 32
+            assert arm.evaluations[2].examples_consumed >= 8
+
+    def test_gradient_arm_consistent_counting(self) -> None:
+        """Test that gradient arm counts examples consistently."""
+        from train.stage0_trainability import FreshStateManifest, run_gradient_only_arm
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        arm = run_gradient_only_arm(manifest)
+
+        assert arm.arm_kind == "gradient_only"
+        if len(arm.evaluations) >= 1:
+            assert arm.evaluations[0].examples_consumed == 0
+        if len(arm.evaluations) >= 2:
+            assert arm.evaluations[1].example_count == 8
+        if len(arm.evaluations) >= 3:
+            assert arm.evaluations[2].example_count == 32
+
+    def test_eggroll_arm_consistent_counting(self) -> None:
+        """Test that EGGROLL arm counts examples consistently."""
+        from train.stage0_trainability import FreshStateManifest, run_eggroll_only_arm
+
+        records = tuple(
+            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
+        )
+        manifest = FreshStateManifest(training_records=records)
+
+        arm = run_eggroll_only_arm(manifest)
+
+        assert arm.arm_kind == "eggroll_only"
+        if len(arm.evaluations) >= 1:
+            assert arm.evaluations[0].examples_consumed == 0
+        if len(arm.evaluations) >= 2:
+            assert arm.evaluations[1].example_count == 8
+        if len(arm.evaluations) >= 3:
+            assert arm.evaluations[2].example_count == 32

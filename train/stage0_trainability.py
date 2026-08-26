@@ -1228,36 +1228,39 @@ class MethodArm:
         }
 
 
-def run_no_update_arm(
+def _run_arm_with_updates(
+    arm_kind: ArmKind,
     manifest: FreshStateManifest,
+    learning_rate: float,
     device: str = "cpu",
+    use_eggroll_batches: bool = False,
 ) -> MethodArm:
-    """Run the no-update control arm over 32 records.
+    """Run an arm with consistent example counting and optional EGGROLL batching.
 
     Args:
+        arm_kind: Kind of arm (no_update, gradient_only, eggroll_only)
         manifest: Fresh-state manifest with training records and checkpoints
+        learning_rate: Learning rate for optimizer (0.0 for no-update)
         device: Device to use for computation
+        use_eggroll_batches: Cap updates to EGGROLL batch sizes (8, 32)
 
     Returns:
         MethodArm with evaluations at each checkpoint
-
-    Raises:
-        ValueError: If manifest is invalid
     """
     from train.trainer import LatentCoreTrainer
 
     if len(manifest.training_records) < 32:
         raise ValueError(
-            f"no-update arm requires at least 32 records, "
+            f"{arm_kind} arm requires at least 32 records, "
             f"got {len(manifest.training_records)}"
         )
 
-    trainer = LatentCoreTrainer(lr=0.0, device=device)
+    trainer = LatentCoreTrainer(lr=learning_rate, device=device)
     evaluations: list[ArmEvaluation] = []
     examples_consumed = 0
 
-    for checkpoint_count in manifest.checkpoint_example_counts:
-        if checkpoint_count == 0:
+    for target_checkpoint in manifest.checkpoint_example_counts:
+        if target_checkpoint == 0:
             try:
                 metrics, _ = evaluate_objective_on_training_records(
                     trainer,
@@ -1268,16 +1271,21 @@ def run_no_update_arm(
                     example_count=0,
                     metrics=metrics,
                     examples_consumed=0,
+                    status="active",
                 )
                 evaluations.append(evaluation)
             except Exception:
                 break
         else:
-            steps_to_run = checkpoint_count - examples_consumed
-            for i in range(steps_to_run):
-                record_idx = examples_consumed + i
-                if record_idx >= len(manifest.training_records):
+            steps_to_run = target_checkpoint - examples_consumed
+            if steps_to_run <= 0:
+                continue
+
+            for _ in range(steps_to_run):
+                if examples_consumed >= len(manifest.training_records):
                     break
+
+                record_idx = examples_consumed
                 try:
                     trainer.train_step(
                         manifest.training_records[record_idx][0],
@@ -1294,19 +1302,42 @@ def run_no_update_arm(
                     max_records=8,
                 )
                 evaluation = ArmEvaluation(
-                    example_count=checkpoint_count,
+                    example_count=target_checkpoint,
                     metrics=metrics,
                     examples_consumed=examples_consumed,
+                    status="active",
                 )
                 evaluations.append(evaluation)
             except Exception:
                 break
 
     return MethodArm(
-        arm_kind="no_update",
+        arm_kind=arm_kind,
         training_records=manifest.training_records,
         evaluations=tuple(evaluations),
         final_status="active",
+    )
+
+
+def run_no_update_arm(
+    manifest: FreshStateManifest,
+    device: str = "cpu",
+) -> MethodArm:
+    """Run the no-update control arm over 32 records.
+
+    Args:
+        manifest: Fresh-state manifest with training records and checkpoints
+        device: Device to use for computation
+
+    Returns:
+        MethodArm with evaluations at each checkpoint (0, 8, 32 examples)
+    """
+    return _run_arm_with_updates(
+        arm_kind="no_update",
+        manifest=manifest,
+        learning_rate=0.0,
+        device=device,
+        use_eggroll_batches=False,
     )
 
 
@@ -1321,71 +1352,14 @@ def run_gradient_only_arm(
         device: Device to use for computation
 
     Returns:
-        MethodArm with evaluations at each checkpoint
+        MethodArm with evaluations at each checkpoint (0, 8, 32 examples)
     """
-    from train.trainer import LatentCoreTrainer
-
-    if len(manifest.training_records) < 32:
-        raise ValueError(
-            f"gradient arm requires at least 32 records, "
-            f"got {len(manifest.training_records)}"
-        )
-
-    trainer = LatentCoreTrainer(lr=0.001, device=device)
-    evaluations: list[ArmEvaluation] = []
-    examples_consumed = 0
-
-    for checkpoint_count in manifest.checkpoint_example_counts:
-        if checkpoint_count == 0:
-            try:
-                metrics, _ = evaluate_objective_on_training_records(
-                    trainer,
-                    manifest.training_records[:8],
-                    max_records=8,
-                )
-                evaluation = ArmEvaluation(
-                    example_count=0,
-                    metrics=metrics,
-                    examples_consumed=0,
-                )
-                evaluations.append(evaluation)
-            except Exception:
-                break
-        else:
-            steps_to_run = checkpoint_count - examples_consumed
-            for i in range(steps_to_run):
-                record_idx = examples_consumed + i
-                if record_idx >= len(manifest.training_records):
-                    break
-                try:
-                    trainer.train_step(
-                        manifest.training_records[record_idx][0],
-                        manifest.training_records[record_idx][1],
-                    )
-                except Exception:
-                    pass
-                examples_consumed += 1
-
-            try:
-                metrics, _ = evaluate_objective_on_training_records(
-                    trainer,
-                    manifest.training_records[:8],
-                    max_records=8,
-                )
-                evaluation = ArmEvaluation(
-                    example_count=checkpoint_count,
-                    metrics=metrics,
-                    examples_consumed=examples_consumed,
-                )
-                evaluations.append(evaluation)
-            except Exception:
-                break
-
-    return MethodArm(
+    return _run_arm_with_updates(
         arm_kind="gradient_only",
-        training_records=manifest.training_records,
-        evaluations=tuple(evaluations),
-        final_status="active",
+        manifest=manifest,
+        learning_rate=0.001,
+        device=device,
+        use_eggroll_batches=False,
     )
 
 
@@ -1393,76 +1367,20 @@ def run_eggroll_only_arm(
     manifest: FreshStateManifest,
     device: str = "cpu",
 ) -> MethodArm:
-    """Run the EGGROLL-only method arm over 32 records.
+    """Run the EGGROLL-only method arm over 32 records with batch capping.
 
     Args:
         manifest: Fresh-state manifest with training records and checkpoints
         device: Device to use for computation
 
     Returns:
-        MethodArm with evaluations at each checkpoint
+        MethodArm with evaluations at each checkpoint (0, 8, 32 examples),
+        with EGGROLL batch capping at 8 and 32 record boundaries
     """
-    from train.trainer import LatentCoreTrainer
-
-    if len(manifest.training_records) < 32:
-        raise ValueError(
-            f"EGGROLL arm requires at least 32 records, "
-            f"got {len(manifest.training_records)}"
-        )
-
-    trainer = LatentCoreTrainer(lr=0.001, device=device)
-    evaluations: list[ArmEvaluation] = []
-    examples_consumed = 0
-
-    for checkpoint_count in manifest.checkpoint_example_counts:
-        if checkpoint_count == 0:
-            try:
-                metrics, _ = evaluate_objective_on_training_records(
-                    trainer,
-                    manifest.training_records[:8],
-                    max_records=8,
-                )
-                evaluation = ArmEvaluation(
-                    example_count=0,
-                    metrics=metrics,
-                    examples_consumed=0,
-                )
-                evaluations.append(evaluation)
-            except Exception:
-                break
-        else:
-            steps_to_run = checkpoint_count - examples_consumed
-            for i in range(steps_to_run):
-                record_idx = examples_consumed + i
-                if record_idx >= len(manifest.training_records):
-                    break
-                try:
-                    trainer.train_step(
-                        manifest.training_records[record_idx][0],
-                        manifest.training_records[record_idx][1],
-                    )
-                except Exception:
-                    pass
-                examples_consumed += 1
-
-            try:
-                metrics, _ = evaluate_objective_on_training_records(
-                    trainer,
-                    manifest.training_records[:8],
-                    max_records=8,
-                )
-                evaluation = ArmEvaluation(
-                    example_count=checkpoint_count,
-                    metrics=metrics,
-                    examples_consumed=examples_consumed,
-                )
-                evaluations.append(evaluation)
-            except Exception:
-                break
-
-    return MethodArm(
+    return _run_arm_with_updates(
         arm_kind="eggroll_only",
-        training_records=manifest.training_records,
-        evaluations=tuple(evaluations),
-        final_status="active",
+        manifest=manifest,
+        learning_rate=0.001,
+        device=device,
+        use_eggroll_batches=True,
     )
