@@ -15,7 +15,7 @@
 - [x] 2.2 Add exact, first-token, loss-ratio, finite-state, early-pass, and per-attempt non-finite handling without sharing state between learning rates.
   <!-- covers: train/stage0-trainability-gate :: One-record overfit probe falsifies the shared objective first :: Objective demonstrates memorization -->
   <!-- covers: train/stage0-trainability-gate :: One-record overfit probe falsifies the shared objective first :: One learning rate becomes non-finite -->
-- [ ] 2.3 Add fail-fast objective classification that preserves all completed attempts and skips causal and arm probes when no attempt passes.
+- [x] 2.3 Add fail-fast objective classification that preserves all completed attempts and skips causal and arm probes when no attempt passes.
   <!-- covers: train/stage0-trainability-gate :: One-record overfit probe falsifies the shared objective first :: Objective fails bounded memorization -->
 - [ ] 2.4 Add deterministic tests proving each learning-rate attempt starts from identical tensors and RNG state and never emits a production recommendation.
 - [ ] 2.5 Run the one-record probe against lightweight production-path fixtures as an independently runnable objective check.

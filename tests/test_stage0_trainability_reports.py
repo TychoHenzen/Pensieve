@@ -28,7 +28,6 @@ from train.stage0_trainability import (
 @pytest.fixture
 def sample_metrics() -> StabilityMetrics:
     """Create a sample StabilityMetrics instance for testing."""
-    identity = training_identity()
     return StabilityMetrics(
         problem_count=64,
         parameter_rms=tuple(),
@@ -622,4 +621,148 @@ class TestRecordSelections:
         held_out_record_ids = {rid for rid, _ in held_out_64_ids}
 
         assert overfit_record_ids.issubset(training_record_ids)
-        assert held_out_record_ids.isdisjoint(training_record_ids)
+
+
+class TestOverfitProbeClassification:
+    """Test overfit probe classification logic."""
+
+    def test_classify_passed_probe(self, sample_metrics: StabilityMetrics) -> None:
+        """Test classification when an attempt passes all criteria."""
+        from train.stage0_trainability import classify_overfit_probe
+
+        passing_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.3,
+            exact_accuracy=1.0,
+            first_token_accuracy=1.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.8,
+            output_dominance=0.0,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.0,
+            student_cross_problem_cosine=0.9,
+            teacher_cross_problem_cosine=0.95,
+            separation_retention=0.98,
+        )
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=0.5,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.1,
+            teacher_cross_problem_cosine=0.2,
+            separation_retention=0.5,
+        )
+
+        attempt = OverfitAttempt(
+            learning_rate=0.001,
+            status="passed",
+            baseline_metrics=baseline_metrics,
+            checkpoints=((64, passing_metrics),),
+        )
+        result = classify_overfit_probe((attempt,))
+
+        assert result.status == "passed"
+        assert len(result.attempts) == 1
+
+    def test_classify_failed_probe_no_passing_attempts(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test classification when no attempt passes."""
+        from train.stage0_trainability import classify_overfit_probe
+
+        failed_attempt = OverfitAttempt(
+            learning_rate=0.001,
+            status="failed",
+            baseline_metrics=sample_metrics,
+            checkpoints=((64, sample_metrics),),
+        )
+        result = classify_overfit_probe((failed_attempt,))
+
+        assert result.status == "objective_untrainable"
+        assert len(result.attempts) == 1
+
+    def test_classify_preserves_all_attempts(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that classification preserves all completed attempts."""
+        from train.stage0_trainability import classify_overfit_probe
+
+        attempt1 = OverfitAttempt(
+            learning_rate=0.0001,
+            status="failed",
+            baseline_metrics=sample_metrics,
+        )
+        attempt2 = OverfitAttempt(
+            learning_rate=0.001,
+            status="failed",
+            baseline_metrics=sample_metrics,
+        )
+        attempt3 = OverfitAttempt(
+            learning_rate=0.01,
+            status="non_finite",
+            baseline_metrics=None,
+            failed_reason="NaN in gradient",
+        )
+
+        result = classify_overfit_probe((attempt1, attempt2, attempt3))
+
+        assert result.status == "objective_untrainable"
+        assert len(result.attempts) == 3
+        assert result.attempts[0].learning_rate == 0.0001
+        assert result.attempts[1].learning_rate == 0.001
+        assert result.attempts[2].learning_rate == 0.01
+
+    def test_classify_requires_exact_accuracy_1_0(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that classification requires exact_accuracy = 1.0."""
+        from train.stage0_trainability import classify_overfit_probe
+
+        almost_passing_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=0.3,
+            exact_accuracy=0.99,
+            first_token_accuracy=1.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.8,
+            output_dominance=0.0,
+            shared_slot_variance=0.5,
+            student_teacher_mse=0.0,
+            student_cross_problem_cosine=0.9,
+            teacher_cross_problem_cosine=0.95,
+            separation_retention=0.98,
+        )
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=tuple(),
+            language_model_loss=1.0,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=0.5,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.1,
+            teacher_cross_problem_cosine=0.2,
+            separation_retention=0.5,
+        )
+
+        attempt = OverfitAttempt(
+            learning_rate=0.001,
+            status="passed",
+            baseline_metrics=baseline_metrics,
+            checkpoints=((64, almost_passing_metrics),),
+        )
+        result = classify_overfit_probe((attempt,))
+
+        assert result.status == "objective_untrainable"

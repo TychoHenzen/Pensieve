@@ -759,3 +759,64 @@ def run_overfit_attempt(
             "checkpoints": [],
             "failed_reason": f"Fatal exception: {str(e)}",
         }
+
+
+def classify_overfit_probe(
+    attempts: Sequence[OverfitAttempt],
+) -> OverfitProbeResult:
+    """Classify the overfit probe result based on completed attempts.
+
+    Args:
+        attempts: Sequence of completed OverfitAttempt results
+
+    Returns:
+        OverfitProbeResult with status and failed conditions
+
+    Raises:
+        ValueError: If attempts is empty
+    """
+    if not attempts:
+        raise ValueError("overfit probe classification requires at least one attempt")
+
+    for attempt in attempts:
+        if attempt.status != "passed":
+            continue
+
+        if not attempt.baseline_metrics or not attempt.checkpoints:
+            continue
+
+        for checkpoint_count, checkpoint_metrics in attempt.checkpoints:
+            if checkpoint_metrics is None:
+                continue
+
+            if not math.isfinite(checkpoint_metrics.language_model_loss):
+                continue
+            if not math.isfinite(checkpoint_metrics.exact_accuracy):
+                continue
+            if not math.isfinite(checkpoint_metrics.first_token_accuracy):
+                continue
+
+            baseline_lm_loss = attempt.baseline_metrics.language_model_loss
+            if not math.isfinite(baseline_lm_loss) or baseline_lm_loss <= 0:
+                continue
+
+            loss_threshold = MAX_LOSS_REDUCTION_RATIO * baseline_lm_loss
+
+            exact_accuracy = checkpoint_metrics.exact_accuracy
+            first_token_accuracy = checkpoint_metrics.first_token_accuracy
+            current_loss = checkpoint_metrics.language_model_loss
+
+            if (
+                exact_accuracy == 1.0
+                and first_token_accuracy == 1.0
+                and current_loss <= loss_threshold
+            ):
+                return OverfitProbeResult(
+                    status="passed",
+                    attempts=tuple(attempts),
+                )
+
+    return OverfitProbeResult(
+        status="objective_untrainable",
+        attempts=tuple(attempts),
+    )
