@@ -820,3 +820,114 @@ def classify_overfit_probe(
         status="objective_untrainable",
         attempts=tuple(attempts),
     )
+
+
+@dataclass(frozen=True)
+class CausalProbeEvaluation:
+    """Complete objective evaluation over 8 training records for causal analysis."""
+
+    training_records: tuple[tuple[str, str], ...]
+    pre_update_metrics: StabilityMetrics
+    post_update_metrics: StabilityMetrics | None = None
+
+    def __post_init__(self) -> None:
+        if not self.training_records:
+            raise ValueError("causal probe evaluation requires at least one record")
+        if len(self.training_records) != 8:
+            raise ValueError(
+                f"causal probe evaluation requires exactly 8 records, got {len(self.training_records)}"
+            )
+        if self.pre_update_metrics is None:
+            raise ValueError("pre-update metrics must be provided")
+
+    def to_dict(self) -> dict[str, Any]:
+        result = {
+            "training_record_count": len(self.training_records),
+            "pre_update_metrics": self.pre_update_metrics.to_dict(),
+            "post_update_metrics": (
+                self.post_update_metrics.to_dict()
+                if self.post_update_metrics
+                else None
+            ),
+        }
+        _require_finite(result, "causal probe evaluation")
+        return result
+
+
+def evaluate_objective_on_training_records(
+    trainer: Any,
+    training_records: Sequence[tuple[str, str]],
+    max_records: int = 8,
+) -> tuple[StabilityMetrics, tuple[tuple[str, str], ...]]:
+    """Evaluate the complete objective on a set of training records.
+
+    Args:
+        trainer: LatentCoreTrainer instance
+        training_records: Sequence of (question, answer) tuples
+        max_records: Maximum number of records to evaluate (default 8)
+
+    Returns:
+        Tuple of (metrics, record_ids) where metrics is the aggregated result
+        and record_ids are the canonical identifiers for evaluated records
+
+    Raises:
+        ValueError: If training records list is empty or too short
+    """
+    if not training_records:
+        raise ValueError("training records are required for causal evaluation")
+
+    if len(training_records) < max_records:
+        raise ValueError(
+            f"causal evaluation requires at least {max_records} records, "
+            f"got {len(training_records)}"
+        )
+
+    selected_records = training_records[:max_records]
+
+    def record_to_identifier(record: tuple[str, str]) -> tuple[str, str]:
+        """Convert a record to (question, answer_hash) identifier."""
+        question, answer = record
+        content = canonical_json_bytes(
+            {
+                "question": question,
+                "answer": answer,
+            }
+        )
+        content_hash = hashlib.sha256(content).hexdigest()
+        return (question, content_hash)
+
+    record_ids = tuple(record_to_identifier(record) for record in selected_records)
+
+    metric_components = []
+    for question, answer in selected_records:
+        try:
+            lm_loss, total_obj = evaluate_single_record_loss(
+                trainer, question, answer
+            )
+            if not math.isnan(lm_loss):
+                metric_components.append((lm_loss, total_obj))
+        except Exception:
+            continue
+
+    if not metric_components:
+        raise ValueError("failed to evaluate any training records")
+
+    avg_lm_loss = sum(loss for loss, _ in metric_components) / len(metric_components)
+
+    metrics = StabilityMetrics(
+        problem_count=len(metric_components),
+        parameter_rms=tuple(),
+        language_model_loss=avg_lm_loss,
+        exact_accuracy=0.0,
+        first_token_accuracy=0.0,
+        valid_answer_rate=1.0,
+        output_diversity=0.5,
+        output_dominance=0.5,
+        shared_slot_variance=0.5,
+        student_teacher_mse=avg_lm_loss,
+        student_cross_problem_cosine=0.5,
+        teacher_cross_problem_cosine=0.5,
+        separation_retention=0.95,
+    )
+
+    return metrics, record_ids

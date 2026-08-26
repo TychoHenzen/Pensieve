@@ -858,6 +858,82 @@ class TestOverfitAttemptDeterminism:
         )
 
 
+class TestCausalProbeEvaluation:
+    """Test complete-objective evaluation for causal probes."""
+
+    def test_causal_probe_evaluation_requires_8_records(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that causal probe evaluation requires exactly 8 records."""
+        from train.stage0_trainability import CausalProbeEvaluation
+
+        valid_records = tuple(
+            (f"Q{i}", f"A{i}") for i in range(8)
+        )
+        eval_result = CausalProbeEvaluation(
+            training_records=valid_records,
+            pre_update_metrics=sample_metrics,
+        )
+        assert len(eval_result.training_records) == 8
+
+    def test_causal_probe_evaluation_rejects_wrong_count(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that causal probe evaluation rejects wrong record count."""
+        from train.stage0_trainability import CausalProbeEvaluation
+
+        too_few = tuple((f"Q{i}", f"A{i}") for i in range(4))
+        with pytest.raises(ValueError, match="exactly 8"):
+            CausalProbeEvaluation(
+                training_records=too_few,
+                pre_update_metrics=sample_metrics,
+            )
+
+    def test_causal_probe_evaluation_requires_pre_update(self) -> None:
+        """Test that pre-update metrics are required."""
+        from train.stage0_trainability import CausalProbeEvaluation
+
+        records = tuple((f"Q{i}", f"A{i}") for i in range(8))
+        with pytest.raises(ValueError, match="pre-update"):
+            CausalProbeEvaluation(
+                training_records=records,
+                pre_update_metrics=None,
+            )
+
+    def test_causal_probe_evaluation_optional_post_update(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that post-update metrics are optional."""
+        from train.stage0_trainability import CausalProbeEvaluation
+
+        records = tuple((f"Q{i}", f"A{i}") for i in range(8))
+        eval_result = CausalProbeEvaluation(
+            training_records=records,
+            pre_update_metrics=sample_metrics,
+            post_update_metrics=None,
+        )
+        assert eval_result.post_update_metrics is None
+
+    def test_causal_probe_evaluation_to_dict(
+        self, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test causal probe evaluation serialization."""
+        from train.stage0_trainability import CausalProbeEvaluation
+
+        records = tuple((f"Q{i}", f"A{i}") for i in range(8))
+        eval_result = CausalProbeEvaluation(
+            training_records=records,
+            pre_update_metrics=sample_metrics,
+            post_update_metrics=sample_metrics,
+        )
+        result_dict = eval_result.to_dict()
+
+        assert result_dict["training_record_count"] == 8
+        assert "pre_update_metrics" in result_dict
+        assert "post_update_metrics" in result_dict
+        assert result_dict["post_update_metrics"] is not None
+
+
 class TestOverfitProbeFixtures:
     """Integration tests for one-record probe with lightweight fixtures."""
 
