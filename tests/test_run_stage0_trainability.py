@@ -399,3 +399,95 @@ def test_final_report_exit_code_mapping() -> None:
             assert code == 0, f"Status {status} should map to exit code 0"
         else:
             assert code == 1, f"Status {status} should map to exit code 1"
+
+
+def test_command_output_structure_on_fixture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Command produces correct JSON and JSONL output structure on fixture."""
+    from train.stage0_trainability import (
+        TrainabilityReport,
+        TrainabilityConfiguration,
+        TrainabilityAssetIdentity,
+        ImplementationIdentity,
+        OverfitProbeResult,
+        TrainabilityProgressRecord,
+    )
+
+    report = tmp_path / "stability.json"
+    report_data = {"status": "failed"}
+    report.write_text(json.dumps(report_data), encoding="utf-8")
+
+    output = tmp_path / "output.json"
+    progress = tmp_path / "progress.jsonl"
+
+    final_report = TrainabilityReport(
+        schema_version=1,
+        configuration=TrainabilityConfiguration(
+            asset_identity=TrainabilityAssetIdentity(
+                stability_report_digest="a" * 64,
+                held_out_record_identifiers=(("id1", "hash1"),),
+                training_record_identifiers_overfit=(("id2", "hash2"),),
+                training_record_identifiers_32=(("id3", "hash3"),),
+            ),
+            implementation=ImplementationIdentity(
+                sha256="b" * 64,
+                sources=(("test_source.py", "c" * 64),),
+            ),
+            stability_configuration={},
+        ),
+        asset_identity_digest="d" * 64,
+        initial_state_digest="e" * 64,
+        overall_status="inconclusive",
+        overfit_probe=OverfitProbeResult(
+            status="inconclusive",
+            attempts=(),
+            failed_conditions=("fixture",),
+        ),
+        causal_probes=(),
+        arms=(),
+        elapsed_seconds=0.1,
+    )
+
+    progress_record = TrainabilityProgressRecord(
+        schema_version=1,
+        sequence_number=0,
+        kind="arm_checkpoint",
+        probe_or_arm="fixture_test",
+        consumed_examples=0,
+        optimizer_call_count=0,
+        elapsed_seconds=0.05,
+        eta_seconds=0.1,
+    )
+
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "configure_deterministic_runtime",
+        lambda: None,
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "canonical_trainability_implementation_identity",
+        lambda _root: ImplementationIdentity(
+            sha256="b" * 64,
+            sources=(("test_source.py", "c" * 64),),
+        ),
+    )
+
+    run_stage0_trainability._write_final_report(output, final_report)
+    with run_stage0_trainability.TrainabilityProgressWriter(progress) as writer:
+        writer.write_record(progress_record)
+
+    assert output.exists(), "Final JSON report should be created"
+    assert progress.exists(), "JSONL progress file should be created"
+
+    output_data = json.loads(output.read_text(encoding="utf-8"))
+    assert output_data["overall_status"] == "inconclusive"
+    assert output_data["schema_version"] == 1
+    assert "elapsed_seconds" in output_data
+
+    progress_lines = progress.read_text(encoding="utf-8").strip().split("\n")
+    assert len(progress_lines) == 1
+    progress_data = json.loads(progress_lines[0])
+    assert progress_data["kind"] == "arm_checkpoint"
+    assert progress_data["sequence_number"] == 0
