@@ -18,6 +18,7 @@ from train.eggroll_perturbations import (
 )
 
 
+# covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Matrix candidate batch uses low-rank residuals
 def test_sampler_matches_official_reference_draw_order_and_scale() -> None:
     seed = 442
     sigma = 0.18
@@ -86,6 +87,7 @@ def test_matrix_factors_reconstruct_the_materialized_reference_delta() -> None:
     )
 
 
+# covers: train/eggroll-execution :: Matrix perturbations remain factorized during candidate evaluation :: Antithetic factors share one seed
 def test_antithetic_candidates_share_draws_with_opposite_signs() -> None:
     parameters = [torch.zeros(2, 3), torch.zeros(4)]
 

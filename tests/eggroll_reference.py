@@ -288,8 +288,8 @@ def reference_descent_gradients(
     if population_size < 2 or population_size % 2 != 0:
         raise ValueError("fitnesses must contain a positive even population")
 
-    normalized = (fitness_tensor - fitness_tensor.mean()) / (
-        fitness_tensor.std() + 1e-5
+    normalized = (fitness_tensor - fitness_tensor.mean()) / torch.sqrt(
+        fitness_tensor.var(unbiased=False) + 1e-5
     )
     gradients = [torch.zeros_like(parameter) for parameter in parameters]
 

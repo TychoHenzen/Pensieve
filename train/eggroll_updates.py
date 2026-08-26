@@ -28,9 +28,11 @@ def _pair_descent_scores(
     population_size = fitness_tensor.numel()
     if population_size < 2 or population_size % 2 != 0:
         raise ValueError("fitnesses must contain a positive even population")
+    if not torch.isfinite(fitness_tensor).all():
+        raise ValueError("fitnesses must be finite")
 
-    normalized = (fitness_tensor - fitness_tensor.mean()) / (
-        fitness_tensor.std() + 1e-5
+    normalized = (fitness_tensor - fitness_tensor.mean()) / torch.sqrt(
+        fitness_tensor.var(unbiased=False) + 1e-5
     )
     return normalized[1::2] - normalized[0::2], population_size
 
@@ -139,7 +141,6 @@ def apply_factorized_update(
     rank: int,
 ) -> list[torch.Tensor]:
     """Assign factorized gradients and apply one minimizing optimizer step."""
-    optimizer.zero_grad()
     gradients = assemble_factorized_descent_gradients(
         parameters,
         base_seed=base_seed,
@@ -147,6 +148,7 @@ def apply_factorized_update(
         sigma=sigma,
         rank=rank,
     )
+    optimizer.zero_grad()
     for parameter, gradient in zip(parameters, gradients, strict=True):
         parameter.grad = gradient
     optimizer.step()

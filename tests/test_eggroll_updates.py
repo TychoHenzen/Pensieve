@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import copy
+import math
 from typing import Any
 
+import pytest
 import torch
 from torch import nn
 from torch.utils._python_dispatch import TorchDispatchMode
@@ -12,6 +15,7 @@ from tests.eggroll_reference import (
     reference_descent_gradients,
 )
 from train.eggroll_updates import (
+    _pair_descent_scores,
     apply_factorized_update,
     assemble_factorized_descent_gradients,
 )
@@ -78,6 +82,7 @@ def _parameter_copies() -> tuple[list[nn.Parameter], list[nn.Parameter]]:
     )
 
 
+# covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Factorized matrix update matches reference update
 def test_factorized_gradients_and_adam_update_match_materialized_reference() -> None:
     reference_parameters, factorized_parameters = _parameter_copies()
     reference_optimizer = torch.optim.Adam(reference_parameters, lr=0.007)
@@ -123,6 +128,7 @@ def test_factorized_gradients_and_adam_update_match_materialized_reference() -> 
     )
 
 
+# covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Assembly has one dense matrix result
 def test_matrix_assembly_creates_only_one_final_dense_gradient() -> None:
     population_size = 8
     pair_count = population_size // 2
@@ -149,6 +155,7 @@ def test_matrix_assembly_creates_only_one_final_dense_gradient() -> None:
     assert (population_size, out_features, in_features) not in recorder.shapes
 
 
+# covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Update follows fitness ascent
 def test_factorized_update_ascends_toward_higher_fitness_candidate() -> None:
     parameter = nn.Parameter(torch.zeros(3, 5))
     optimizer = torch.optim.SGD([parameter], lr=0.2)
@@ -172,3 +179,51 @@ def test_factorized_update_ascends_toward_higher_fitness_candidate() -> None:
 
     assert torch.sum(gradients[0] * positive_delta).item() < 0.0
     assert torch.sum(parameter.detach() * positive_delta).item() > 0.0
+
+
+def test_pair_scores_use_population_variance_normalization() -> None:
+    fitnesses = torch.tensor([1.0, 2.0, 5.0, 9.0])
+
+    actual, population_size = _pair_descent_scores(fitnesses)
+
+    denominator = math.sqrt(9.6875 + 1e-5)
+    expected_normalized = torch.tensor(
+        [-3.25 / denominator, -2.25 / denominator, 0.75 / denominator, 4.75 / denominator]
+    )
+    expected_scores = torch.tensor(
+        [expected_normalized[1] - expected_normalized[0], expected_normalized[3] - expected_normalized[2]]
+    )
+    assert population_size == 4
+    torch.testing.assert_close(actual, expected_scores, rtol=1e-6, atol=1e-6)
+
+
+# covers: train/eggroll-execution :: Pseudo-gradient assembly aggregates low-rank factors :: Non-finite candidate fitness
+def test_non_finite_fitness_rejects_before_parameter_or_optimizer_mutation() -> None:
+    parameter = nn.Parameter(torch.tensor([[0.25, -0.5], [1.0, 0.75]]))
+    optimizer = torch.optim.Adam([parameter], lr=0.03)
+    apply_factorized_update(
+        [parameter],
+        optimizer,
+        base_seed=3,
+        fitnesses=[2.0, -1.0],
+        sigma=0.1,
+        rank=1,
+    )
+    for non_finite in (float("nan"), float("inf"), float("-inf")):
+        parameter_before = parameter.detach().clone()
+        optimizer_before = copy.deepcopy(optimizer.state_dict())
+
+        with pytest.raises(ValueError) as error:
+            apply_factorized_update(
+                [parameter],
+                optimizer,
+                base_seed=4,
+                fitnesses=[2.0, non_finite],
+                sigma=0.1,
+                rank=1,
+            )
+
+        assert str(error.value) == "fitnesses must be finite"
+        assert torch.equal(parameter.detach(), parameter_before)
+        assert optimizer.state_dict()["param_groups"] == optimizer_before["param_groups"]
+        _assert_nested_close(optimizer.state_dict(), optimizer_before)
