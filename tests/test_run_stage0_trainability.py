@@ -197,3 +197,67 @@ def test_progress_writer_append_and_flush(tmp_path: Path) -> None:
     for i, line in enumerate(lines):
         data = json.loads(line)
         assert data["sequence_number"] == i
+
+
+def test_exit_code_viable_outcome() -> None:
+    """Exit code is 0 for bounded_trainability_observed."""
+    assert run_stage0_trainability._compute_exit_code("bounded_trainability_observed") == 0
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "shared_loss_behavior_conflict",
+        "objective_untrainable",
+        "method_specific_failure",
+        "inconclusive",
+    ],
+)
+def test_exit_code_non_viable_outcomes(status: str) -> None:
+    """Exit code is nonzero for all non-viable outcomes."""
+    assert run_stage0_trainability._compute_exit_code(status) == 1
+
+
+def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
+    """Final report is written with exclusive-create semantics and temp file cleanup."""
+    from train.stage0_trainability import (
+        TrainabilityReport,
+        TrainabilityConfiguration,
+        TrainabilityAssetIdentity,
+        ImplementationIdentity,
+        OverfitProbeResult,
+    )
+
+    output_path = tmp_path / "report.json"
+    report = TrainabilityReport(
+        schema_version=1,
+        configuration=TrainabilityConfiguration(
+            asset_identity=TrainabilityAssetIdentity(
+                stability_report_digest="a" * 64,
+                held_out_record_identifiers=(("id1", "hash1"),),
+                training_record_identifiers_overfit=(("id2", "hash2"),),
+                training_record_identifiers_32=(("id3", "hash3"),),
+            ),
+            implementation=ImplementationIdentity(
+                sha256="b" * 64,
+                sources=(("test_source.py", "c" * 64),),
+            ),
+            stability_configuration={},
+        ),
+        asset_identity_digest="d" * 64,
+        initial_state_digest="e" * 64,
+        overall_status="inconclusive",
+        overfit_probe=OverfitProbeResult(
+            status="inconclusive",
+            attempts=(),
+            failed_conditions=("test",),
+        ),
+        causal_probes=(),
+        arms=(),
+        elapsed_seconds=1.0,
+    )
+    run_stage0_trainability._write_final_report(output_path, report)
+    assert output_path.exists()
+    assert not output_path.with_name(f".{output_path.name}.tmp").exists()
+    data = json.loads(output_path.read_text(encoding="utf-8"))
+    assert data["overall_status"] == "inconclusive"

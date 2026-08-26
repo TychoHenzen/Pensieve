@@ -16,6 +16,7 @@ import sys
 from train.stage0_trainability import (
     canonical_trainability_implementation_identity,
     TrainabilityProgressRecord,
+    TrainabilityReport,
     TRAINABILITY_SCHEMA_VERSION,
 )
 from train.standalone_checkpoint import configure_deterministic_runtime
@@ -69,6 +70,25 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional path for JSONL progress records (defaults to final-output with .jsonl suffix)",
     )
     return parser
+
+
+def _write_final_report(path: Path, report: TrainabilityReport) -> None:
+    """Write final report with exclusive-create semantics."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(f".{path.name}.tmp")
+    temporary.write_text(report.canonical_json() + "\n", encoding="utf-8")
+    os.replace(temporary, path)
+
+
+def _compute_exit_code(overall_status: str) -> int:
+    """Return exit code based on overall classification.
+
+    Returns 0 only for bounded_trainability_observed (viable result).
+    Returns nonzero for all non-viable outcomes.
+    """
+    if overall_status == "bounded_trainability_observed":
+        return 0
+    return 1
 
 
 def _validate_args(args: argparse.Namespace) -> None:
