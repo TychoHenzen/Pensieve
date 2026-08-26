@@ -45,7 +45,7 @@
 
 ## 5. Classify Findings and Eligibility
 
-- [ ] 5.1 Implement method statuses from causal and 32-example evidence, requiring loss, exact, first-token, separation, and RMS conditions for `viable`.
+- [x] 5.1 Implement method statuses from causal and 32-example evidence, requiring loss, exact, first-token, separation, and RMS conditions for `viable`.
   <!-- covers: train/stage0-trainability-gate :: Method findings require decoded improvement :: Method shows bounded trainability -->
   <!-- covers: train/stage0-trainability-gate :: Method findings require decoded improvement :: Loss improves without useful behavior -->
 - [ ] 5.2 Implement overall classification precedence for inconclusive evidence, objective failure, bounded trainability, shared conflict, and method-specific failure.
