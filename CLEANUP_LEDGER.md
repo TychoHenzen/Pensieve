@@ -293,7 +293,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/stage0_checkpoint.py | scanned | 6 | autofix cycle 7; 4 left: SIM102 x2, SIM105, PLC0415
 - train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
 - train/stage0_trainability.py | scanned | 27 | autofix cycle 7; 25 left: BLE001 x8, PLC0415 x5, SIM x3, B904 x2, RUF059 x2, misc
-- train/standalone_checkpoint.py | scanned | 4 | autofix cycle 7; 2 left: B905 x2
+- train/standalone_checkpoint.py | fixed | 4 | B905 zip strict=True x2, ruff clean
 - train/trainer.py | fixed | 5 | autofix cycle 7, ruff clean (4 stale imports removed)
 - train/training_results.py | clean | 0 | -
 - train/training_state.py | clean | 0 | -
@@ -376,3 +376,4 @@ Format: cycle N | item | outcome
 - cycle 20 | manual B905 + PLC0415 (hoisted SlotDecoder import) in train/alternating_evaluation.py | ruff clean, 7 tests pass
 - cycle 20 | manual PLC0415 (hoisted run_training import) in tests/test_run_training.py | ruff clean, 2 tests pass
 - cycle 20 | manual SIM102 (combined nested if) in train/search_alignment_weight.py | ruff clean, 16 tests pass
+- cycle 20 | manual B905 (zip strict=True) x2 in train/standalone_checkpoint.py | ruff clean, 9 tests pass

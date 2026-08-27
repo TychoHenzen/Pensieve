@@ -149,7 +149,7 @@ def _optimizer_manifest(
             raise ValueError(f"optimizer group scalar {key!r} is not JSON-compatible")
     scalar_state: dict[str, dict[str, object]] = {}
     references: dict[str, dict[str, str]] = {}
-    for name, parameter_id in zip(parameter_names, groups[0]["params"]):
+    for name, parameter_id in zip(parameter_names, groups[0]["params"], strict=True):
         scalar_state[name] = {}
         references[name] = {}
         for state_name, value in state["state"].get(parameter_id, {}).items():
@@ -392,7 +392,7 @@ def restore_checkpoint(
     if len(parameter_ids) != len(names) or len(parameters) != len(names):
         incompatibilities.append("$.optimizer_manifests[0].parameter_names")
     restored_state: dict[int, dict[str, object]] = {}
-    for parameter_id, parameter, name in zip(parameter_ids, parameters, names):
+    for parameter_id, parameter, name in zip(parameter_ids, parameters, names, strict=True):
         values = dict(manifest["scalar_state"][name])
         for state_name, tensor_name in manifest["tensor_references"][name].items():
             tensor = checkpoint.tensors[tensor_name]
