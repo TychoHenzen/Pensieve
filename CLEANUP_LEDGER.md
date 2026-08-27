@@ -108,7 +108,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/baselines/frozen.py | clean | 0 | -
 - eval/baselines/joint.py | fixed | 1 | cycle 10 manual: PLW0127 removed no-op self-assignment; ruff clean
 - eval/baselines/model.py | clean | 0 | -
-- eval/baselines/naive.py | scanned | 2 | autofix cycle 3; 1 left: PLW0127 self-assignment
+- eval/baselines/naive.py | fixed | 2 | autofix cycle 3 + PLW0127 removed cycle 10; ruff clean
 - eval/baselines/param_match.py | clean | 0 | -
 - eval/baselines/replay.py | clean | 0 | -
 - eval/gate/__init__.py | clean | 0 | -
@@ -315,3 +315,4 @@ Format: cycle N | item | outcome
 - cycle 10 | manual TRY004 fixes in core/qwen_tap.py | ruff clean, 22 covering tests pass
 - cycle 10 | manual PLC0206+PLW0127 fixes in eval/baselines/ewc.py | ruff clean, 29 covering tests pass
 - cycle 10 | manual PLW0127 fix in eval/baselines/joint.py | ruff clean, 20 covering tests pass
+- cycle 10 | manual PLW0127 fix in eval/baselines/naive.py | ruff clean, 20 covering tests pass
