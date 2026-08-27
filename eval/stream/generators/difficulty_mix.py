@@ -132,7 +132,7 @@ class DifficultyMixGenerator:
 
         difficulties = _assign_difficulties(num_items, difficulty_levels, difficulty_source)
         probe_positions = sorted(order_source.sample(range(total_length), num_items))
-        difficulty_by_position = dict(zip(probe_positions, difficulties))
+        difficulty_by_position = dict(zip(probe_positions, difficulties, strict=True))
 
         for position in range(total_length):
             if position not in difficulty_by_position:
