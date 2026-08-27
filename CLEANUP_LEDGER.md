@@ -29,7 +29,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 18: 1365 passed, 2 skipped, 0 failed, 485s.
 - Full suite at cycle 20: 1365 passed, 2 skipped, 0 failed, 465s.
 - Full suite at cycle 20 (post-fixes): 1365 passed, 2 skipped, 0 failed, 493s.
-- Last full-suite run: cycle 20 (post-fixes).
+- Full suite at cycle 21 (after 5 test-file manual fixes): 1365 passed, 2 skipped, 0 failed, 481s.
+- Last full-suite run: cycle 21.
 
 ## Ruff baseline (cycle 0)
 
@@ -384,3 +385,4 @@ Format: cycle N | item | outcome
 - cycle 21 | manual B007 (loop var _expected_message) in tests/test_run_alternating.py | ruff clean, 30 tests pass
 - cycle 21 | manual B905 (zip strict=True in _same_state) in tests/test_standalone_checkpoint.py | ruff clean, 9 tests pass
 - cycle 21 | manual PLW0108 (lambda -> exposed.append) in tests/test_stage0_checkpoint_resume.py | ruff clean, 9 tests pass
+- cycle 21 | end-of-cycle full suite (5 test files fixed) | 1365 passed, 2 skipped, 0 failed, 481s
