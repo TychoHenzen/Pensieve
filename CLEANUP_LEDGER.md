@@ -94,7 +94,7 @@ Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/eval/generator | scanned | 17 / 17 | derive independence, StreamGenerator protocol, chance_rate, registry build/names, cross-process determinism. All covered by tests/stream/test_generator.py + test_registry.py + test_chance.py (each test carries a "covers: eval/generator::" comment)
 - openspec/specs/eval/generators/asdiv-a | scanned | 8 / 6 | Uncovered: "Truth remains isolated" (no test renders asdiv Observe/Probe and asserts model-facing text carries no answer/item id/probe id/task id), "Selection input changes" (partial: test_selection_is_repeatable_and_binds_every_identity_input changes only revision + records; split/seed/problem_count changes untested). Covered: "Default filtered splits load" (test_partition_counts_and_measured_gate_population_are_fixed + test_asdiv_stage0_contract), "Dataset revision unavailable" (test_stage0_identity.py), "Valid row normalization", "Malformed row rejected", "Observe and probe pair", "Repeated selection"
 - openspec/specs/eval/generators/assoc | scanned | 40 / 40 | all scenarios covered by tests/stream/test_assoc.py (each test carries a "covers:" comment); chance_rate measurement also in test_chance.py, cross-process determinism in test_replay.py
-- openspec/specs/eval/generators/difficulty-mix | unchecked | - | -
+- openspec/specs/eval/generators/difficulty-mix | scanned | 36 / 36 | all scenarios covered by tests/stream/test_difficulty_mix.py (each test carries a "covers:" comment); chance_rate measurement also in test_chance.py
 - openspec/specs/eval/generators/gsm8k | unchecked | - | -
 - openspec/specs/eval/generators/split-classify | unchecked | - | -
 - openspec/specs/eval/instrumentation | unchecked | - | -
@@ -446,3 +446,4 @@ Format: cycle N | item | outcome
 - cycle 27 | spec coverage scan: openspec/specs/eval/generator | 17 scenarios, 17 covered (all via tests/stream/test_generator.py + test_registry.py + test_chance.py)
 - cycle 28 | spec coverage scan: openspec/specs/eval/generators/asdiv-a | 8 scenarios, 6 covered, 2 uncovered/partial (recorded above)
 - cycle 28 | spec coverage scan: openspec/specs/eval/generators/assoc | 40 scenarios, 40 covered (all via tests/stream/test_assoc.py)
+- cycle 28 | spec coverage scan: openspec/specs/eval/generators/difficulty-mix | 36 scenarios, 36 covered (all via tests/stream/test_difficulty_mix.py)
