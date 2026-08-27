@@ -31,7 +31,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 20 (post-fixes): 1365 passed, 2 skipped, 0 failed, 493s.
 - Full suite at cycle 21 (after 5 test-file manual fixes): 1365 passed, 2 skipped, 0 failed, 481s.
 - Full suite at cycle 22 (after removing sentence_transformers stubs from 3 test files): 1365 passed, 2 skipped, 0 failed, 483s.
-- Last full-suite run: cycle 22.
+- Full suite at cycle 23 (after 5 train/ manual fixes): 1365 passed, 2 skipped, 0 failed, 489s.
+- Last full-suite run: cycle 23.
 
 ## Ruff baseline (cycle 0)
 
@@ -396,3 +397,4 @@ Format: cycle N | item | outcome
 - cycle 23 | manual B905 + PLC0415 in train/alternating_checkpoint.py | ruff clean, 21 tests pass
 - cycle 23 | manual B905 + PLC0415 (numpy hoist) in train/run_alternating.py | ruff clean, 30 tests pass
 - cycle 23 | manual E731 + PLC0415 in train/eggroll_trainer.py | ruff clean, 11 covering tests pass (test_eggroll_training + test_run_eggroll + test_eggroll_step_equivalence)
+- cycle 23 | end-of-cycle full suite (5 train/ files fixed) | 1365 passed, 2 skipped, 0 failed, 489s
