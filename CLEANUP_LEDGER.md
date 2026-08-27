@@ -324,3 +324,4 @@ Format: cycle N | item | outcome
 - cycle 11 | manual fixes in eval/gate/token_cot_baseline.py: TRY004 x1 + PLC0415 x1 | ruff clean, 22 covering tests pass
 - cycle 11 | manual fixes in eval/gate/gate_report.py: PLC0415 x3 | ruff clean, 22 covering tests pass
 - cycle 11 | manual fix in eval/stream/events.py: UP007 | ruff clean, 38 covering tests pass
+- cycle 11 | end-of-cycle full suite (after 5 files incl. import hoisting) | 1365 passed, 2 skipped, 0 failed, 480s
