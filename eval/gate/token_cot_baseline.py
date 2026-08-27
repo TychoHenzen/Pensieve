@@ -14,8 +14,8 @@ import torch
 
 from codecs_module.decoder import DEFAULT_MAX_TOKENS
 from eval.gate.answer_scoring import (
-    MIN_MEANINGFUL_ACCURACY,
     _NUMBER_PATTERN,
+    MIN_MEANINGFUL_ACCURACY,
     extract_predicted_number,
     score_numerical_answer,
 )
@@ -26,8 +26,8 @@ from eval.stage0_identity import (
     LATENT_TAP_LAYER,
     NUMERICAL_SCORER_CONTRACT_VERSION,
     PROMPT_CONTRACT_VERSION,
-    QWEN_MANIFEST,
     QWEN_ANSWER_PREFILL,
+    QWEN_MANIFEST,
     QWEN_MATH_PROMPT,
     QWEN_MODEL,
     QWEN_REVISION,
@@ -48,7 +48,6 @@ from train.standalone_checkpoint import (
     runtime_identity,
 )
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
-
 
 DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 LOW_ACCURACY_WARNING_THRESHOLD = MIN_MEANINGFUL_ACCURACY

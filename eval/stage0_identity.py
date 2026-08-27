@@ -18,7 +18,6 @@ from typing import Any
 
 import torch
 
-
 ASDIV_DATASET = "MU-NLPC/Calc-asdiv_a"
 ASDIV_CONFIGURATION = "default"
 ASDIV_REVISION = "520a6910e097ee287ecd2bb9104f7f45805f9df9"

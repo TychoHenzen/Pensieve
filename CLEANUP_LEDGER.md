@@ -116,9 +116,9 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/gate/gate_report.py | scanned | 4 | autofix cycle 3; 3 left: PLC0415 function-level imports
 - eval/gate/latent_eval.py | unchecked | 9 | -
 - eval/gate/result_cache.py | fixed | 1 | autofix cycle 3, ruff clean
-- eval/gate/run_gate.py | unchecked | 3 | -
-- eval/gate/slot_ablation.py | unchecked | 4 | -
-- eval/gate/token_cot_baseline.py | unchecked | 3 | -
+- eval/gate/run_gate.py | fixed | 3 | autofix cycle 5, ruff clean (stale in-function import removed)
+- eval/gate/slot_ablation.py | scanned | 4 | autofix cycle 5; 3 left: TRY004
+- eval/gate/token_cot_baseline.py | scanned | 3 | autofix cycle 5; 2 left: TRY004, PLC0415
 - eval/instrumentation.py | clean | 0 | -
 - eval/metrics/__init__.py | unchecked | 2 | -
 - eval/metrics/accuracy.py | clean | 0 | -
@@ -130,22 +130,22 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/run/checkpoint.py | clean | 0 | -
 - eval/run/config.py | clean | 0 | -
 - eval/run/retention_policy.py | clean | 0 | -
-- eval/run/runner.py | unchecked | 1 | -
-- eval/stage0_identity.py | unchecked | 10 | -
+- eval/run/runner.py | fixed | 1 | autofix cycle 5, ruff clean
+- eval/stage0_identity.py | scanned | 10 | autofix cycle 5; 8 left: PLC0415 x6, TRY301 x2
 - eval/stream/__init__.py | clean | 0 | -
 - eval/stream/config.py | clean | 0 | -
 - eval/stream/corpus.py | unchecked | 1 | -
 - eval/stream/corpus_walk.py | clean | 0 | -
 - eval/stream/events.py | unchecked | 1 | -
-- eval/stream/generator.py | unchecked | 1 | -
+- eval/stream/generator.py | fixed | 1 | autofix cycle 5, ruff clean
 - eval/stream/generators/__init__.py | clean | 0 | -
-- eval/stream/generators/asdiv_a.py | unchecked | 4 | -
+- eval/stream/generators/asdiv_a.py | scanned | 4 | autofix cycle 5; 2 left: TRY301, TRY004
 - eval/stream/generators/assoc.py | clean | 0 | -
 - eval/stream/generators/difficulty_mix.py | unchecked | 1 | -
 - eval/stream/generators/gsm8k.py | unchecked | 1 | -
-- eval/stream/generators/split_classify.py | unchecked | 2 | -
+- eval/stream/generators/split_classify.py | scanned | 2 | autofix cycle 5; 1 left: PLC0415
 - eval/stream/hashing.py | clean | 0 | -
-- eval/stream/registry.py | unchecked | 1 | -
+- eval/stream/registry.py | fixed | 1 | autofix cycle 5, ruff clean
 - eval/stream/render.py | unchecked | 1 | -
 - eval/stream/serialize.py | clean | 0 | -
 - eval/stream/truth.py | clean | 0 | -
@@ -302,3 +302,4 @@ Format: cycle N | item | outcome
 - cycle 2 | fix empty-tuple thaw bug in train/eggroll_stability.py + clear its ruff findings | 2 failing tests now pass; regression test added; 94 related tests green
 - cycle 3 | ruff autofix batch: codecs_module/__init__, core/latent_loop, eval/baselines/naive, eval/gate/{answer_scoring,gate_report,result_cache} | 6 findings fixed, 177 covering tests pass
 - cycle 4 | add conftest.py with HF_DEACTIVATE_ASYNC_LOAD=1 | full suite green: 1365 passed, 2 skipped, 511s
+- cycle 5 | ruff autofix batch: eval/gate/{run_gate,slot_ablation,token_cot_baseline}, eval/run/runner, eval/stage0_identity, eval/stream/{generator,registry}, eval/stream/generators/{asdiv_a,split_classify} | 12 findings fixed, 129 covering tests pass

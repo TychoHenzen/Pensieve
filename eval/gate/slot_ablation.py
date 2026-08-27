@@ -19,7 +19,6 @@ from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.alternating_checkpoint import load_checkpoint
 from train.standalone_checkpoint import configure_deterministic_runtime
 
-
 DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/slot_ablation.json")
 DEFAULT_TOKEN_RESULT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 SLOT_COUNTS = [1, 4, 8, 16, 32, 64]

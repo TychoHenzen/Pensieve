@@ -2,16 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
-from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
-from fractions import Fraction
 import hashlib
 import json
 import random
 import re
 import unicodedata
-from typing import Any, Callable
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
+from typing import Any
 
 from eval.gate.answer_scoring import _TOLERANCE
 from eval.stage0_identity import (
@@ -25,7 +25,6 @@ from eval.stage0_identity import (
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
 from eval.stream.truth import ProbeTruth, StreamItem
-
 
 _NUMBER = re.compile(
     r"[+-]?(?:(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)/"
