@@ -227,7 +227,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_alternating_scheduler.py | clean | 0 | -
 - tests/test_answer_objective.py | clean | 0 | -
 - tests/test_asdiv_stage0_contract.py | clean | 0 | -
-- tests/test_benchmark_eggroll.py | unchecked | 1 | -
+- tests/test_benchmark_eggroll.py | fixed | 1 | cycle 18 manual: RUF043 (match -> re.escape); ruff clean
 - tests/test_codecs_freezing.py | clean | 0 | -
 - tests/test_eggroll_factorized.py | clean | 0 | -
 - tests/test_eggroll_perturbations.py | clean | 0 | -
@@ -362,3 +362,4 @@ Format: cycle N | item | outcome
 - cycle 18 | manual B007 + C416 in tests/subject/test_oracles.py | ruff clean, 17 tests pass
 - cycle 18 | manual PLC0415 (import abc hoisted) in tests/subject/test_protocol.py | ruff clean, 12 tests pass
 - cycle 18 | manual RUF043 (raw match pattern) in tests/test_alternating_config.py | ruff clean, 12 tests pass
+- cycle 18 | manual RUF043 (match -> re.escape) in tests/test_benchmark_eggroll.py | ruff clean, 7 tests pass
