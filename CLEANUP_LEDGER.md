@@ -215,7 +215,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/stream/test_replay.py | clean | 0 | -
 - tests/stream/test_split_classify.py | fixed | 5 | autofix cycle 9; cycle 17 manual B905 x2 (zip strict=True) + PLC0415 x2 (hoisted math/_class_center/FEATURE_NOISE_STD imports to top); ruff clean
 - tests/stream/test_truth.py | fixed | 7 | cycle 17 manual RUF007 (itertools.pairwise, also clears B905) + PLC0415 x5 (hoisted Path/StreamConfig/generator imports to top); ruff clean
-- tests/stream/test_vocab.py | scanned | 2 | autofix cycle 9; 1 left: PLC0415
+- tests/stream/test_vocab.py | fixed | 2 | autofix cycle 9; cycle 17 manual PLC0415 (hoisted VOCAB_VERSION import to top); ruff clean
 - tests/subject/test_isolation.py | clean | 0 | -
 - tests/subject/test_oracles.py | unchecked | 2 | -
 - tests/subject/test_protocol.py | unchecked | 1 | -
@@ -356,3 +356,4 @@ Format: cycle N | item | outcome
 - cycle 17 | manual PLW1510 (explicit check=False) in tests/stream/test_registry.py | ruff clean, 18 tests pass
 - cycle 17 | manual B905 x2 + PLC0415 x2 in tests/stream/test_split_classify.py | ruff clean, 36 tests pass
 - cycle 17 | manual RUF007 + PLC0415 x5 in tests/stream/test_truth.py | ruff clean, 27 tests pass
+- cycle 17 | manual PLC0415 in tests/stream/test_vocab.py | ruff clean, 23 tests pass
