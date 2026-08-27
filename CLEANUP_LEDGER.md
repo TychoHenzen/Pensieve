@@ -291,7 +291,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/run_alternating.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted numpy import to top); ruff clean
 - train/run_eggroll.py | fixed | 9 | cycle 24 manual: B023 x8 (bound _on_step loop captures as default args, same as run_training); ruff clean
 - train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
-- train/run_stage0_trainability.py | scanned | 27 | autofix cycle 7 (11 stale imports removed); 7 left: PLC0415 x2, BLE001 x3, F841, TRY004
+- train/run_stage0_trainability.py | blocked | 27 | cycle 24 manual: PLC0415 x2 (hoisted time import), F841 (removed dead start_time), BLE001 x3 (removed unreachable try/except; narrowed write/investigation excepts to OSError); 1 left: TRY004 at _validate_args root-object check - conflicts with test_command_rejects_non_object_stability_report which asserts ValueError (a data-validation error, not a type error)
 - train/run_training.py | fixed | 8 | cycle 22 manual: B023 x8 (bound _on_step loop captures as default args); ruff clean
 - train/search_alignment_weight.py | fixed | 5 | SIM102 combined nested if, ruff clean
 - train/stage0_checkpoint.py | fixed | 6 | cycle 24 manual: SIM102 x2 (nested if -> and), SIM105 (contextlib.suppress), PLC0415 (hoisted safetensors.torch.load); ruff clean
@@ -402,3 +402,4 @@ Format: cycle N | item | outcome
 - cycle 24 | manual SIM102 x2 + SIM105 + PLC0415 in train/stage0_checkpoint.py | ruff clean, 140 checkpoint tests pass
 - cycle 24 | manual TRY004 x2 + SIM108 + E731 x2 + RUF046 in train/plot_training.py | ruff clean, 3 tests pass
 - cycle 24 | manual B023 x8 in train/run_eggroll.py | ruff clean, 10 tests pass
+- cycle 24 | manual PLC0415 x2 + F841 + BLE001 x3 in train/run_stage0_trainability.py | 1 left: TRY004 blocked (test asserts ValueError); 23 tests pass
