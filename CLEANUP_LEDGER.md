@@ -79,7 +79,7 @@ Format: path | decision (proposed/approved/rejected) | reason
 
 Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/codecs | unchecked | - | -
-- openspec/specs/core | unchecked | - | -
+- openspec/specs/core | scanned | 15 / 10 | latent-loop. Uncovered: "different step counts produce different compute", "flops counter reflects forward passes", "all protocol methods present", "observe runs encoder then latent loop", "answer runs latent loop then decoder"
 - openspec/specs/eval | unchecked | - | -
 - openspec/specs/train | unchecked | - | -
 - openspec/specs/workspace | unchecked | - | -
@@ -368,3 +368,4 @@ Format: cycle N | item | outcome
 - cycle 19 | spec validation: eval/corpus SHOULD -> MUST (wordless-snapshot requirement) | openspec validate --strict now passes
 - cycle 19 | spec validation batch: SHOULD -> MUST in eval/{events,generators/assoc,generators/split-classify,serialize,subject-protocol,vocab} | all strict-valid
 - cycle 19 | spec validation batch: skip_specs: true for change/stage-1..5 (planning-pass changes) | openspec validate --all --strict: 39 passed, 0 failed
+- cycle 19 | spec coverage scan: openspec/specs/core (latent-loop) | 15 scenarios, 10 covered, 5 uncovered (recorded above)
