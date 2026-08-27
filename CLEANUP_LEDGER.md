@@ -145,7 +145,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/stream/generators/asdiv_a.py | fixed | 4 | autofix cycle 5; cycle 13 manual: TRY301 (is_finite raise extracted to _require_finite_decimal) + TRY004 (removed redundant bool isinstance guard; Decimal(str(bool)) already raises InvalidOperation); ruff clean
 - eval/stream/generators/assoc.py | clean | 0 | -
 - eval/stream/generators/difficulty_mix.py | fixed | 1 | cycle 13 manual: B905 (zip strict=True; both sequences derive from num_items); ruff clean
-- eval/stream/generators/gsm8k.py | unchecked | 1 | -
+- eval/stream/generators/gsm8k.py | fixed | 1 | cycle 13 manual: PLC0415 (hoisted datasets import to top); ruff clean
 - eval/stream/generators/split_classify.py | scanned | 2 | autofix cycle 5; 1 left: PLC0415
 - eval/stream/hashing.py | clean | 0 | -
 - eval/stream/registry.py | fixed | 1 | autofix cycle 5, ruff clean
@@ -335,3 +335,4 @@ Format: cycle N | item | outcome
 - cycle 13 | manual PLC0415 x7 + TRY301 x2 in eval/stage0_identity.py | ruff clean, 273 covering tests pass (1 skipped)
 - cycle 13 | manual TRY301 + TRY004 in eval/stream/generators/asdiv_a.py | ruff clean, 18 covering tests pass
 - cycle 13 | manual B905 in eval/stream/generators/difficulty_mix.py | ruff clean, 30 covering tests pass
+- cycle 13 | manual PLC0415 in eval/stream/generators/gsm8k.py | ruff clean, 17 covering tests pass
