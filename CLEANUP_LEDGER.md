@@ -264,7 +264,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_stage0_shapes.py | fixed | 1 | autofix cycle 10, ruff clean
 - tests/test_stage0_trainability_identity.py | unchecked | 13 | -
 - tests/test_stage0_trainability_reports.py | scanned | 210 | autofix cycle 10; 171 left: PLC0415 x138, C408 x25, BLE001 x3, SIM222 x2, F841 x1, RUF059 x1, SIM102 x1
-- tests/test_standalone_checkpoint.py | scanned | 7 | autofix cycle 10; 1 left: B905
+- tests/test_standalone_checkpoint.py | fixed | 7 | cycle 21 manual: B905 (zip strict=True in _same_state); ruff clean
 - tests/test_trainability_types_verification.py | clean | 0 | -
 - tests/test_training_results.py | clean | 0 | -
 - tests/test_training_state.py | scanned | 4 | autofix cycle 10; 3 left: E402 x3
@@ -382,3 +382,4 @@ Format: cycle N | item | outcome
 - cycle 21 | manual F841 (dropped unused `schedule =`) in tests/test_alternating_checkpoint.py | ruff clean, 21 tests pass
 - cycle 21 | manual B905 (zip strict=True) in tests/test_alternating_evaluation.py | ruff clean, 7 tests pass
 - cycle 21 | manual B007 (loop var _expected_message) in tests/test_run_alternating.py | ruff clean, 30 tests pass
+- cycle 21 | manual B905 (zip strict=True in _same_state) in tests/test_standalone_checkpoint.py | ruff clean, 9 tests pass

@@ -250,6 +250,6 @@ def _same_state(left: object, right: object) -> bool:
         )
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(
-            _same_state(a, b) for a, b in zip(left, right)
+            _same_state(a, b) for a, b in zip(left, right, strict=True)
         )
     return left == right
