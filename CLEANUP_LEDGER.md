@@ -34,7 +34,14 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 23 (after 5 train/ manual fixes): 1365 passed, 2 skipped, 0 failed, 489s.
 - Full suite at cycle 24 (after 5 manual-fix items incl. safetensors import hoist): 1365 passed, 2 skipped, 0 failed, 495s.
 - Full suite at cycle 26 (start of cycle, post cycle-25 code fixes): 1365 passed, 2 skipped, 0 failed, 737s.
-- Last full-suite run: cycle 26.
+- Full suite at cycle 32: 1365 passed, 2 skipped, 0 failed, 762s.
+- Access-violation crash RECURRED cycle 32: 2 of 3 full-suite runs died at ~89% in
+  tests/test_stage0_trainability_reports.py arm tests (different test each time),
+  torch/storage.py __getitem__ -> transformers _materialize_copy (the SERIAL path,
+  so HF_DEACTIVATE_ASYNC_LOAD=1 is not a complete fix; the crash is in the
+  memory-mapped safetensors slice itself, not the thread pool). Third run passed.
+  Still intermittent, still environment-blocked, not a code failure.
+- Last full-suite run: cycle 32.
 
 ## Ruff baseline (cycle 0)
 
@@ -464,3 +471,4 @@ Format: cycle N | item | outcome
 - cycle 31 | spec coverage scan: openspec/specs/train/alternating-cycle | 32 scenarios, 27 covered, 4 partial, 1 uncovered (recorded above)
 - cycle 31 | spec coverage scan: openspec/specs/train/eggroll-execution | 12 scenarios, 11 covered, 1 partial (recorded above)
 - cycle 31 | spec coverage scan: openspec/specs/train/stage0-training | 9 scenarios, 9 covered (recorded above)
+- cycle 32 | full suite verification (rule 2: last run was cycle 26, code fixes landed since) | 1365 passed, 2 skipped, 0 failed, 762s; access-violation crash recurred 2x before passing (noted in Pytest baseline)
