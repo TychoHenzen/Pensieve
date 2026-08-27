@@ -137,7 +137,7 @@ def test_same_config_and_seed_give_identical_sequence():
 def test_replay_determinism_covers_every_event_field():
     first = _items()
     second = _items()
-    for first_item, second_item in zip(first, second):
+    for first_item, second_item in zip(first, second, strict=True):
         if isinstance(first_item.event, Observe):
             assert first_item.event.payload == second_item.event.payload
         if isinstance(first_item.event, Probe):
@@ -216,14 +216,16 @@ def test_interleaving_puts_another_pairs_teaching_between_a_teaching_and_its_pro
         teach_position = probe_item.event.teaching_position
         probe_position = probe_item.event.position
         for observe_item in observes:
-            if teach_position < observe_item.event.position < probe_position:
-                if observe_item.event.position != teach_position:
-                    is_another_teaching = any(
-                        other.event.teaching_position == observe_item.event.position
-                        for other in probes
-                    )
-                    if is_another_teaching:
-                        found_interleaved = True
+            if (
+                teach_position < observe_item.event.position < probe_position
+                and observe_item.event.position != teach_position
+            ):
+                is_another_teaching = any(
+                    other.event.teaching_position == observe_item.event.position
+                    for other in probes
+                )
+                if is_another_teaching:
+                    found_interleaved = True
     assert found_interleaved
 
 
@@ -351,10 +353,14 @@ def test_filler_drawn_from_configured_corpus(tmp_path, monkeypatch):
     fixture_text = (FIXTURE_DIR / "corpus_fixture.jsonl").read_text(encoding="utf-8")
     (tmp_path / "corpus_fixture.jsonl").write_text(fixture_text, encoding="utf-8")
     second_lines = [
-        '{"text": "Every gear in the old clock tower turned in step with the one beside it, '
-        'a chain of brass teeth carrying the hour forward one click at a time."}',
-        '{"text": "The orchard on the hill had been planted before the war, and the trees '
-        'still bore fruit every autumn without anyone tending them closely."}',
+        (
+            '{"text": "Every gear in the old clock tower turned in step with the one beside it, '
+            'a chain of brass teeth carrying the hour forward one click at a time."}'
+        ),
+        (
+            '{"text": "The orchard on the hill had been planted before the war, and the trees '
+            'still bore fruit every autumn without anyone tending them closely."}'
+        ),
     ]
     (tmp_path / "second_corpus.jsonl").write_text("\n".join(second_lines), encoding="utf-8")
     monkeypatch.setenv("PENSIVE_CORPUS_DIR", str(tmp_path))
