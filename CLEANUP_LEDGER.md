@@ -110,7 +110,7 @@ Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/eval/subject/oracles | scanned | 15 / 15 | all 15 scenarios covered by tests/subject/test_oracles.py (each test carries a "covers: eval/subject::" comment). Conflict: "TaskWiperOracle drops on boundary" scenario says every answer MUST be "" after a TASK_SWITCH, but TaskWiperOracle.answer returns a random VOCAB guess for unrecalled keys (eval/subject/oracles/task_wiper.py:34); test_task_wiper_drops_on_boundary asserts the weaker observed contract (answer != "1") with an ASSUMPTION comment documenting the mismatch. This also makes the subject-protocol spec's "previous task at chance" wording closer to reality than this spec's "every answer is ''"
 - openspec/specs/eval/subject/protocol | scanned | 12 / 12 | Subject ABC (4) + CostCounters frozen zero-defaults (5) + cost monotonicity (3). All covered by tests/subject/test_protocol.py (each test carries a "covers: eval/subject::" comment naming the scenario)
 - openspec/specs/eval/subject/snapshot | scanned | 2 / 2 | snapshot/restore contract. Both scenarios covered by tests/subject/test_snapshot_restore.py
-- openspec/specs/eval/vocab | unchecked | - | -
+- openspec/specs/eval/vocab | scanned | 16 / 16 | VOCAB shape (7) + sample determinism/bounds (5) + chance_rate (3) + VOCAB_VERSION (1). All covered by tests/stream/test_vocab.py (each test carries a "covers: eval/vocab::" comment). Notes: "negative draw rejected" test asserts ValueError only, not the exact message "n must be non-negative, got -1" (code raises it); "vocabulary content changes" proxied by test_vocab_version_is_a_non_empty_string (change-detection not testable against a fixed snapshot)
 - openspec/specs/train/alternating-cycle | unchecked | - | -
 - openspec/specs/train/eggroll-execution | unchecked | - | -
 - openspec/specs/train/stage0-training | unchecked | - | -
@@ -460,3 +460,4 @@ Format: cycle N | item | outcome
 - cycle 30 | spec coverage scan: openspec/specs/eval/subject-protocol | 15 scenarios, 13 covered, 1 uncovered (read-only flag never implemented), 1 partial (task-wiper at-chance not measured - recorded above)
 - cycle 30 | spec coverage scan: openspec/specs/eval/subject/oracles | 15 scenarios, 15 covered (test_oracles.py); conflict: TaskWiperOracle returns random VOCAB guess not "" after TASK_SWITCH (recorded above)
 - cycle 31 | spec coverage scan: openspec/specs/eval/subject/protocol | 12 scenarios, 12 covered (all via tests/subject/test_protocol.py)
+- cycle 31 | spec coverage scan: openspec/specs/eval/vocab | 16 scenarios, 16 covered (all via tests/stream/test_vocab.py)
