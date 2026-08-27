@@ -213,7 +213,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/stream/test_registry.py | fixed | 1 | cycle 17 manual PLW1510 (explicit check=False; test asserts returncode itself); ruff clean
 - tests/stream/test_render.py | clean | 0 | -
 - tests/stream/test_replay.py | clean | 0 | -
-- tests/stream/test_split_classify.py | scanned | 5 | autofix cycle 9; 4 left: B905 x2, PLC0415 x2
+- tests/stream/test_split_classify.py | fixed | 5 | autofix cycle 9; cycle 17 manual B905 x2 (zip strict=True) + PLC0415 x2 (hoisted math/_class_center/FEATURE_NOISE_STD imports to top); ruff clean
 - tests/stream/test_truth.py | unchecked | 7 | -
 - tests/stream/test_vocab.py | scanned | 2 | autofix cycle 9; 1 left: PLC0415
 - tests/subject/test_isolation.py | clean | 0 | -
@@ -354,3 +354,4 @@ Format: cycle N | item | outcome
 - cycle 16 | manual RUF043 (re.escape) in tests/stream/test_corpus.py | ruff clean, 24 tests pass
 - cycle 17 | manual PLC0415 x2 (hoisted events/truth imports to top) in tests/stream/test_hashing.py | ruff clean, 33 tests pass
 - cycle 17 | manual PLW1510 (explicit check=False) in tests/stream/test_registry.py | ruff clean, 18 tests pass
+- cycle 17 | manual B905 x2 + PLC0415 x2 in tests/stream/test_split_classify.py | ruff clean, 36 tests pass
