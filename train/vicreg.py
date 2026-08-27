@@ -123,7 +123,7 @@ class EMAProjection(nn.Module):
     def update(self) -> None:
         """Update the target weights toward the source weights by `decay`."""
         for target_param, source_param in zip(
-            self.target.parameters(), self.source.parameters()
+            self.target.parameters(), self.source.parameters(), strict=True
         ):
             target_param.mul_(self.decay).add_(source_param, alpha=1.0 - self.decay)
 

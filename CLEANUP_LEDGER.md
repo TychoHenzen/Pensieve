@@ -27,7 +27,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 13: 1365 passed, 2 skipped, 0 failed, 499s.
 - Full suite at cycle 14: 1365 passed, 2 skipped, 0 failed, 494s.
 - Full suite at cycle 18: 1365 passed, 2 skipped, 0 failed, 485s.
-- Last full-suite run: cycle 18.
+- Full suite at cycle 20: 1365 passed, 2 skipped, 0 failed, 465s.
+- Last full-suite run: cycle 20.
 
 ## Ruff baseline (cycle 0)
 
@@ -296,7 +297,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/trainer.py | fixed | 5 | autofix cycle 7, ruff clean (4 stale imports removed)
 - train/training_results.py | clean | 0 | -
 - train/training_state.py | clean | 0 | -
-- train/vicreg.py | unchecked | 1 | -
+- train/vicreg.py | fixed | 1 | B905 zip strict=True, ruff clean
 - workspace/__init__.py | fixed | 1 | autofix cycle 7, ruff clean
 - workspace/concept_slots.py | clean | 0 | -
 
@@ -370,3 +371,5 @@ Format: cycle N | item | outcome
 - cycle 19 | spec validation batch: skip_specs: true for change/stage-1..5 (planning-pass changes) | openspec validate --all --strict: 39 passed, 0 failed
 - cycle 19 | spec coverage scan: openspec/specs/core (latent-loop) | 15 scenarios, 10 covered, 5 uncovered (recorded above)
 - cycle 19 | spec coverage scan: openspec/specs/workspace (concept-slots) | 8 scenarios, 8 covered
+- cycle 20 | full suite + repo-wide ruff re-scan (rule 11) | 1365 passed, 2 skipped; 291 findings across 31 files, no clean/fixed drift
+- cycle 20 | manual B905 (zip strict=True) in train/vicreg.py | ruff clean, 3 tests pass
