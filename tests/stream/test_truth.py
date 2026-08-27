@@ -1,8 +1,14 @@
 import dataclasses
+import itertools
+from pathlib import Path
 
 import pytest
 
+from eval.stream.config import StreamConfig
 from eval.stream.events import Boundary, BoundaryKind, Idle, Observe, Probe
+from eval.stream.generators.assoc import AssocGenerator
+from eval.stream.generators.difficulty_mix import DifficultyMixGenerator
+from eval.stream.generators.split_classify import SplitClassifyGenerator
 from eval.stream.truth import ProbeTruth, StreamItem, harness_view, subject_view
 
 
@@ -192,7 +198,7 @@ def test_subject_view_preserves_position_order():
     ]
     result = list(subject_view(items))
     positions = [entry.position for entry in result]
-    assert all(a < b for a, b in zip(positions, positions[1:]))
+    assert all(a < b for a, b in itertools.pairwise(positions))
 
 
 # covers: eval/events::subject_view hides truth and hidden boundaries::visible boundary included
@@ -215,13 +221,6 @@ def test_harness_view_preserves_truth():
 
 # covers: eval/events::narration and hostile flags exist for future stages::no current consumer
 def test_no_generator_sets_narration_or_hostile(monkeypatch):
-    from pathlib import Path
-
-    from eval.stream.config import StreamConfig
-    from eval.stream.generators.assoc import AssocGenerator
-    from eval.stream.generators.difficulty_mix import DifficultyMixGenerator
-    from eval.stream.generators.split_classify import SplitClassifyGenerator
-
     fixture_dir = Path(__file__).parent / "fixtures"
     monkeypatch.setenv("PENSIVE_CORPUS_DIR", str(fixture_dir))
 
