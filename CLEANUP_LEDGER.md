@@ -30,7 +30,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 20: 1365 passed, 2 skipped, 0 failed, 465s.
 - Full suite at cycle 20 (post-fixes): 1365 passed, 2 skipped, 0 failed, 493s.
 - Full suite at cycle 21 (after 5 test-file manual fixes): 1365 passed, 2 skipped, 0 failed, 481s.
-- Last full-suite run: cycle 21.
+- Full suite at cycle 22 (after removing sentence_transformers stubs from 3 test files): 1365 passed, 2 skipped, 0 failed, 483s.
+- Last full-suite run: cycle 22.
 
 ## Ruff baseline (cycle 0)
 
@@ -238,11 +239,11 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_eggroll_resume_equivalence.py | fixed | 2 | autofix cycle 9, ruff clean
 - tests/test_eggroll_stability.py | fixed | 2 | ruff clean cycle 2; regression test added
 - tests/test_eggroll_step_equivalence.py | fixed | 1 | autofix cycle 9, ruff clean
-- tests/test_eggroll_training.py | scanned | 10 | autofix cycle 9; 8 left: E402 x6 (torch guard at top), PLC0415 x2
+- tests/test_eggroll_training.py | fixed | 10 | cycle 22 manual: removed sentence_transformers stub (E402 x6; import-speed opt only, tests don't instantiate it) + hoisted trainer_module import + dropped redundant AsdivRecord import (PLC0415 x2); ruff clean
 - tests/test_eggroll_updates.py | clean | 0 | -
 - tests/test_eggroll_workflow_guards.py | fixed | 1 | autofix cycle 9, ruff clean
 - tests/test_frozen_qwen_backbone.py | clean | 0 | -
-- tests/test_gradient_training.py | scanned | 3 | autofix (prior cycle-10 commit 4f13aff); 2 left: E402 x2
+- tests/test_gradient_training.py | fixed | 3 | cycle 22 manual: removed sentence_transformers stub (E402 x2); ruff clean
 - tests/test_latent_eval.py | clean | 0 | -
 - tests/test_latent_loop.py | clean | 0 | -
 - tests/test_narration.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
@@ -268,7 +269,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_standalone_checkpoint.py | fixed | 7 | cycle 21 manual: B905 (zip strict=True in _same_state); ruff clean
 - tests/test_trainability_types_verification.py | clean | 0 | -
 - tests/test_training_results.py | clean | 0 | -
-- tests/test_training_state.py | scanned | 4 | autofix cycle 10; 3 left: E402 x3
+- tests/test_training_state.py | fixed | 4 | cycle 22 manual: removed sentence_transformers stub (E402 x3); ruff clean
 - tests/test_vicreg.py | clean | 0 | -
 - tests/test_workspace.py | clean | 0 | -
 - train/__init__.py | clean | 0 | -
@@ -388,3 +389,4 @@ Format: cycle N | item | outcome
 - cycle 21 | end-of-cycle full suite (5 test files fixed) | 1365 passed, 2 skipped, 0 failed, 481s
 - cycle 22 | manual PLC0415 x13 (hoisted imports to top) in tests/test_stage0_trainability_identity.py | ruff clean, 13 tests pass
 - cycle 22 | manual B023 x8 (closure loop-capture -> default args) in train/run_training.py | ruff clean, 2 tests pass
+- cycle 22 | removed sentence_transformers stub from tests/test_{eggroll_training,gradient_training,training_state}.py (E402 x11) + PLC0415 x2 in eggroll_training | ruff clean, full suite 1365 passed, 2 skipped, 0 failed, 483s
