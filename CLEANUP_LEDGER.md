@@ -42,6 +42,7 @@ Baselines recorded 2026-08-27 at cycle 0.
   memory-mapped safetensors slice itself, not the thread pool). Third run passed.
   Still intermittent, still environment-blocked, not a code failure.
 - Last full-suite run: cycle 33 (passed, time not recorded).
+- Full suite at cycle 39 (after 4 test-file additions): 1379 passed, 2 skipped, 0 failed, 1169s.
 
 ## Ruff baseline (cycle 0)
 
@@ -506,3 +507,4 @@ Format: cycle N | item | outcome
 - cycle 39 | write test for codecs "frozen decoder weights" | added test_decoder_model_params_frozen in test_codecs_freezing.py; ruff clean, 6 tests pass (test_codecs_freezing.py)
 - cycle 39 | write test for train/alternating-cycle "Epoch boundary progress records" | added test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record; ruff clean, 32 tests pass (test_run_alternating.py)
 - cycle 39 | write test for gsm8k "full dataset default" | added test_default_config_uses_all_available_problems (monkeypatched _load_split, problem_count=None yields all 7 problems); ruff clean, 12 tests pass (test_gsm8k.py)
+- cycle 39 | end-of-cycle full suite (4 test files added) | 1379 passed, 2 skipped, 0 failed, 1169s
