@@ -25,7 +25,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 11: 1365 passed, 2 skipped, 0 failed, 474s.
 - Full suite at cycle 12: 1365 passed, 2 skipped, 0 failed, 493s.
 - Full suite at cycle 13: 1365 passed, 2 skipped, 0 failed, 499s.
-- Last full-suite run: cycle 13.
+- Full suite at cycle 14: 1365 passed, 2 skipped, 0 failed, 494s.
+- Last full-suite run: cycle 14.
 
 ## Ruff baseline (cycle 0)
 
@@ -344,3 +345,4 @@ Format: cycle N | item | outcome
 - cycle 14 | manual PLC0415 in eval/subject/oracles/task_wiper.py | ruff clean, 17 covering tests pass
 - cycle 14 | scripts/fetch_corpus.py PLW2901 fixed; PLC0415 marked blocked | zstandard import is an optional [corpus] extra; hoisting would drop the friendly SystemExit message
 - cycle 14 | manual PLW2901 + UP031 in scripts/run_gate.py | ruff clean (no direct script test; py_compile ok)
+- cycle 14 | end-of-cycle full suite (4 source files: 2 oracle import hoists + 2 script fixes) | 1365 passed, 2 skipped, 0 failed, 494s
