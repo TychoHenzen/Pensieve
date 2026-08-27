@@ -13,6 +13,7 @@ from typing import Any
 import torch
 
 from codecs_module.decoder import DEFAULT_MAX_TOKENS
+from eval.gate import result_cache
 from eval.gate.answer_scoring import (
     _NUMBER_PATTERN,
     MIN_MEANINGFUL_ACCURACY,
@@ -193,7 +194,7 @@ def _select_records(
 def _validated_eos_token_id(tokenizer: Any, generation_config: Any) -> int:
     tokenizer_eos = getattr(tokenizer, "eos_token_id", None)
     if isinstance(tokenizer_eos, bool) or not isinstance(tokenizer_eos, int):
-        raise ValueError("Qwen tokenizer must define an integer EOS token")
+        raise TypeError("Qwen tokenizer must define an integer EOS token")
     configured = getattr(generation_config, "eos_token_id", None)
     configured_ids = configured if isinstance(configured, list) else [configured]
     if (
@@ -362,8 +363,6 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    from eval.gate.result_cache import write_gate_result
-
     configure_deterministic_runtime()
     args = _parse_args()
     result = run_baseline(
@@ -371,7 +370,7 @@ def main() -> None:
         development_limit=args.development_limit,
     )
 
-    write_gate_result(args.output, result)
+    result_cache.write_gate_result(args.output, result)
 
     accuracy = result["correct"] / result["total"] if result["total"] else 0.0
     print(
