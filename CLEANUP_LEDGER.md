@@ -219,7 +219,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/stream/test_vocab.py | fixed | 2 | autofix cycle 9; cycle 17 manual PLC0415 (hoisted VOCAB_VERSION import to top); ruff clean
 - tests/subject/test_isolation.py | clean | 0 | -
 - tests/subject/test_oracles.py | fixed | 2 | cycle 18 manual: B007 (value->_value) + C416 (dict comprehension -> dict()); ruff clean
-- tests/subject/test_protocol.py | unchecked | 1 | -
+- tests/subject/test_protocol.py | fixed | 1 | cycle 18 manual: PLC0415 (import abc hoisted to top); ruff clean
 - tests/subject/test_snapshot_restore.py | clean | 0 | -
 - tests/test_alternating_checkpoint.py | scanned | 5 | autofix cycle 9; 1 left: F841
 - tests/test_alternating_config.py | unchecked | 1 | -
@@ -360,3 +360,4 @@ Format: cycle N | item | outcome
 - cycle 17 | manual PLC0415 in tests/stream/test_vocab.py | ruff clean, 23 tests pass
 - cycle 18 | full suite verification (code fixes landed since cycle 14) | 1365 passed, 2 skipped, 0 failed, 485s
 - cycle 18 | manual B007 + C416 in tests/subject/test_oracles.py | ruff clean, 17 tests pass
+- cycle 18 | manual PLC0415 (import abc hoisted) in tests/subject/test_protocol.py | ruff clean, 12 tests pass
