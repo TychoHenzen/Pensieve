@@ -106,7 +106,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/baselines/__init__.py | clean | 0 | -
 - eval/baselines/ewc.py | fixed | 2 | cycle 10 manual: PLC0206 (use items(), no value mutation) + PLW0127 (removed no-op self-assignment); ruff clean
 - eval/baselines/frozen.py | clean | 0 | -
-- eval/baselines/joint.py | unchecked | 1 | -
+- eval/baselines/joint.py | fixed | 1 | cycle 10 manual: PLW0127 removed no-op self-assignment; ruff clean
 - eval/baselines/model.py | clean | 0 | -
 - eval/baselines/naive.py | scanned | 2 | autofix cycle 3; 1 left: PLW0127 self-assignment
 - eval/baselines/param_match.py | clean | 0 | -
@@ -314,3 +314,4 @@ Format: cycle N | item | outcome
 - cycle 10 | ruff autofix batch: tests/test_stage0_{checkpoint_schema,dataset_contract,identity,shapes,trainability_reports}, tests/test_{standalone_checkpoint,training_state} | 49 findings fixed, 4 files clean, 302 covering tests pass; full suite re-run: 1365 passed, 2 skipped
 - cycle 10 | manual TRY004 fixes in core/qwen_tap.py | ruff clean, 22 covering tests pass
 - cycle 10 | manual PLC0206+PLW0127 fixes in eval/baselines/ewc.py | ruff clean, 29 covering tests pass
+- cycle 10 | manual PLW0127 fix in eval/baselines/joint.py | ruff clean, 20 covering tests pass
