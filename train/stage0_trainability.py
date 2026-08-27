@@ -1249,8 +1249,8 @@ def classify_overall_trainability(
     Returns:
         Tuple of (overall_status, failed_conditions) where status is one of:
         - "objective_untrainable": overfit probe failed
-        - "bounded_trainability": at least one method viable
-        - "shared_conflict": both methods show same failure pattern
+        - "bounded_trainability_observed": at least one method viable
+        - "shared_loss_behavior_conflict": both methods show same failure pattern
         - "method_specific_failure": one method viable, one not
         - "inconclusive": insufficient evidence
 
@@ -1273,7 +1273,7 @@ def classify_overall_trainability(
     ]
 
     if len(viable_methods) >= 1:
-        return "bounded_trainability", []
+        return "bounded_trainability_observed", []
 
     if len(viable_methods) == 0:
         non_viable_statuses = set(method_statuses.values())
@@ -1281,7 +1281,7 @@ def classify_overall_trainability(
             shared_status = list(non_viable_statuses)[0]
             if shared_status in ("no_improvement", "direction_mismatch", "unsafe_update"):
                 failed_conditions.append(f"shared_{shared_status}")
-                return "shared_conflict", failed_conditions
+                return "shared_loss_behavior_conflict", failed_conditions
 
         failed_conditions.append("mixed_method_failures")
         return "method_specific_failure", failed_conditions
