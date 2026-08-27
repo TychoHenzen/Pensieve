@@ -78,9 +78,11 @@ def test_latest_checkpoint_empty_directory_returns_none(tmp_path: Path) -> None:
 def test_interrupted_write_leaves_prior_checkpoint_intact(tmp_path: Path) -> None:
     save_checkpoint(tmp_path, position=100, subject_state={"n": 1}, rng_state={})
 
-    with patch("eval.run.checkpoint.os.replace", side_effect=OSError("simulated crash")):
-        with pytest.raises(OSError, match="simulated crash"):
-            save_checkpoint(tmp_path, position=200, subject_state={"n": 2}, rng_state={})
+    with (
+        patch("eval.run.checkpoint.os.replace", side_effect=OSError("simulated crash")),
+        pytest.raises(OSError, match="simulated crash"),
+    ):
+        save_checkpoint(tmp_path, position=200, subject_state={"n": 2}, rng_state={})
 
     # The prior checkpoint at position 100 is still intact and loadable.
     latest = latest_checkpoint(tmp_path)

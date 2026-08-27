@@ -194,7 +194,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/metrics/test_oracle_integration.py | fixed | 1 | cycle 16 manual: B905 zip strict=True (equal lengths); ruff clean
 - tests/metrics/test_retention.py | clean | 0 | -
 - tests/metrics/test_transfer.py | clean | 0 | -
-- tests/run/test_checkpoint.py | unchecked | 1 | -
+- tests/run/test_checkpoint.py | fixed | 1 | cycle 16 manual: SIM117 combined nested with (patch + pytest.raises); ruff clean
 - tests/run/test_config.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/run/test_resume.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/run/test_retention_policy.py | clean | 0 | -
@@ -349,3 +349,4 @@ Format: cycle N | item | outcome
 - cycle 15 | manual UP047 (PEP 695 type param) + SIM108 (ternary) in tests/eggroll_reference.py | ruff clean, 27 covering tests pass (1 skipped)
 - cycle 16 | manual B905 (zip strict=True) in tests/instrumentation/test_difficulty_correlation.py | ruff clean, 1 test passes
 - cycle 16 | manual B905 (zip strict=True) in tests/metrics/test_oracle_integration.py | ruff clean, 5 tests pass
+- cycle 16 | manual SIM117 (combine nested with) in tests/run/test_checkpoint.py | ruff clean, 7 tests pass
