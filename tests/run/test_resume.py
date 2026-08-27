@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import json
 
+from eval.run import PROBE_LOG_FILENAME
 from eval.run.config import RunConfig
 from eval.run.runner import run
-from eval.run import PROBE_LOG_FILENAME
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
 from eval.stream.truth import ProbeTruth, StreamItem

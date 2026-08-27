@@ -167,19 +167,19 @@ Format: path | status | ruff findings at cycle 0 | notes
 - scripts/show_gate.py | fixed | 8 | autofix cycle 6, ruff clean (F541 x8)
 - scripts/show_stream.py | clean | 0 | -
 - tests/baselines/__init__.py | clean | 0 | -
-- tests/baselines/test_baselines_smoke.py | unchecked | 1 | -
+- tests/baselines/test_baselines_smoke.py | fixed | 1 | cycle 8, ruff clean (SIM114+SIM101 merged by hand)
 - tests/baselines/test_param_match.py | clean | 0 | -
 - tests/eggroll_reference.py | unchecked | 2 | -
 - tests/eggroll_stability_fixtures.py | clean | 0 | -
 - tests/gate/__init__.py | clean | 0 | -
 - tests/gate/test_gate_smoke.py | clean | 0 | -
 - tests/gate/test_numerical_answer_scoring.py | clean | 0 | -
-- tests/gate/test_stage0_gate_report.py | unchecked | 1 | -
-- tests/gate/test_stage0_latent_evaluation.py | unchecked | 1 | -
-- tests/gate/test_stage0_result_cache.py | unchecked | 1 | -
-- tests/gate/test_stage0_run_gate.py | unchecked | 2 | -
+- tests/gate/test_stage0_gate_report.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_latent_evaluation.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_result_cache.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_run_gate.py | fixed | 2 | autofix cycle 8, ruff clean
 - tests/gate/test_stage0_slot_ablation.py | clean | 0 | -
-- tests/gate/test_stage0_token_baseline.py | unchecked | 1 | -
+- tests/gate/test_stage0_token_baseline.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/instrumentation/__init__.py | clean | 0 | -
 - tests/instrumentation/test_difficulty_correlation.py | unchecked | 1 | -
 - tests/instrumentation/test_instrumentation_fields.py | clean | 0 | -
@@ -190,11 +190,11 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/metrics/test_retention.py | clean | 0 | -
 - tests/metrics/test_transfer.py | clean | 0 | -
 - tests/run/test_checkpoint.py | unchecked | 1 | -
-- tests/run/test_config.py | unchecked | 1 | -
-- tests/run/test_resume.py | unchecked | 1 | -
+- tests/run/test_config.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/run/test_resume.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/run/test_retention_policy.py | clean | 0 | -
-- tests/run/test_runner.py | unchecked | 1 | -
-- tests/stream/test_asdiv_a.py | unchecked | 1 | -
+- tests/run/test_runner.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/stream/test_asdiv_a.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/stream/test_assoc.py | unchecked | 4 | -
 - tests/stream/test_chance.py | clean | 0 | -
 - tests/stream/test_corpus.py | unchecked | 1 | -
@@ -305,3 +305,4 @@ Format: cycle N | item | outcome
 - cycle 5 | ruff autofix batch: eval/gate/{run_gate,slot_ablation,token_cot_baseline}, eval/run/runner, eval/stage0_identity, eval/stream/{generator,registry}, eval/stream/generators/{asdiv_a,split_classify} | 12 findings fixed, 129 covering tests pass
 - cycle 6 | ruff autofix batch: eval/subjects/latent_core, scripts/{run_gate,show_gate}, train/{alternating_checkpoint,alternating_config,alternating_scheduler,answer_objective,eggroll_trainer,plot_training,run_alternating} | 26 findings fixed, 107 covering tests pass
 - cycle 7 | ruff autofix batch: train/{run_eggroll,run_eggroll_stability,run_stage0_trainability,search_alignment_weight,stage0_checkpoint,stage0_data,stage0_trainability,standalone_checkpoint,trainer}, workspace/__init__ | 39 findings fixed, 429 covering tests pass
+- cycle 8 | ruff autofix batch: tests/baselines/test_baselines_smoke, tests/gate/{gate_report,latent_evaluation,result_cache,run_gate,token_baseline}, tests/run/{config,resume,runner}, tests/stream/test_asdiv_a | 12 findings fixed, all 10 files clean, 185 tests pass

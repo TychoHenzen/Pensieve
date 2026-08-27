@@ -26,7 +26,6 @@ from eval.stream.generators.asdiv_a import (
     select_asdiv_a_records,
 )
 
-
 EOS_TOKEN_ID = 151_645
 FULL_TEST_COUNT = 520
 

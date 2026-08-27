@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from eval.run.config import RunConfig, config_hash, resolve_config
+from eval.run.config import config_hash, resolve_config
 from eval.stream.config import StreamConfig
 
 _BASE_CONFIG: dict[str, Any] = {
