@@ -263,7 +263,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_stage0_dataset_contract.py | fixed | 1 | autofix cycle 10, ruff clean
 - tests/test_stage0_identity.py | fixed | 1 | autofix cycle 10, ruff clean
 - tests/test_stage0_shapes.py | fixed | 1 | autofix cycle 10, ruff clean
-- tests/test_stage0_trainability_identity.py | unchecked | 13 | -
+- tests/test_stage0_trainability_identity.py | fixed | 13 | cycle 22 manual: PLC0415 x13 (hoisted train.stage0_trainability imports to top); ruff clean
 - tests/test_stage0_trainability_reports.py | scanned | 210 | autofix cycle 10; 171 left: PLC0415 x138, C408 x25, BLE001 x3, SIM222 x2, F841 x1, RUF059 x1, SIM102 x1
 - tests/test_standalone_checkpoint.py | fixed | 7 | cycle 21 manual: B905 (zip strict=True in _same_state); ruff clean
 - tests/test_trainability_types_verification.py | clean | 0 | -
@@ -386,3 +386,4 @@ Format: cycle N | item | outcome
 - cycle 21 | manual B905 (zip strict=True in _same_state) in tests/test_standalone_checkpoint.py | ruff clean, 9 tests pass
 - cycle 21 | manual PLW0108 (lambda -> exposed.append) in tests/test_stage0_checkpoint_resume.py | ruff clean, 9 tests pass
 - cycle 21 | end-of-cycle full suite (5 test files fixed) | 1365 passed, 2 skipped, 0 failed, 481s
+- cycle 22 | manual PLC0415 x13 (hoisted imports to top) in tests/test_stage0_trainability_identity.py | ruff clean, 13 tests pass

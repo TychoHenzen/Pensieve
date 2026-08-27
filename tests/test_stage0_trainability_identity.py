@@ -8,16 +8,18 @@ from pathlib import Path
 
 import pytest
 
+from train.stage0_trainability import (
+    TrainabilityReportValidationError,
+    canonical_trainability_implementation_identity,
+    load_and_validate_stability_report,
+)
+
 
 class TestTrainabilityImplementationIdentity:
     """Test canonical trainability implementation identity contract."""
 
     def test_implementation_identity_structure(self) -> None:
         """Verify implementation identity has correct structure."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         identity = canonical_trainability_implementation_identity(repo_root)
 
@@ -28,10 +30,6 @@ class TestTrainabilityImplementationIdentity:
 
     def test_implementation_identity_sources_ordered(self) -> None:
         """Verify implementation identity sources are in canonical order."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         identity = canonical_trainability_implementation_identity(repo_root)
 
@@ -42,10 +40,6 @@ class TestTrainabilityImplementationIdentity:
 
     def test_implementation_identity_all_digests_valid(self) -> None:
         """Verify all source digests are valid SHA-256."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         identity = canonical_trainability_implementation_identity(repo_root)
 
@@ -57,10 +51,6 @@ class TestTrainabilityImplementationIdentity:
 
     def test_implementation_identity_includes_trainability_module(self) -> None:
         """Verify implementation identity includes stage0_trainability.py."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         identity = canonical_trainability_implementation_identity(repo_root)
 
@@ -69,10 +59,6 @@ class TestTrainabilityImplementationIdentity:
 
     def test_implementation_identity_deterministic(self) -> None:
         """Verify implementation identity is deterministic."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         identity1 = canonical_trainability_implementation_identity(repo_root)
         identity2 = canonical_trainability_implementation_identity(repo_root)
@@ -86,12 +72,6 @@ class TestStabilityReportLoader:
 
     def test_loader_rejects_missing_report(self) -> None:
         """Verify loader rejects missing report file."""
-        from train.stage0_trainability import (
-            TrainabilityReportValidationError,
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
         missing_path = Path("/nonexistent/report.json")
@@ -107,12 +87,6 @@ class TestStabilityReportLoader:
 
     def test_loader_rejects_malformed_json(self) -> None:
         """Verify loader rejects malformed JSON."""
-        from train.stage0_trainability import (
-            TrainabilityReportValidationError,
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
@@ -136,12 +110,6 @@ class TestStabilityReportLoader:
 
     def test_loader_rejects_passing_report(self) -> None:
         """Verify loader rejects passing report (not failed)."""
-        from train.stage0_trainability import (
-            TrainabilityReportValidationError,
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
@@ -173,11 +141,6 @@ class TestStabilityReportLoader:
         self,
     ) -> None:
         """Verify loader accepts failed report with matching implementation."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
@@ -218,12 +181,6 @@ class TestStabilityReportLoader:
 
     def test_loader_rejects_implementation_mismatch(self) -> None:
         """Verify loader rejects report with different implementation."""
-        from train.stage0_trainability import (
-            TrainabilityReportValidationError,
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
@@ -266,12 +223,6 @@ class TestStabilityReportLoader:
 
     def test_loader_rejects_record_count_mismatch(self) -> None:
         """Verify loader rejects report with different record count."""
-        from train.stage0_trainability import (
-            TrainabilityReportValidationError,
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
@@ -315,11 +266,6 @@ class TestReportDigestConsistency:
 
     def test_report_digest_deterministic(self) -> None:
         """Verify report digest is deterministic."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
@@ -363,11 +309,6 @@ class TestReportDigestConsistency:
 
     def test_report_digest_differs_on_content_change(self) -> None:
         """Verify report digest changes when content changes."""
-        from train.stage0_trainability import (
-            canonical_trainability_implementation_identity,
-            load_and_validate_stability_report,
-        )
-
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
