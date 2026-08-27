@@ -481,3 +481,4 @@ Format: cycle N | item | outcome
 - cycle 32 | archived-changes audit: 2026-08-20-throttle-alternating-progress-logging | clean: interval validation + filtering shipped (recorded above)
 - cycle 32 | archived-changes audit: 2026-08-22-implement-hardware-efficient-eggroll | clean: factorized eggroll + qwen tap + benchmark shipped, no stubs (recorded above)
 - cycle 32 | archived-changes audit: 2026-08-22-replace-stage0-dataset-and-backbone | clean: Calc-ASDiv_A + frozen Qwen + 896-dim shipped; capability renamed calc-mawps -> asdiv-a (recorded above)
+- cycle 32 | repo-wide ruff re-scan (rule 11: all archived changes + file rows exhausted) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
