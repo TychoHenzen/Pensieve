@@ -161,7 +161,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/subject/oracles/cheater.py | clean | 0 | -
 - eval/subject/oracles/forgetful.py | fixed | 1 | cycle 12 manual: PLC0415 (format_features import hoisted to top); ruff clean
 - eval/subject/oracles/perfect_memory.py | fixed | 1 | cycle 14 manual: PLC0415 (format_features import hoisted to top); ruff clean
-- eval/subject/oracles/task_wiper.py | unchecked | 1 | -
+- eval/subject/oracles/task_wiper.py | fixed | 1 | cycle 14 manual: PLC0415 (format_features import hoisted to top); ruff clean
 - eval/subject/oracles/variable_compute.py | clean | 0 | -
 - eval/subjects/__init__.py | clean | 0 | -
 - eval/subjects/latent_core.py | fixed | 1 | autofix cycle 6, ruff clean
@@ -341,3 +341,4 @@ Format: cycle N | item | outcome
 - cycle 13 | end-of-cycle full suite (4 source files incl. stage0_identity import hoisting) | 1365 passed, 2 skipped, 0 failed, 499s
 - cycle 14 | eval/stream/render.py TRY004 marked blocked | spec render/spec.md:102 requires ValueError for Idle; TypeError would violate spec + break tests
 - cycle 14 | manual PLC0415 in eval/subject/oracles/perfect_memory.py | ruff clean, 17 covering tests pass
+- cycle 14 | manual PLC0415 in eval/subject/oracles/task_wiper.py | ruff clean, 17 covering tests pass
