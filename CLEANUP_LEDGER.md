@@ -186,7 +186,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/gate/test_stage0_slot_ablation.py | clean | 0 | -
 - tests/gate/test_stage0_token_baseline.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/instrumentation/__init__.py | clean | 0 | -
-- tests/instrumentation/test_difficulty_correlation.py | unchecked | 1 | -
+- tests/instrumentation/test_difficulty_correlation.py | fixed | 1 | cycle 16 manual: B905 zip strict=True (rx/ry same length); ruff clean
 - tests/instrumentation/test_instrumentation_fields.py | clean | 0 | -
 - tests/metrics/__init__.py | clean | 0 | -
 - tests/metrics/test_accuracy.py | clean | 0 | -
@@ -347,3 +347,4 @@ Format: cycle N | item | outcome
 - cycle 14 | manual PLW2901 + UP031 in scripts/run_gate.py | ruff clean (no direct script test; py_compile ok)
 - cycle 14 | end-of-cycle full suite (4 source files: 2 oracle import hoists + 2 script fixes) | 1365 passed, 2 skipped, 0 failed, 494s
 - cycle 15 | manual UP047 (PEP 695 type param) + SIM108 (ternary) in tests/eggroll_reference.py | ruff clean, 27 covering tests pass (1 skipped)
+- cycle 16 | manual B905 (zip strict=True) in tests/instrumentation/test_difficulty_correlation.py | ruff clean, 1 test passes

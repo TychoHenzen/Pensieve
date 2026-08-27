@@ -28,7 +28,7 @@ def _spearman(xs: list[float], ys: list[float]) -> float:
     n = len(xs)
     mean_rx = sum(rx) / n
     mean_ry = sum(ry) / n
-    cov = sum((a - mean_rx) * (b - mean_ry) for a, b in zip(rx, ry))
+    cov = sum((a - mean_rx) * (b - mean_ry) for a, b in zip(rx, ry, strict=True))
     var_x = sum((a - mean_rx) ** 2 for a in rx)
     var_y = sum((b - mean_ry) ** 2 for b in ry)
     return cov / (var_x * var_y) ** 0.5
