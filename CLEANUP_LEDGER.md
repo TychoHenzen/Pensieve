@@ -202,7 +202,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/stream/test_asdiv_a.py | fixed | 1 | autofix cycle 8, ruff clean
 - tests/stream/test_assoc.py | fixed | 4 | cycle 16 manual: B905 zip strict=True, SIM102 combined nested if, ISC004 x2 parenthesized implicit concat; ruff clean
 - tests/stream/test_chance.py | clean | 0 | -
-- tests/stream/test_corpus.py | unchecked | 1 | -
+- tests/stream/test_corpus.py | fixed | 1 | cycle 16 manual: RUF043 match=re.escape(...); ruff clean
 - tests/stream/test_difficulty_mix.py | clean | 0 | -
 - tests/stream/test_events.py | fixed | 1 | autofix cycle 9, ruff clean
 - tests/stream/test_generator.py | clean | 0 | -
@@ -351,3 +351,4 @@ Format: cycle N | item | outcome
 - cycle 16 | manual B905 (zip strict=True) in tests/metrics/test_oracle_integration.py | ruff clean, 5 tests pass
 - cycle 16 | manual SIM117 (combine nested with) in tests/run/test_checkpoint.py | ruff clean, 7 tests pass
 - cycle 16 | manual B905 + SIM102 + ISC004 x2 in tests/stream/test_assoc.py | ruff clean, 49 tests pass
+- cycle 16 | manual RUF043 (re.escape) in tests/stream/test_corpus.py | ruff clean, 24 tests pass
