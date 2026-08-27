@@ -287,7 +287,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/eggroll_stability_guard.py | fixed | 1 | cycle 18 manual: ISC004 (parenthesized implicit concat inside tuple arg); ruff clean
 - train/eggroll_trainer.py | fixed | 7 | cycle 23 manual: E731 (lambda -> def) + PLC0415 (removed redundant deferred AsdivRecord import, already top-level); ruff clean
 - train/eggroll_updates.py | fixed | 1 | cycle 19 manual: SIM108 ternary conversion; ruff clean
-- train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
+- train/plot_training.py | fixed | 8 | cycle 24 manual: TRY004 x2 (type checks -> TypeError), SIM108 (ternary), E731 x2 (lambda -> def), RUF046 (drop redundant int()); ruff clean
 - train/run_alternating.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted numpy import to top); ruff clean
 - train/run_eggroll.py | scanned | 9 | autofix cycle 7; 8 left: B023 x8 (one closure)
 - train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
@@ -400,3 +400,4 @@ Format: cycle N | item | outcome
 - cycle 23 | end-of-cycle full suite (5 train/ files fixed) | 1365 passed, 2 skipped, 0 failed, 489s
 - cycle 24 | manual PLW0108 x2 + SIM117 x3 in tests/test_stage0_checkpoint_container.py | ruff clean, 34 tests pass
 - cycle 24 | manual SIM102 x2 + SIM105 + PLC0415 in train/stage0_checkpoint.py | ruff clean, 140 checkpoint tests pass
+- cycle 24 | manual TRY004 x2 + SIM108 + E731 x2 + RUF046 in train/plot_training.py | ruff clean, 3 tests pass
