@@ -58,7 +58,7 @@ def test_different_seeds_produce_different_streams():
     assert [item.event for item in first] != [item.event for item in second]
 
 
-# covers: eval/generators/gsm8k::truth isolation::subject_view carries no ProbeTruth
+# covers: eval/generators/gsm8k::GSM8K generator follows the v1 stream schema::truth on side channel only
 def test_subject_view_carries_no_truth():
     items = _items()
     subject_events = list(subject_view(items))
@@ -67,16 +67,17 @@ def test_subject_view_carries_no_truth():
         assert not hasattr(event, "truth")
 
 
-# covers: eval/generators/gsm8k::truth isolation::rendered probe text contains no answer
-def test_rendered_probe_text_contains_no_answer():
+# covers: eval/generators/gsm8k::GSM8K generator follows the v1 stream schema::truth on side channel only
+def test_rendered_probe_text_leaks_no_answer_probe_id_or_task_id():
     items = _items()
     for item in items:
         if not isinstance(item.event, Probe):
             continue
         rendered = render_event(item.event)
         assert item.truth is not None
-        answer = str(item.truth.answer)
-        assert answer not in rendered
+        assert str(item.truth.answer) not in rendered
+        assert item.event.probe_id not in rendered
+        assert item.event.task_id not in rendered
 
 
 # covers: eval/generators/gsm8k::GSM8K generator yields a stream of math word problems::observe events contain word problems
