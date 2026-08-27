@@ -62,6 +62,11 @@ def _row_error(split: str, position: int, row: object, detail: str) -> ValueErro
     return ValueError(f"Calc-ASDiv_A {split} row {position} ({identity}): {detail}")
 
 
+def _require_finite_decimal(decimal: Decimal) -> None:
+    if not decimal.is_finite():
+        raise ValueError("result is not finite")
+
+
 def _parse_target(value: object) -> tuple[str, Fraction]:
     if not isinstance(value, str) or len(value) > 512 or _NUMBER.fullmatch(value) is None:
         raise ValueError("result is not a bounded integer, decimal, or fraction")
@@ -73,8 +78,7 @@ def _parse_target(value: object) -> tuple[str, Fraction]:
             rational = Fraction(normalized)
         elif "." in normalized:
             decimal = Decimal(normalized)
-            if not decimal.is_finite():
-                raise ValueError("result is not finite")
+            _require_finite_decimal(decimal)
             rational = Fraction(decimal)
         else:
             rational = Fraction(int(normalized))
@@ -110,8 +114,6 @@ def _parse_source_target(value: object) -> tuple[str, Fraction]:
 
 
 def _validate_result_float(value: object, target: Fraction) -> None:
-    if isinstance(value, bool):
-        raise ValueError("result_float is not finite")
     try:
         decimal_value = Decimal(str(value))
     except (InvalidOperation, ValueError) as error:

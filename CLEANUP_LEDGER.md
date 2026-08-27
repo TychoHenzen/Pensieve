@@ -142,7 +142,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/stream/events.py | fixed | 1 | cycle 11 manual: UP007 (Union -> X | Y); ruff clean
 - eval/stream/generator.py | fixed | 1 | autofix cycle 5, ruff clean
 - eval/stream/generators/__init__.py | clean | 0 | -
-- eval/stream/generators/asdiv_a.py | scanned | 4 | autofix cycle 5; 2 left: TRY301, TRY004
+- eval/stream/generators/asdiv_a.py | fixed | 4 | autofix cycle 5; cycle 13 manual: TRY301 (is_finite raise extracted to _require_finite_decimal) + TRY004 (removed redundant bool isinstance guard; Decimal(str(bool)) already raises InvalidOperation); ruff clean
 - eval/stream/generators/assoc.py | clean | 0 | -
 - eval/stream/generators/difficulty_mix.py | unchecked | 1 | -
 - eval/stream/generators/gsm8k.py | unchecked | 1 | -
@@ -333,3 +333,4 @@ Format: cycle N | item | outcome
 - cycle 12 | manual PLC0415 in eval/subject/oracles/forgetful.py | ruff clean, 17 covering tests pass
 - cycle 12 | end-of-cycle full suite (5 files incl. 2 __init__ import reorders) | 1365 passed, 2 skipped, 0 failed, 493s
 - cycle 13 | manual PLC0415 x7 + TRY301 x2 in eval/stage0_identity.py | ruff clean, 273 covering tests pass (1 skipped)
+- cycle 13 | manual TRY301 + TRY004 in eval/stream/generators/asdiv_a.py | ruff clean, 18 covering tests pass
