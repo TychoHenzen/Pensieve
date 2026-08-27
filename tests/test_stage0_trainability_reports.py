@@ -2195,10 +2195,10 @@ class TestTableDrivenClassification:
         "overfit_status,method_statuses,expected_overall",
         [
             ("objective_untrainable", {}, "objective_untrainable"),
-            ("passed", {"gradient": "viable"}, "bounded_trainability"),
-            ("passed", {"gradient": "viable", "eggroll": "viable"}, "bounded_trainability"),
+            ("passed", {"gradient": "viable"}, "bounded_trainability_observed"),
+            ("passed", {"gradient": "viable", "eggroll": "viable"}, "bounded_trainability_observed"),
             ("passed", {"gradient": "no_improvement", "eggroll": "unsafe_update"}, "method_specific_failure"),
-            ("passed", {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"}, "shared_conflict"),
+            ("passed", {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"}, "shared_loss_behavior_conflict"),
             ("passed", {}, "inconclusive"),
         ],
     )
@@ -2474,7 +2474,7 @@ class TestOverallClassification:
             {"gradient": "viable", "eggroll": "no_improvement"},
         )
 
-        assert overall == "bounded_trainability"
+        assert overall == "bounded_trainability_observed"
         assert len(conditions) == 0
 
     def test_overall_bounded_trainability_both_viable(self) -> None:
@@ -2486,7 +2486,7 @@ class TestOverallClassification:
             {"gradient": "viable", "eggroll": "viable"},
         )
 
-        assert overall == "bounded_trainability"
+        assert overall == "bounded_trainability_observed"
         assert len(conditions) == 0
 
     def test_overall_shared_conflict(self) -> None:
@@ -2498,7 +2498,7 @@ class TestOverallClassification:
             {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"},
         )
 
-        assert overall == "shared_conflict"
+        assert overall == "shared_loss_behavior_conflict"
         assert "shared_direction_mismatch" in conditions
 
     def test_overall_method_specific_failure(self) -> None:
