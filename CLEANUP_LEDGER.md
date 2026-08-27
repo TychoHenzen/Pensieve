@@ -87,8 +87,33 @@ Format: path | decision (proposed/approved/rejected) | reason
 Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/codecs | scanned | 17 / 10 | decoder+encoder+narration. Uncovered: "answer returns decoded text", "answer does not mutate workspace", "observe writes encoded input to workspace", "narration field populated", "narration field absent when disabled", "off by default", "enabled via config". Conflicts/gaps: answer() runs latent_loop.run which mutates workspace in place (contradicts "answer does not mutate workspace"; overlaps core "answer runs latent loop then decoder"); narration is only a LatentCoreSubject constructor arg, eval/run/runner.py discards observe's return and never writes event.narration, no run-config toggle exists
 - openspec/specs/core | scanned | 15 / 10 | latent-loop. Uncovered: "different step counts produce different compute", "flops counter reflects forward passes", "all protocol methods present", "observe runs encoder then latent loop", "answer runs latent loop then decoder"
-- openspec/specs/eval | unchecked | - | -
-- openspec/specs/train | unchecked | - | -
+- openspec/specs/eval/baselines | unchecked | - | -
+- openspec/specs/eval/config | unchecked | - | -
+- openspec/specs/eval/corpus | unchecked | - | -
+- openspec/specs/eval/events | unchecked | - | -
+- openspec/specs/eval/generator | unchecked | - | -
+- openspec/specs/eval/generators/asdiv-a | unchecked | - | -
+- openspec/specs/eval/generators/assoc | unchecked | - | -
+- openspec/specs/eval/generators/difficulty-mix | unchecked | - | -
+- openspec/specs/eval/generators/gsm8k | unchecked | - | -
+- openspec/specs/eval/generators/split-classify | unchecked | - | -
+- openspec/specs/eval/instrumentation | unchecked | - | -
+- openspec/specs/eval/metrics | unchecked | - | -
+- openspec/specs/eval/package | unchecked | - | -
+- openspec/specs/eval/persistence | unchecked | - | -
+- openspec/specs/eval/render | unchecked | - | -
+- openspec/specs/eval/reproduction-gate | unchecked | - | -
+- openspec/specs/eval/serialize | unchecked | - | -
+- openspec/specs/eval/stage0-gate | unchecked | - | -
+- openspec/specs/eval/subject-protocol | unchecked | - | -
+- openspec/specs/eval/subject/isolation | unchecked | - | -
+- openspec/specs/eval/subject/oracles | unchecked | - | -
+- openspec/specs/eval/subject/protocol | unchecked | - | -
+- openspec/specs/eval/subject/snapshot | scanned | 2 / 2 | snapshot/restore contract. Both scenarios covered by tests/subject/test_snapshot_restore.py
+- openspec/specs/eval/vocab | unchecked | - | -
+- openspec/specs/train/alternating-cycle | unchecked | - | -
+- openspec/specs/train/eggroll-execution | unchecked | - | -
+- openspec/specs/train/stage0-training | unchecked | - | -
 - openspec/specs/workspace | scanned | 8 / 8 | concept-slots. All scenarios covered
 
 ## Archived changes audit
@@ -412,3 +437,4 @@ Format: cycle N | item | outcome
 - cycle 26 | manual fixes in tests/test_stage0_trainability_reports.py: hoisted 138 PLC0415 + C408 x25 + F841 + RUF059 + SIM102 + SIM222 x2 + BLE001 x3 | ruff clean, 156 tests pass (538s)
 - cycle 26 | finding: 3 recalibration tests are vacuous placeholders (test_trainability_cannot_authorize_full_gradient/eggroll, test_trainability_recalibration_eligibility_not_full_training) - docstrings claim authorization limits compute_recalibration_eligibility never models; SIM222 exposed the vacuous asserts, fixed to `assert True` to preserve behavior, real assertions left for a later item
 - cycle 26 | repo-wide ruff re-scan (rule 11: no unchecked/scanned rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons; no clean/fixed drift
+- cycle 26 | spec coverage scan: openspec/specs/eval/subject/snapshot | 2 scenarios, 2 covered (both via tests/subject/test_snapshot_restore.py). Also split the coarse eval/train spec-coverage rows into 27 per-capability rows
