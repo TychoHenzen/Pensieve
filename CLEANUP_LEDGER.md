@@ -290,7 +290,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/run_eggroll.py | scanned | 9 | autofix cycle 7; 8 left: B023 x8 (one closure)
 - train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
 - train/run_stage0_trainability.py | scanned | 27 | autofix cycle 7 (11 stale imports removed); 7 left: PLC0415 x2, BLE001 x3, F841, TRY004
-- train/run_training.py | unchecked | 8 | -
+- train/run_training.py | fixed | 8 | cycle 22 manual: B023 x8 (bound _on_step loop captures as default args); ruff clean
 - train/search_alignment_weight.py | fixed | 5 | SIM102 combined nested if, ruff clean
 - train/stage0_checkpoint.py | scanned | 6 | autofix cycle 7; 4 left: SIM102 x2, SIM105, PLC0415
 - train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
@@ -387,3 +387,4 @@ Format: cycle N | item | outcome
 - cycle 21 | manual PLW0108 (lambda -> exposed.append) in tests/test_stage0_checkpoint_resume.py | ruff clean, 9 tests pass
 - cycle 21 | end-of-cycle full suite (5 test files fixed) | 1365 passed, 2 skipped, 0 failed, 481s
 - cycle 22 | manual PLC0415 x13 (hoisted imports to top) in tests/test_stage0_trainability_identity.py | ruff clean, 13 tests pass
+- cycle 22 | manual B023 x8 (closure loop-capture -> default args) in train/run_training.py | ruff clean, 2 tests pass
