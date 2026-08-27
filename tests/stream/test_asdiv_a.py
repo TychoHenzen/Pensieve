@@ -152,10 +152,16 @@ def test_selection_is_repeatable_and_binds_every_identity_input() -> None:
         problem_count=3,
         revision=ASDIV_REVISION,
     )
+    changed_split = select_asdiv_a_records(records, split="train", seed=17, problem_count=3)
+    changed_seed = select_asdiv_a_records(records, split="test", seed=18, problem_count=3)
+    changed_count = select_asdiv_a_records(records, split="test", seed=17, problem_count=2)
 
     assert baseline == repeated
     assert baseline.identity != changed_revision
     assert baseline.identity != changed_records
+    assert baseline.identity != changed_split.identity
+    assert baseline.identity != changed_seed.identity
+    assert baseline.identity != changed_count.identity
 
 
 def test_generator_emits_one_public_question_then_one_numerical_probe() -> None:
