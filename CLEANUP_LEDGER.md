@@ -82,7 +82,7 @@ Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/core | scanned | 15 / 10 | latent-loop. Uncovered: "different step counts produce different compute", "flops counter reflects forward passes", "all protocol methods present", "observe runs encoder then latent loop", "answer runs latent loop then decoder"
 - openspec/specs/eval | unchecked | - | -
 - openspec/specs/train | unchecked | - | -
-- openspec/specs/workspace | unchecked | - | -
+- openspec/specs/workspace | scanned | 8 / 8 | concept-slots. All scenarios covered
 
 ## Archived changes audit
 
@@ -369,3 +369,4 @@ Format: cycle N | item | outcome
 - cycle 19 | spec validation batch: SHOULD -> MUST in eval/{events,generators/assoc,generators/split-classify,serialize,subject-protocol,vocab} | all strict-valid
 - cycle 19 | spec validation batch: skip_specs: true for change/stage-1..5 (planning-pass changes) | openspec validate --all --strict: 39 passed, 0 failed
 - cycle 19 | spec coverage scan: openspec/specs/core (latent-loop) | 15 scenarios, 10 covered, 5 uncovered (recorded above)
+- cycle 19 | spec coverage scan: openspec/specs/workspace (concept-slots) | 8 scenarios, 8 covered
