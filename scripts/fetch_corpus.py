@@ -60,8 +60,8 @@ def _iter_documents(url: str) -> Iterator[dict]:
                     break
                 buffer += chunk
                 *lines, buffer = buffer.split(b"\n")
-                for line in lines:
-                    line = line.strip()
+                for raw_line in lines:
+                    line = raw_line.strip()
                     if not line:
                         continue
                     yield json.loads(line)
