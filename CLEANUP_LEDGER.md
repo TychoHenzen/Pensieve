@@ -138,7 +138,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/stream/config.py | clean | 0 | -
 - eval/stream/corpus.py | unchecked | 1 | -
 - eval/stream/corpus_walk.py | clean | 0 | -
-- eval/stream/events.py | unchecked | 1 | -
+- eval/stream/events.py | fixed | 1 | cycle 11 manual: UP007 (Union -> X | Y); ruff clean
 - eval/stream/generator.py | fixed | 1 | autofix cycle 5, ruff clean
 - eval/stream/generators/__init__.py | clean | 0 | -
 - eval/stream/generators/asdiv_a.py | scanned | 4 | autofix cycle 5; 2 left: TRY301, TRY004
@@ -323,3 +323,4 @@ Format: cycle N | item | outcome
 - cycle 11 | manual fixes in eval/gate/slot_ablation.py: TRY004 x3 | ruff clean, 13 covering tests pass
 - cycle 11 | manual fixes in eval/gate/token_cot_baseline.py: TRY004 x1 + PLC0415 x1 | ruff clean, 22 covering tests pass
 - cycle 11 | manual fixes in eval/gate/gate_report.py: PLC0415 x3 | ruff clean, 22 covering tests pass
+- cycle 11 | manual fix in eval/stream/events.py: UP007 | ruff clean, 38 covering tests pass

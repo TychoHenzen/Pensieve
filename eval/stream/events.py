@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import enum
 from dataclasses import dataclass
-from typing import Union
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -61,4 +60,4 @@ class Boundary(_EventBase):
     hidden_from_subject: bool = False
 
 
-Event = Union[Observe, Probe, Idle, Boundary]
+Event = Observe | Probe | Idle | Boundary
