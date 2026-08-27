@@ -45,3 +45,4 @@ checkpoints/
 
 # *.log~: backup files created during training script development
 *.log~
+.trainability_paths.txt
