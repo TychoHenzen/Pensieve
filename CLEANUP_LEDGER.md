@@ -252,7 +252,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_run_eggroll.py | fixed | 2 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_run_eggroll_stability.py | clean | 0 | -
 - tests/test_run_stage0_trainability.py | scanned | 10 | autofix (prior cycle-10 commit); 7 left: PLC0415 x7
-- tests/test_run_training.py | unchecked | 1 | -
+- tests/test_run_training.py | fixed | 1 | PLC0415 run_training import hoisted, ruff clean
 - tests/test_search_alignment_weight.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_stage0_checkpoint_container.py | scanned | 9 | autofix (prior cycle-10 commit); 5 left: PLW0108 x2, SIM117 x3
 - tests/test_stage0_checkpoint_resume.py | scanned | 2 | autofix (prior cycle-10 commit); 1 left: PLW0108
@@ -374,3 +374,4 @@ Format: cycle N | item | outcome
 - cycle 20 | full suite + repo-wide ruff re-scan (rule 11) | 1365 passed, 2 skipped; 291 findings across 31 files, no clean/fixed drift
 - cycle 20 | manual B905 (zip strict=True) in train/vicreg.py | ruff clean, 3 tests pass
 - cycle 20 | manual B905 + PLC0415 (hoisted SlotDecoder import) in train/alternating_evaluation.py | ruff clean, 7 tests pass
+- cycle 20 | manual PLC0415 (hoisted run_training import) in tests/test_run_training.py | ruff clean, 2 tests pass
