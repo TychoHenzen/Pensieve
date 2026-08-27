@@ -122,7 +122,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/gate/slot_ablation.py | fixed | 4 | autofix cycle 5; cycle 11 manual: TRY004 x3 (ValueError->TypeError on isinstance checks); ruff clean
 - eval/gate/token_cot_baseline.py | fixed | 3 | autofix cycle 5; cycle 11 manual: TRY004 x1 + PLC0415 x1 (deferred import -> result_cache module ref); ruff clean
 - eval/instrumentation.py | clean | 0 | -
-- eval/metrics/__init__.py | unchecked | 2 | -
+- eval/metrics/__init__.py | fixed | 2 | cycle 12 manual: E402 x2 (imports hoisted above METRICS_VERSION); ruff clean
 - eval/metrics/accuracy.py | clean | 0 | -
 - eval/metrics/compute.py | clean | 0 | -
 - eval/metrics/first_use.py | unchecked | 1 | -
@@ -325,3 +325,4 @@ Format: cycle N | item | outcome
 - cycle 11 | manual fixes in eval/gate/gate_report.py: PLC0415 x3 | ruff clean, 22 covering tests pass
 - cycle 11 | manual fix in eval/stream/events.py: UP007 | ruff clean, 38 covering tests pass
 - cycle 11 | end-of-cycle full suite (after 5 files incl. import hoisting) | 1365 passed, 2 skipped, 0 failed, 480s
+- cycle 12 | manual E402 x2 in eval/metrics/__init__.py | ruff clean, 78 covering tests pass
