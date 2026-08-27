@@ -3,7 +3,6 @@ from unittest.mock import Mock
 
 import pytest
 
-
 DATASET = "MU-NLPC/Calc-asdiv_a"
 DATASET_CONFIGURATION = "default"
 DATASET_REVISION = "520a6910e097ee287ecd2bb9104f7f45805f9df9"

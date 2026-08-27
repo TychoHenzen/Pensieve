@@ -17,7 +17,6 @@ import pytest
 
 from eval.stage0_identity import training_identity
 
-
 ROOT_FIELDS = {
     "schema_version",
     "identity",
@@ -350,11 +349,11 @@ def test_public_schema_constants_pin_modes_roles_and_model_names() -> None:
     module = _checkpoint_module()
 
     assert module.CHECKPOINT_SCHEMA_VERSION == 2
-    assert module.CHECKPOINT_MODES == frozenset(
+    assert frozenset(
         {"gradient", "eggroll", "alternating"}
-    )
-    assert module.OPTIMIZER_METHODS == frozenset({"gradient", "eggroll"})
-    assert module.TENSOR_ROLES == frozenset(
+    ) == module.CHECKPOINT_MODES
+    assert frozenset({"gradient", "eggroll"}) == module.OPTIMIZER_METHODS
+    assert frozenset(
         {
             "model_parameter",
             "optimizer_state",
@@ -362,7 +361,7 @@ def test_public_schema_constants_pin_modes_roles_and_model_names() -> None:
             "pytorch_cpu_rng_state",
             "pytorch_cuda_rng_state",
         }
-    )
+    ) == module.TENSOR_ROLES
     assert module.ALLOWED_MODEL_PARAMETER_PATHS == ALLOWED_PARAMETER_PATHS
 
 

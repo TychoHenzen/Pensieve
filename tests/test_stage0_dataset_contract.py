@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-from eval.stream.generators.asdiv_a import (
-    AsdivRecord,
-    select_asdiv_a_records,
-)
 from eval.stage0_identity import (
     ASDIV_CONFIGURATION,
     ASDIV_DATASET,
-    ASDIV_SOURCE_COUNT,
     ASDIV_REVISION,
+    ASDIV_SOURCE_COUNT,
+)
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    select_asdiv_a_records,
 )
 from train.stage0_data import (
     build_stage0_dataset,
     load_stage0_dataset,
     plan_eggroll_fitness_batch,
 )
-
 
 TRAIN_COUNT = 570
 VALIDATION_COUNT = 128

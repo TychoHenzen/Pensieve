@@ -8,7 +8,6 @@ from pathlib import Path
 
 import pytest
 
-from eval.stage0_identity import training_identity
 from train.eggroll_stability import ImplementationIdentity, StabilityMetrics
 from train.stage0_trainability import (
     ArmCheckpoint,
@@ -19,7 +18,6 @@ from train.stage0_trainability import (
     TrainabilityAssetIdentity,
     TrainabilityConfiguration,
     TrainabilityReport,
-    TrainabilityReportValidationError,
     build_trainability_record_selections,
     canonical_trainability_implementation_identity,
 )
@@ -565,7 +563,6 @@ class TestRecordSelections:
     def test_record_selections_with_real_dataset(self) -> None:
         """Test building record selections from real dataset."""
         from train.stage0_data import load_stage0_dataset
-        from train.stage0_trainability import build_trainability_record_selections
 
         dataset = load_stage0_dataset()
         overfit_ids, training_32_ids, held_out_64_ids = (
@@ -592,7 +589,6 @@ class TestRecordSelections:
     def test_record_selections_determinism(self) -> None:
         """Test that record selections are deterministic."""
         from train.stage0_data import load_stage0_dataset
-        from train.stage0_trainability import build_trainability_record_selections
 
         dataset = load_stage0_dataset()
         overfit_ids_1, training_32_ids_1, held_out_64_ids_1 = (
@@ -609,7 +605,6 @@ class TestRecordSelections:
     def test_record_selections_no_overlap(self) -> None:
         """Test that overfit and training selections don't overlap record IDs."""
         from train.stage0_data import load_stage0_dataset
-        from train.stage0_trainability import build_trainability_record_selections
 
         dataset = load_stage0_dataset()
         overfit_ids, training_32_ids, held_out_64_ids = (
@@ -813,8 +808,9 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_attempt_no_recommendation_fields(self) -> None:
         """Test that function signature excludes recommendation-emission capabilities."""
-        from train.stage0_trainability import run_overfit_attempt
         import inspect
+
+        from train.stage0_trainability import run_overfit_attempt
 
         sig = inspect.signature(run_overfit_attempt)
         params = list(sig.parameters.keys())
@@ -828,8 +824,9 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_attempt_accepts_required_parameters(self) -> None:
         """Test that function requires canonical parameters, no optional recommendation."""
-        from train.stage0_trainability import run_overfit_attempt
         import inspect
+
+        from train.stage0_trainability import run_overfit_attempt
 
         sig = inspect.signature(run_overfit_attempt)
         param_names = set(sig.parameters.keys())
@@ -1215,7 +1212,7 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_aligned_update_gradient(self) -> None:
         """Test gradient method with aligned prediction and observation."""
-        from train.stage0_trainability import classify_causal_result, validate_causal_safety_checks
+        from train.stage0_trainability import classify_causal_result
 
         predicted_delta = -0.1
         observed_delta = -0.12
@@ -1433,8 +1430,9 @@ class TestOverfitProbeFixtures:
 
     def test_overfit_probe_result_validity(self) -> None:
         """Test that probe results are well-formed and valid."""
-        from train.stage0_trainability import run_overfit_attempt
         import math
+
+        from train.stage0_trainability import run_overfit_attempt
 
         result = run_overfit_attempt(
             "What is 3+3?", "6", learning_rate=0.001, checkpoint_steps=(1, 4)
@@ -1543,8 +1541,8 @@ class TestMethodArms:
 
     def test_arm_evaluation_requires_non_negative_counts(self) -> None:
         """Test that ArmEvaluation validates counts."""
-        from train.stage0_trainability import ArmEvaluation
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import ArmEvaluation
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1570,8 +1568,8 @@ class TestMethodArms:
 
     def test_arm_evaluation_to_dict(self) -> None:
         """Test ArmEvaluation serialization."""
-        from train.stage0_trainability import ArmEvaluation
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import ArmEvaluation
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1662,8 +1660,8 @@ class TestMethodArms:
 
     def test_consistent_example_counting_across_checkpoints(self) -> None:
         """Test that example consumption is consistent across checkpoints."""
-        from train.stage0_trainability import ArmEvaluation, MethodArm
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import ArmEvaluation, MethodArm
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1788,8 +1786,8 @@ class TestNoUpdateControl:
 
     def test_no_update_control_requires_drift_data(self) -> None:
         """Test that NoUpdateControl requires metrics drift."""
-        from train.stage0_trainability import NoUpdateControl
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import NoUpdateControl
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1816,8 +1814,8 @@ class TestNoUpdateControl:
 
     def test_no_update_control_accepts_drift_data(self) -> None:
         """Test that NoUpdateControl accepts valid drift data."""
-        from train.stage0_trainability import NoUpdateControl
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import NoUpdateControl
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1844,8 +1842,8 @@ class TestNoUpdateControl:
 
     def test_no_update_control_to_dict(self) -> None:
         """Test NoUpdateControl serialization."""
-        from train.stage0_trainability import NoUpdateControl
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import NoUpdateControl
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1880,8 +1878,8 @@ class TestNoUpdateControl:
 
     def test_compute_metrics_drift(self) -> None:
         """Test metrics drift computation."""
-        from train.stage0_trainability import _compute_metrics_drift
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import _compute_metrics_drift
 
         baseline = StabilityMetrics(
             problem_count=64,
@@ -1930,8 +1928,8 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_passes_valid_metrics(self) -> None:
         """Test that safety check passes for valid metrics."""
-        from train.stage0_trainability import check_arm_evaluation_safety
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import check_arm_evaluation_safety
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1958,8 +1956,8 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_stops_separation_violation(self) -> None:
         """Test that safety check stops on separation floor violation."""
-        from train.stage0_trainability import check_arm_evaluation_safety
         from train.eggroll_stability import StabilityMetrics
+        from train.stage0_trainability import check_arm_evaluation_safety
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -1985,8 +1983,8 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_stops_rms_ceiling_violation(self) -> None:
         """Test that safety check stops on RMS ceiling violation."""
+        from train.eggroll_stability import ParameterRms, StabilityMetrics
         from train.stage0_trainability import check_arm_evaluation_safety
-        from train.eggroll_stability import StabilityMetrics, ParameterRms
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -2065,9 +2063,9 @@ class TestArmIntegration:
         """Test that arm state doesn't leak between arms."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
             run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2098,8 +2096,8 @@ class TestArmIntegration:
         """Test that all arms count examples identically."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
             run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2124,9 +2122,9 @@ class TestArmIntegration:
         """Test that arms complete independently."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
             run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2235,11 +2233,11 @@ class TestTableDrivenClassification:
 
     def test_method_status_all_viable_conditions(self) -> None:
         """Test that viable status requires all conditions: loss, exact, first-token, separation, RMS."""
+        from train.eggroll_stability import StabilityMetrics
         from train.stage0_trainability import (
             ArmCheckpoint,
             classify_method_status,
         )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
@@ -2294,16 +2292,17 @@ class TestTrainabilityDistinctness:
 
     def test_trainability_report_not_stability_report(self) -> None:
         """Test that trainability report is different type from stability."""
-        from train.stage0_trainability import TrainabilityReport
         from train.eggroll_stability import StabilityReport
+        from train.stage0_trainability import TrainabilityReport
 
         assert TrainabilityReport is not StabilityReport
 
     def test_trainability_field_coverage_distinct(self) -> None:
         """Test that trainability and stability have distinct fields."""
-        from train.stage0_trainability import TrainabilityReport
-        from train.eggroll_stability import StabilityReport
         import inspect
+
+        from train.eggroll_stability import StabilityReport
+        from train.stage0_trainability import TrainabilityReport
 
         trainability_fields = set(inspect.signature(TrainabilityReport).parameters.keys())
         stability_fields = set(inspect.signature(StabilityReport).parameters.keys())
@@ -2531,11 +2530,11 @@ class TestMethodStatusClassification:
 
     def test_classify_viable_status_with_improvement(self) -> None:
         """Test viable status when all conditions are met."""
+        from train.eggroll_stability import StabilityMetrics
         from train.stage0_trainability import (
             ArmCheckpoint,
             classify_method_status,
         )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
@@ -2590,11 +2589,11 @@ class TestMethodStatusClassification:
 
     def test_classify_no_improvement_status(self) -> None:
         """Test no_improvement status when loss doesn't improve."""
+        from train.eggroll_stability import StabilityMetrics
         from train.stage0_trainability import (
             ArmCheckpoint,
             classify_method_status,
         )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
@@ -2649,11 +2648,11 @@ class TestMethodStatusClassification:
 
     def test_classify_loss_behavior_conflict(self) -> None:
         """Test loss_behavior_conflict when loss improves but metrics don't."""
+        from train.eggroll_stability import StabilityMetrics
         from train.stage0_trainability import (
             ArmCheckpoint,
             classify_method_status,
         )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
@@ -2708,11 +2707,11 @@ class TestMethodStatusClassification:
 
     def test_classify_direction_mismatch_status(self) -> None:
         """Test direction_mismatch when causal result contradicts."""
+        from train.eggroll_stability import StabilityMetrics
         from train.stage0_trainability import (
             ArmCheckpoint,
             classify_method_status,
         )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
@@ -2773,9 +2772,9 @@ class TestArmFixtures:
         """Test all three arms with simple math question fixtures."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
             run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2800,9 +2799,9 @@ class TestArmFixtures:
         """Test that arms produce independent result objects."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
             run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2822,9 +2821,9 @@ class TestArmFixtures:
         """Test that all three arms complete without exceptions."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
             run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2854,10 +2853,10 @@ class TestArmFixtures:
         """Test that all arms produce valid MethodArm objects."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
             MethodArm,
+            run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(
@@ -2881,8 +2880,8 @@ class TestArmFixtures:
         """Test arms with diverse question/answer pairs."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
             run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple([
@@ -2910,9 +2909,9 @@ class TestArmFixtures:
         """Test that each arm can run independently in sequence."""
         from train.stage0_trainability import (
             FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
             run_eggroll_only_arm,
+            run_gradient_only_arm,
+            run_no_update_arm,
         )
 
         records = tuple(

@@ -21,7 +21,8 @@ Baselines recorded 2026-08-27 at cycle 0.
   time). Root conftest.py now sets HF_DEACTIVATE_ASYNC_LOAD=1 so weights
   load serially (knob verified in transformers/core_model_loading.py).
 - Full suite at cycle 7: 1365 passed, 2 skipped, 0 failed, 471s.
-- Last full-suite run: cycle 7.
+- Full suite at cycle 10: 1365 passed, 2 skipped, 0 failed, 579s.
+- Last full-suite run: cycle 10.
 
 ## Ruff baseline (cycle 0)
 
@@ -249,17 +250,17 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_search_alignment_weight.py | unchecked | 1 | -
 - tests/test_stage0_checkpoint_container.py | unchecked | 9 | -
 - tests/test_stage0_checkpoint_resume.py | unchecked | 2 | -
-- tests/test_stage0_checkpoint_schema.py | unchecked | 4 | -
+- tests/test_stage0_checkpoint_schema.py | fixed | 4 | autofix cycle 10, ruff clean
 - tests/test_stage0_cli_runtime_order.py | clean | 0 | -
-- tests/test_stage0_dataset_contract.py | unchecked | 1 | -
-- tests/test_stage0_identity.py | unchecked | 1 | -
-- tests/test_stage0_shapes.py | unchecked | 1 | -
+- tests/test_stage0_dataset_contract.py | fixed | 1 | autofix cycle 10, ruff clean
+- tests/test_stage0_identity.py | fixed | 1 | autofix cycle 10, ruff clean
+- tests/test_stage0_shapes.py | fixed | 1 | autofix cycle 10, ruff clean
 - tests/test_stage0_trainability_identity.py | unchecked | 13 | -
-- tests/test_stage0_trainability_reports.py | unchecked | 210 | -
-- tests/test_standalone_checkpoint.py | unchecked | 7 | -
+- tests/test_stage0_trainability_reports.py | scanned | 210 | autofix cycle 10; 171 left: PLC0415 x138, C408 x25, BLE001 x3, SIM222 x2, F841 x1, RUF059 x1, SIM102 x1
+- tests/test_standalone_checkpoint.py | scanned | 7 | autofix cycle 10; 1 left: B905
 - tests/test_trainability_types_verification.py | clean | 0 | -
 - tests/test_training_results.py | clean | 0 | -
-- tests/test_training_state.py | unchecked | 4 | -
+- tests/test_training_state.py | scanned | 4 | autofix cycle 10; 3 left: E402 x3
 - tests/test_vicreg.py | clean | 0 | -
 - tests/test_workspace.py | clean | 0 | -
 - train/__init__.py | clean | 0 | -
@@ -294,6 +295,9 @@ Format: path | status | ruff findings at cycle 0 | notes
 - workspace/__init__.py | fixed | 1 | autofix cycle 7, ruff clean
 - workspace/concept_slots.py | clean | 0 | -
 
+## Additional notes:
+- tests taking >10 minutes is not acceptable, optimize performance to get it down to preferably <1 minute, but at least <5
+
 ## Cycle log
 
 Format: cycle N | item | outcome
@@ -307,3 +311,4 @@ Format: cycle N | item | outcome
 - cycle 7 | ruff autofix batch: train/{run_eggroll,run_eggroll_stability,run_stage0_trainability,search_alignment_weight,stage0_checkpoint,stage0_data,stage0_trainability,standalone_checkpoint,trainer}, workspace/__init__ | 39 findings fixed, 429 covering tests pass
 - cycle 8 | ruff autofix batch: tests/baselines/test_baselines_smoke, tests/gate/{gate_report,latent_evaluation,result_cache,run_gate,token_baseline}, tests/run/{config,resume,runner}, tests/stream/test_asdiv_a | 12 findings fixed, all 10 files clean, 185 tests pass
 - cycle 9 | ruff autofix batch: tests/stream/{events,hashing,split_classify,vocab}, tests/test_{alternating_checkpoint,alternating_evaluation,eggroll_resume_equivalence,eggroll_step_equivalence,eggroll_training,eggroll_workflow_guards} | 15 findings fixed, 176 tests pass
+- cycle 10 | ruff autofix batch: tests/test_stage0_{checkpoint_schema,dataset_contract,identity,shapes,trainability_reports}, tests/test_{standalone_checkpoint,training_state} | 49 findings fixed, 4 files clean, 302 covering tests pass; full suite re-run: 1365 passed, 2 skipped
