@@ -101,7 +101,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - codecs_module/narration.py | clean | 0 | -
 - core/__init__.py | clean | 0 | -
 - core/latent_loop.py | fixed | 1 | autofix cycle 3, ruff clean
-- core/qwen_tap.py | unchecked | 2 | -
+- core/qwen_tap.py | fixed | 2 | cycle 10 manual TRY004 x2 (ValueError -> TypeError), ruff clean
 - eval/__init__.py | clean | 0 | -
 - eval/baselines/__init__.py | clean | 0 | -
 - eval/baselines/ewc.py | unchecked | 2 | -
@@ -312,3 +312,4 @@ Format: cycle N | item | outcome
 - cycle 8 | ruff autofix batch: tests/baselines/test_baselines_smoke, tests/gate/{gate_report,latent_evaluation,result_cache,run_gate,token_baseline}, tests/run/{config,resume,runner}, tests/stream/test_asdiv_a | 12 findings fixed, all 10 files clean, 185 tests pass
 - cycle 9 | ruff autofix batch: tests/stream/{events,hashing,split_classify,vocab}, tests/test_{alternating_checkpoint,alternating_evaluation,eggroll_resume_equivalence,eggroll_step_equivalence,eggroll_training,eggroll_workflow_guards} | 15 findings fixed, 176 tests pass
 - cycle 10 | ruff autofix batch: tests/test_stage0_{checkpoint_schema,dataset_contract,identity,shapes,trainability_reports}, tests/test_{standalone_checkpoint,training_state} | 49 findings fixed, 4 files clean, 302 covering tests pass; full suite re-run: 1365 passed, 2 skipped
+- cycle 10 | manual TRY004 fixes in core/qwen_tap.py | ruff clean, 22 covering tests pass

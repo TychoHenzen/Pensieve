@@ -112,7 +112,7 @@ class QwenTapAdapter:
 
         output_cache = getattr(outputs, "past_key_values", None)
         if not isinstance(output_cache, DynamicCache):
-            raise ValueError(
+            raise TypeError(
                 "expected a DynamicCache from context-prefix preparation, actual "
                 f"{type(output_cache).__name__}"
             )
@@ -421,7 +421,7 @@ class QwenTapAdapter:
                 f"actual {actual_layer_count}"
             )
         if not callable(rotary_emb):
-            raise ValueError("expected model body with callable rotary embeddings")
+            raise TypeError("expected model body with callable rotary embeddings")
         if layer_types is None or len(layer_types) < LATENT_TAP_LAYER:
             actual_type_count = len(layer_types) if layer_types is not None else None
             raise ValueError(
