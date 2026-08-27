@@ -112,6 +112,23 @@ def test_performance_gate_rejects_peak_memory_increase() -> None:
         benchmark_eggroll._performance_gate(measurements)
 
 
+# covers: train/eggroll-execution::CUDA benchmark proves a material speed improvement::Performance gate passes
+def test_performance_gate_passes_at_three_x_speedup_and_no_memory_growth() -> None:
+    measurements = {
+        "reference": benchmark_eggroll.PathMeasurements((3.0,) * 5, 3.0, 400),
+        "optimized": benchmark_eggroll.PathMeasurements((1.0,) * 5, 1.0, 400),
+    }
+
+    gate = benchmark_eggroll._performance_gate(measurements)
+
+    assert gate == {
+        "passed": True,
+        "minimum_speedup_ratio": 3.0,
+        "speed_passed": True,
+        "memory_passed": True,
+    }
+
+
 def test_main_writes_one_json_object(monkeypatch: Any, capsys: Any) -> None:
     expected = {"schema_version": 1, "speedup_ratio": 3.5}
     monkeypatch.setattr(benchmark_eggroll, "run_cuda_benchmark", lambda: expected)
