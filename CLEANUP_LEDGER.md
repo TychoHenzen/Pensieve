@@ -38,7 +38,7 @@ Baselines recorded 2026-08-27 at cycle 0.
 
 `openspec validate --all --strict --no-interactive`: 27 passed, 12 failed.
 Failing at cycle 0 (any NEW failure beyond these is a regression to fix):
-- spec/eval/corpus
+- spec/eval/corpus | fixed cycle 19 | SHOULD -> MUST in "load_corpus rejects a wordless snapshot"; strict validation now passes
 - spec/eval/events
 - spec/eval/generators/assoc
 - spec/eval/generators/split-classify
@@ -365,3 +365,4 @@ Format: cycle N | item | outcome
 - cycle 18 | manual RUF043 (match -> re.escape) in tests/test_benchmark_eggroll.py | ruff clean, 7 tests pass
 - cycle 18 | manual ISC004 (parenthesized implicit concat) in train/eggroll_stability_guard.py | ruff clean, 16 covering tests pass
 - cycle 19 | manual SIM108 (ternary) in train/eggroll_updates.py | ruff clean, 5 covering tests pass
+- cycle 19 | spec validation: eval/corpus SHOULD -> MUST (wordless-snapshot requirement) | openspec validate --strict now passes
