@@ -256,7 +256,7 @@ def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
         arms=(),
         elapsed_seconds=1.0,
     )
-    run_stage0_trainability._write_final_report(output_path, report)
+    run_stage0_trainability._write_report_to_file(report, output_path)
     assert output_path.exists()
     assert not output_path.with_name(f".{output_path.name}.tmp").exists()
     data = json.loads(output_path.read_text(encoding="utf-8"))
@@ -474,7 +474,7 @@ def test_command_output_structure_on_fixture(
         ),
     )
 
-    run_stage0_trainability._write_final_report(output, final_report)
+    run_stage0_trainability._write_report_to_file(final_report, output)
     with run_stage0_trainability.TrainabilityProgressWriter(progress) as writer:
         writer.write_record(progress_record)
 

@@ -109,6 +109,14 @@ def _run_investigation(
         return "inconclusive", failed_conditions
 
 
+def _write_report_to_file(report: TrainabilityReport, output_path: Path) -> None:
+    """Write a trainability report to JSON with exclusive-create semantics."""
+    report_json = report.canonical_json()
+    temp_path = output_path.with_name(f".{output_path.name}.tmp")
+    temp_path.write_text(report_json, encoding="utf-8")
+    os.replace(str(temp_path), str(output_path))
+
+
 def _write_final_report(
     args: argparse.Namespace,
     status: str,
