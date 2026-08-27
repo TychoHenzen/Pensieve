@@ -9,7 +9,7 @@ import pytest
 
 from eval.stream.config import StreamConfig
 from eval.stream.hashing import canonical_json, stream_hash
-from eval.stream.serialize import items_to_canonical_json, items_to_plain
+from eval.stream.serialize import items_to_plain
 
 
 def _config(**params) -> StreamConfig:

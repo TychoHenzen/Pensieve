@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from io import BytesIO
-import random
 from types import SimpleNamespace
 
 import pytest

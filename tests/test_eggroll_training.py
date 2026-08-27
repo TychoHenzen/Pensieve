@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import gc
 import sys
-from types import ModuleType, SimpleNamespace
 import weakref
+from types import ModuleType, SimpleNamespace
 
 import pytest
 import torch
@@ -13,12 +13,12 @@ sentence_transformers = ModuleType("sentence_transformers")
 sentence_transformers.SentenceTransformer = object
 sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
-from train.eggroll_trainer import EggrollTrainer
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
+from train.eggroll_trainer import EggrollTrainer
 from train.stage0_data import FitnessBatch
 from train.training_results import ExperimentPosition, StepResult
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
-from eval.stream.generators.asdiv_a import AsdivRecord
 
 
 def test_fitness_uses_canonical_post_loop_slot_variance(

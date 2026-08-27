@@ -199,25 +199,25 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/stream/test_chance.py | clean | 0 | -
 - tests/stream/test_corpus.py | unchecked | 1 | -
 - tests/stream/test_difficulty_mix.py | clean | 0 | -
-- tests/stream/test_events.py | unchecked | 1 | -
+- tests/stream/test_events.py | fixed | 1 | autofix cycle 9, ruff clean
 - tests/stream/test_generator.py | clean | 0 | -
 - tests/stream/test_gsm8k.py | clean | 0 | -
-- tests/stream/test_hashing.py | unchecked | 3 | -
+- tests/stream/test_hashing.py | scanned | 3 | autofix cycle 9; 2 left: PLC0415
 - tests/stream/test_mnist_binding.py | clean | 0 | -
 - tests/stream/test_package.py | clean | 0 | -
 - tests/stream/test_registry.py | unchecked | 1 | -
 - tests/stream/test_render.py | clean | 0 | -
 - tests/stream/test_replay.py | clean | 0 | -
-- tests/stream/test_split_classify.py | unchecked | 5 | -
+- tests/stream/test_split_classify.py | scanned | 5 | autofix cycle 9; 4 left: B905 x2, PLC0415 x2
 - tests/stream/test_truth.py | unchecked | 7 | -
-- tests/stream/test_vocab.py | unchecked | 2 | -
+- tests/stream/test_vocab.py | scanned | 2 | autofix cycle 9; 1 left: PLC0415
 - tests/subject/test_isolation.py | clean | 0 | -
 - tests/subject/test_oracles.py | unchecked | 2 | -
 - tests/subject/test_protocol.py | unchecked | 1 | -
 - tests/subject/test_snapshot_restore.py | clean | 0 | -
-- tests/test_alternating_checkpoint.py | unchecked | 5 | -
+- tests/test_alternating_checkpoint.py | scanned | 5 | autofix cycle 9; 1 left: F841
 - tests/test_alternating_config.py | unchecked | 1 | -
-- tests/test_alternating_evaluation.py | unchecked | 2 | -
+- tests/test_alternating_evaluation.py | scanned | 2 | autofix cycle 9; 1 left: B905
 - tests/test_alternating_scheduler.py | clean | 0 | -
 - tests/test_answer_objective.py | clean | 0 | -
 - tests/test_asdiv_stage0_contract.py | clean | 0 | -
@@ -226,12 +226,12 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_eggroll_factorized.py | clean | 0 | -
 - tests/test_eggroll_perturbations.py | clean | 0 | -
 - tests/test_eggroll_reference.py | clean | 0 | -
-- tests/test_eggroll_resume_equivalence.py | unchecked | 2 | -
+- tests/test_eggroll_resume_equivalence.py | fixed | 2 | autofix cycle 9, ruff clean
 - tests/test_eggroll_stability.py | fixed | 2 | ruff clean cycle 2; regression test added
-- tests/test_eggroll_step_equivalence.py | unchecked | 1 | -
-- tests/test_eggroll_training.py | unchecked | 10 | -
+- tests/test_eggroll_step_equivalence.py | fixed | 1 | autofix cycle 9, ruff clean
+- tests/test_eggroll_training.py | scanned | 10 | autofix cycle 9; 8 left: E402 x6 (torch guard at top), PLC0415 x2
 - tests/test_eggroll_updates.py | clean | 0 | -
-- tests/test_eggroll_workflow_guards.py | unchecked | 1 | -
+- tests/test_eggroll_workflow_guards.py | fixed | 1 | autofix cycle 9, ruff clean
 - tests/test_frozen_qwen_backbone.py | clean | 0 | -
 - tests/test_gradient_training.py | unchecked | 3 | -
 - tests/test_latent_eval.py | clean | 0 | -
@@ -306,3 +306,4 @@ Format: cycle N | item | outcome
 - cycle 6 | ruff autofix batch: eval/subjects/latent_core, scripts/{run_gate,show_gate}, train/{alternating_checkpoint,alternating_config,alternating_scheduler,answer_objective,eggroll_trainer,plot_training,run_alternating} | 26 findings fixed, 107 covering tests pass
 - cycle 7 | ruff autofix batch: train/{run_eggroll,run_eggroll_stability,run_stage0_trainability,search_alignment_weight,stage0_checkpoint,stage0_data,stage0_trainability,standalone_checkpoint,trainer}, workspace/__init__ | 39 findings fixed, 429 covering tests pass
 - cycle 8 | ruff autofix batch: tests/baselines/test_baselines_smoke, tests/gate/{gate_report,latent_evaluation,result_cache,run_gate,token_baseline}, tests/run/{config,resume,runner}, tests/stream/test_asdiv_a | 12 findings fixed, all 10 files clean, 185 tests pass
+- cycle 9 | ruff autofix batch: tests/stream/{events,hashing,split_classify,vocab}, tests/test_{alternating_checkpoint,alternating_evaluation,eggroll_resume_equivalence,eggroll_step_equivalence,eggroll_training,eggroll_workflow_guards} | 15 findings fixed, 176 tests pass

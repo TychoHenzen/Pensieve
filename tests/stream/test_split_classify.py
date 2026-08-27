@@ -400,11 +400,12 @@ def test_determinism_covers_all_event_fields():
 
 # covers: eval/generators::Class clusters stay separable::cluster geometry
 def test_cluster_centers_are_separable():
+    import math
+
     from eval.stream.generators.split_classify import (
         FEATURE_NOISE_STD,
         _class_center,
     )
-    import math
 
     num_classes = 4
     centers = [_class_center(num_classes, i) for i in range(num_classes)]

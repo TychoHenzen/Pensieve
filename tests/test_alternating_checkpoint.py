@@ -7,12 +7,13 @@ from dataclasses import dataclass, field
 
 import pytest
 import torch
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata, _plain, _tensor_values
 from torch import nn
 
 import train.alternating_checkpoint as alternating_checkpoint
 from train.alternating_checkpoint import (
-    AlternatingCheckpoint,
     CHECKPOINT_VERSION,
+    AlternatingCheckpoint,
     CheckpointSchedule,
     build_alternating_checkpoint,
     capture_checkpoint,
@@ -23,8 +24,6 @@ from train.alternating_checkpoint import (
 )
 from train.stage0_checkpoint import EGGROLL_MODEL_PARAMETER_PATHS
 from train.standalone_checkpoint import build_checkpoint as build_standalone_checkpoint
-from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata, _plain, _tensor_values
-
 
 SCHEDULE_CONFIG = RUN_CONFIG
 
@@ -61,7 +60,7 @@ def test_typed_builder_captures_real_model_optimizer_and_rng_state(
             parameter.grad = torch.ones_like(parameter)
         optimizer.step()
         optimizer.zero_grad()
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     fixture = _metadata()
 
     checkpoint = build_alternating_checkpoint(
@@ -136,7 +135,7 @@ def test_alternating_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) -
         momentum=0.0,
     )
     fixture = _metadata()
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
 
     checkpoint = build_alternating_checkpoint(
         identity=fixture["identity"],
@@ -186,7 +185,7 @@ def test_standalone_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) ->
         momentum=0.0,
     )
     fixture = _metadata()
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     run_config = _stabilized_run_config()
     standalone_config = {
         key: value

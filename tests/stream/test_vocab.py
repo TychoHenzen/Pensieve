@@ -97,7 +97,7 @@ def test_vocab_no_duplicates():
 
 # covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::vocabulary is sorted
 def test_vocab_sorted_order():
-    assert VOCAB == tuple(sorted(VOCAB))
+    assert tuple(sorted(VOCAB)) == VOCAB
 
 
 # covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::every entry is lowercase alphabetic
