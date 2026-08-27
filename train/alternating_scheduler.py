@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Generic, Protocol, TypeVar
+from typing import Protocol
 
 from train.alternating_config import (
     DEFAULT_VARIANCE_LOWER_THRESHOLD,
@@ -14,16 +14,13 @@ from train.alternating_config import (
 )
 from train.training_results import ExperimentPosition
 
-ResultT = TypeVar("ResultT")
-EvaluationT = TypeVar("EvaluationT")
-
 PHASE_BOUNDARY = "phase"
 EPOCH_BOUNDARY = "epoch"
 PARTIAL_PHASE_BOUNDARY = "partial_phase"
 
 
 @dataclass(frozen=True)
-class EvaluationRecord(Generic[EvaluationT]):
+class EvaluationRecord[EvaluationT]:
     """One evaluation result and every boundary reached at its position."""
 
     result: EvaluationT
@@ -31,7 +28,7 @@ class EvaluationRecord(Generic[EvaluationT]):
     boundaries: frozenset[str]
 
 
-class TrainingEngine(Protocol[ResultT]):
+class TrainingEngine[ResultT](Protocol):
     """Minimal update interface used by the scheduler."""
 
     @property
@@ -42,14 +39,14 @@ class TrainingEngine(Protocol[ResultT]):
         """Apply one update and return its method-specific result."""
 
 
-class PhaseEvaluator(Protocol[EvaluationT]):
+class PhaseEvaluator[EvaluationT](Protocol):
     """Evaluate the shared model at a completed phase boundary."""
 
     def evaluate(self, position: ExperimentPosition) -> EvaluationT:
         """Return the evaluation labeled with the completed phase position."""
 
 
-class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
+class VarianceHysteresisScheduler[ResultT, EvaluationT]:
     """Select an optimizer from average slot variance over fixed windows."""
 
     def __init__(
