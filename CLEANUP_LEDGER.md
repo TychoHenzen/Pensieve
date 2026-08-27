@@ -4,12 +4,22 @@ State file for the incremental cleanup autopilot (see CLEANUP_PROMPT.md).
 Statuses: unchecked | scanned | in-progress | fixed | blocked | clean | conflict
 Baselines recorded 2026-08-27 at cycle 0.
 
-## Pytest baseline (cycle 0)
+## Pytest baseline (cycle 1)
 
-- Full suite: 487 passed, 1 failed, 127s.
-- Known failure: tests/stream/test_mnist_binding.py::test_mnist_features_are_784_elements_with_source
-  Cause: torchvision not installed. Fix item: pip install torchvision, rerun.
-- Last full-suite run: cycle 0.
+- Full suite: 1362 passed, 2 failed, 2 skipped, 474s. (Cycle 0 recorded 487
+  passed / 127s; that run must have been partial. This is the real baseline.)
+- torchvision failure RESOLVED cycle 1: installed torchvision==0.26.0+cpu
+  pinned to torch 2.11.0+cpu; tests/stream/test_mnist_binding.py all pass.
+- Open failures (real bug, top item): tests/test_search_alignment_weight.py::
+  test_unhealthy_zero_control_blocks_every_positive_eggroll_trial_and_preserves_evidence
+  and ::test_public_combined_search_keeps_gradient_independent_when_eggroll_is_unhealthy.
+  Both raise StabilityReportValidationError:
+  "$.configuration.asset_identity.runtime.device_topology: expected array".
+  Deterministic, fails in isolation too.
+- Flaky: one full-suite run died with a Windows access violation in
+  transformers weight loading (torch/storage.py __getitem__) during
+  tests/test_narration.py. Did not reproduce in isolation or on rerun.
+- Last full-suite run: cycle 1.
 
 ## Ruff baseline (cycle 0)
 
@@ -286,3 +296,4 @@ Format: path | status | ruff findings at cycle 0 | notes
 
 Format: cycle N | item | outcome
 - cycle 0 | setup: ruff config, prompt, ledger | baselines recorded
+- cycle 1 | install torchvision 0.26.0+cpu, rerun full suite | mnist test fixed; found 2 real failures in test_search_alignment_weight.py (device_topology)
