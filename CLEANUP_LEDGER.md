@@ -15,10 +15,13 @@ Baselines recorded 2026-08-27 at cycle 0.
   of []; on CPU-only hosts device_topology is [] so report validation failed.
   Fixed the thaw, added regression test
   test_report_with_empty_device_topology_round_trips_as_array.
-- Flaky: one full-suite run died with a Windows access violation in
-  transformers weight loading (torch/storage.py __getitem__) during
-  tests/test_narration.py. Did not reproduce in isolation or on rerun.
-- Last full-suite run: cycle 1.
+- Access-violation crash MITIGATED cycle 4: threaded safetensors
+  materialization in transformers killed 2 of 3 full-suite runs (Windows
+  access violation in torch/storage.py __getitem__, different tests each
+  time). Root conftest.py now sets HF_DEACTIVATE_ASYNC_LOAD=1 so weights
+  load serially (knob verified in transformers/core_model_loading.py).
+- Full suite at cycle 4: 1365 passed, 2 skipped, 0 failed, 511s.
+- Last full-suite run: cycle 4.
 
 ## Ruff baseline (cycle 0)
 
@@ -298,3 +301,4 @@ Format: cycle N | item | outcome
 - cycle 1 | install torchvision 0.26.0+cpu, rerun full suite | mnist test fixed; found 2 real failures in test_search_alignment_weight.py (device_topology)
 - cycle 2 | fix empty-tuple thaw bug in train/eggroll_stability.py + clear its ruff findings | 2 failing tests now pass; regression test added; 94 related tests green
 - cycle 3 | ruff autofix batch: codecs_module/__init__, core/latent_loop, eval/baselines/naive, eval/gate/{answer_scoring,gate_report,result_cache} | 6 findings fixed, 177 covering tests pass
+- cycle 4 | add conftest.py with HF_DEACTIVATE_ASYNC_LOAD=1 | full suite green: 1365 passed, 2 skipped, 511s
