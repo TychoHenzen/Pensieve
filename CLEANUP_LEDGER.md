@@ -167,7 +167,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/subjects/latent_core.py | fixed | 1 | autofix cycle 6, ruff clean
 - main.py | clean | 0 | -
 - scripts/fetch_corpus.py | blocked | 2 | cycle 14 manual: PLW2901 fixed (no-tests); 1 left: PLC0415 (zstandard import intentionally lazy - optional [corpus] extra, preserves friendly SystemExit message)
-- scripts/run_gate.py | scanned | 3 | autofix cycle 6; 2 left: PLW2901, UP031
+- scripts/run_gate.py | fixed | 3 | cycle 14 manual: PLW2901 (loop var renamed) + UP031 (percent format -> f-string); ruff clean (no-tests: script drives eval.run.runner.run, exercised indirectly via tests/gate/test_gate_smoke.py)
 - scripts/show_gate.py | fixed | 8 | autofix cycle 6, ruff clean (F541 x8)
 - scripts/show_stream.py | clean | 0 | -
 - tests/baselines/__init__.py | clean | 0 | -
@@ -343,3 +343,4 @@ Format: cycle N | item | outcome
 - cycle 14 | manual PLC0415 in eval/subject/oracles/perfect_memory.py | ruff clean, 17 covering tests pass
 - cycle 14 | manual PLC0415 in eval/subject/oracles/task_wiper.py | ruff clean, 17 covering tests pass
 - cycle 14 | scripts/fetch_corpus.py PLW2901 fixed; PLC0415 marked blocked | zstandard import is an optional [corpus] extra; hoisting would drop the friendly SystemExit message
+- cycle 14 | manual PLW2901 + UP031 in scripts/run_gate.py | ruff clean (no direct script test; py_compile ok)
