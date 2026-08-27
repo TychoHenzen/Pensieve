@@ -157,7 +157,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/subject/oracles/__init__.py | clean | 0 | -
 - eval/subject/oracles/chance.py | clean | 0 | -
 - eval/subject/oracles/cheater.py | clean | 0 | -
-- eval/subject/oracles/forgetful.py | unchecked | 1 | -
+- eval/subject/oracles/forgetful.py | fixed | 1 | cycle 12 manual: PLC0415 (format_features import hoisted to top); ruff clean
 - eval/subject/oracles/perfect_memory.py | unchecked | 1 | -
 - eval/subject/oracles/task_wiper.py | unchecked | 1 | -
 - eval/subject/oracles/variable_compute.py | clean | 0 | -
@@ -329,3 +329,4 @@ Format: cycle N | item | outcome
 - cycle 12 | manual E402 x3 in eval/subject/__init__.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual PLW2901 in eval/stream/corpus.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual PLW2901 in eval/metrics/first_use.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual PLC0415 in eval/subject/oracles/forgetful.py | ruff clean, 17 covering tests pass
