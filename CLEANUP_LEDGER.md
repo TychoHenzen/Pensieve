@@ -119,7 +119,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/gate/latent_eval.py | fixed | 9 | cycle 11 manual: TRY004 x7 (ValueError->TypeError on isinstance checks) + PLC0415 x2 (hoisted deferred imports to module refs result_cache.*/token_cot_baseline.*); ruff clean
 - eval/gate/result_cache.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/run_gate.py | fixed | 3 | autofix cycle 5, ruff clean (stale in-function import removed)
-- eval/gate/slot_ablation.py | scanned | 4 | autofix cycle 5; 3 left: TRY004
+- eval/gate/slot_ablation.py | fixed | 4 | autofix cycle 5; cycle 11 manual: TRY004 x3 (ValueError->TypeError on isinstance checks); ruff clean
 - eval/gate/token_cot_baseline.py | scanned | 3 | autofix cycle 5; 2 left: TRY004, PLC0415
 - eval/instrumentation.py | clean | 0 | -
 - eval/metrics/__init__.py | unchecked | 2 | -
@@ -320,3 +320,4 @@ Format: cycle N | item | outcome
 - cycle 10 | healed ledger drift: prior commit 4f13aff autofixed 10 test files without a ledger entry; verified current ruff state and corrected those 10 rows
 - cycle 11 | full suite verification (manual fixes landed after cycle-10 run) | 1365 passed, 2 skipped, 0 failed, 474s
 - cycle 11 | manual fixes in eval/gate/latent_eval.py: TRY004 x7 + PLC0415 x2 | ruff clean, 28 covering tests pass
+- cycle 11 | manual fixes in eval/gate/slot_ablation.py: TRY004 x3 | ruff clean, 13 covering tests pass
