@@ -411,3 +411,4 @@ Format: cycle N | item | outcome
 - cycle 26 | full suite verification (cycle 25 landed stage0_trainability code fixes) | 1365 passed, 2 skipped, 0 failed, 737s
 - cycle 26 | manual fixes in tests/test_stage0_trainability_reports.py: hoisted 138 PLC0415 + C408 x25 + F841 + RUF059 + SIM102 + SIM222 x2 + BLE001 x3 | ruff clean, 156 tests pass (538s)
 - cycle 26 | finding: 3 recalibration tests are vacuous placeholders (test_trainability_cannot_authorize_full_gradient/eggroll, test_trainability_recalibration_eligibility_not_full_training) - docstrings claim authorization limits compute_recalibration_eligibility never models; SIM222 exposed the vacuous asserts, fixed to `assert True` to preserve behavior, real assertions left for a later item
+- cycle 26 | repo-wide ruff re-scan (rule 11: no unchecked/scanned rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons; no clean/fixed drift
