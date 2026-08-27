@@ -258,7 +258,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_run_stage0_trainability.py | fixed | 10 | cycle 22 manual: PLC0415 x7 (hoisted train.stage0_trainability imports to top); ruff clean
 - tests/test_run_training.py | fixed | 1 | PLC0415 run_training import hoisted, ruff clean
 - tests/test_search_alignment_weight.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
-- tests/test_stage0_checkpoint_container.py | scanned | 9 | autofix (prior cycle-10 commit); 5 left: PLW0108 x2, SIM117 x3
+- tests/test_stage0_checkpoint_container.py | fixed | 9 | cycle 24 manual: PLW0108 x2 (lambda -> calls.append) + SIM117 x3 (nested with -> single with); ruff clean
 - tests/test_stage0_checkpoint_resume.py | fixed | 2 | cycle 21 manual: PLW0108 (lambda -> exposed.append); ruff clean
 - tests/test_stage0_checkpoint_schema.py | fixed | 4 | autofix cycle 10, ruff clean
 - tests/test_stage0_cli_runtime_order.py | clean | 0 | -
@@ -398,3 +398,4 @@ Format: cycle N | item | outcome
 - cycle 23 | manual B905 + PLC0415 (numpy hoist) in train/run_alternating.py | ruff clean, 30 tests pass
 - cycle 23 | manual E731 + PLC0415 in train/eggroll_trainer.py | ruff clean, 11 covering tests pass (test_eggroll_training + test_run_eggroll + test_eggroll_step_equivalence)
 - cycle 23 | end-of-cycle full suite (5 train/ files fixed) | 1365 passed, 2 skipped, 0 failed, 489s
+- cycle 24 | manual PLW0108 x2 + SIM117 x3 in tests/test_stage0_checkpoint_container.py | ruff clean, 34 tests pass
