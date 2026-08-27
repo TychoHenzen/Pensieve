@@ -225,7 +225,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/subject/test_snapshot_restore.py | clean | 0 | -
 - tests/test_alternating_checkpoint.py | fixed | 5 | cycle 21 manual: F841 (dropped unused `schedule =`); ruff clean
 - tests/test_alternating_config.py | fixed | 1 | cycle 18 manual: RUF043 (match pattern -> raw string); ruff clean
-- tests/test_alternating_evaluation.py | scanned | 2 | autofix cycle 9; 1 left: B905
+- tests/test_alternating_evaluation.py | fixed | 2 | cycle 21 manual: B905 (zip strict=True); ruff clean
 - tests/test_alternating_scheduler.py | clean | 0 | -
 - tests/test_answer_objective.py | clean | 0 | -
 - tests/test_asdiv_stage0_contract.py | clean | 0 | -
@@ -380,3 +380,4 @@ Format: cycle N | item | outcome
 - cycle 20 | manual B905 (zip strict=True) x2 in train/standalone_checkpoint.py | ruff clean, 9 tests pass
 - cycle 20 | end-of-cycle full suite (5 files fixed) | 1365 passed, 2 skipped, 0 failed, 493s
 - cycle 21 | manual F841 (dropped unused `schedule =`) in tests/test_alternating_checkpoint.py | ruff clean, 21 tests pass
+- cycle 21 | manual B905 (zip strict=True) in tests/test_alternating_evaluation.py | ruff clean, 7 tests pass

@@ -55,7 +55,7 @@ def test_unperturbed_evaluation_averages_metrics_without_changing_model() -> Non
     assert result.language_model_loss == pytest.approx(torch.log(torch.tensor(3.0)).item())
     assert result.shared_variance == pytest.approx(1.0)
     assert result.answer_exact_match == pytest.approx(0.5)
-    assert all(torch.equal(before, after) for before, after in zip(before_parameters, model.parameters()))
+    assert all(torch.equal(before, after) for before, after in zip(before_parameters, model.parameters(), strict=True))
     assert torch.equal(model.workspace.snapshot(), before_workspace)
     assert model.encoder.training
     assert model.latent_loop.training
