@@ -7,7 +7,7 @@ import math
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol
 
 import numpy as np
 import torch
@@ -134,7 +134,6 @@ class ReferenceVectorDirection:
 
 
 ReferenceDirection = ReferenceMatrixDirection | ReferenceVectorDirection
-CandidateResult = TypeVar("CandidateResult")
 
 
 def materialized_linear(
@@ -238,7 +237,7 @@ def reference_candidate_deltas(
     return materialize_reference_candidate(directions, sign=sign)
 
 
-def evaluate_materialized_candidates(
+def evaluate_materialized_candidates[CandidateResult](
     parameters: Sequence[torch.Tensor],
     *,
     base_seed: int,
@@ -277,10 +276,11 @@ def reference_descent_gradients(
     rank: int,
 ) -> list[torch.Tensor]:
     """Assemble the pair-loop gradient supplied to a minimizing optimizer."""
-    if isinstance(fitnesses, torch.Tensor):
-        fitness_tensor = fitnesses
-    else:
-        fitness_tensor = torch.tensor(fitnesses, dtype=torch.float32)
+    fitness_tensor = (
+        fitnesses
+        if isinstance(fitnesses, torch.Tensor)
+        else torch.tensor(fitnesses, dtype=torch.float32)
+    )
     if fitness_tensor.ndim != 1:
         raise ValueError("fitnesses must be one-dimensional")
 

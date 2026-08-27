@@ -174,7 +174,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/baselines/__init__.py | clean | 0 | -
 - tests/baselines/test_baselines_smoke.py | fixed | 1 | cycle 8, ruff clean (SIM114+SIM101 merged by hand)
 - tests/baselines/test_param_match.py | clean | 0 | -
-- tests/eggroll_reference.py | unchecked | 2 | -
+- tests/eggroll_reference.py | fixed | 2 | cycle 15 manual: UP047 (PEP 695 type param) + SIM108 (ternary); ruff clean
 - tests/eggroll_stability_fixtures.py | clean | 0 | -
 - tests/gate/__init__.py | clean | 0 | -
 - tests/gate/test_gate_smoke.py | clean | 0 | -
@@ -346,3 +346,4 @@ Format: cycle N | item | outcome
 - cycle 14 | scripts/fetch_corpus.py PLW2901 fixed; PLC0415 marked blocked | zstandard import is an optional [corpus] extra; hoisting would drop the friendly SystemExit message
 - cycle 14 | manual PLW2901 + UP031 in scripts/run_gate.py | ruff clean (no direct script test; py_compile ok)
 - cycle 14 | end-of-cycle full suite (4 source files: 2 oracle import hoists + 2 script fixes) | 1365 passed, 2 skipped, 0 failed, 494s
+- cycle 15 | manual UP047 (PEP 695 type param) + SIM108 (ternary) in tests/eggroll_reference.py | ruff clean, 27 covering tests pass (1 skipped)
