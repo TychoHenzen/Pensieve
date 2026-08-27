@@ -256,7 +256,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_run_training.py | fixed | 1 | PLC0415 run_training import hoisted, ruff clean
 - tests/test_search_alignment_weight.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_stage0_checkpoint_container.py | scanned | 9 | autofix (prior cycle-10 commit); 5 left: PLW0108 x2, SIM117 x3
-- tests/test_stage0_checkpoint_resume.py | scanned | 2 | autofix (prior cycle-10 commit); 1 left: PLW0108
+- tests/test_stage0_checkpoint_resume.py | fixed | 2 | cycle 21 manual: PLW0108 (lambda -> exposed.append); ruff clean
 - tests/test_stage0_checkpoint_schema.py | fixed | 4 | autofix cycle 10, ruff clean
 - tests/test_stage0_cli_runtime_order.py | clean | 0 | -
 - tests/test_stage0_dataset_contract.py | fixed | 1 | autofix cycle 10, ruff clean
@@ -383,3 +383,4 @@ Format: cycle N | item | outcome
 - cycle 21 | manual B905 (zip strict=True) in tests/test_alternating_evaluation.py | ruff clean, 7 tests pass
 - cycle 21 | manual B007 (loop var _expected_message) in tests/test_run_alternating.py | ruff clean, 30 tests pass
 - cycle 21 | manual B905 (zip strict=True in _same_state) in tests/test_standalone_checkpoint.py | ruff clean, 9 tests pass
+- cycle 21 | manual PLW0108 (lambda -> exposed.append) in tests/test_stage0_checkpoint_resume.py | ruff clean, 9 tests pass

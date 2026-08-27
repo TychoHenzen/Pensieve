@@ -303,7 +303,7 @@ def _assert_rejected_without_exposure(
     with pytest.raises(stage0_checkpoint.CheckpointContainerError) as error:
         stage0_checkpoint.read_checkpoint_container(
             path,
-            tensor_loader=lambda payload: exposed.append(payload),
+            tensor_loader=exposed.append,
         )
 
     message = str(error.value)
