@@ -29,8 +29,12 @@ to commit only when asked.
 8. Before any `git add`, run `git status --porcelain` and account for every
    `??` line: it is already ignored, gets a new `.gitignore` entry, or is a
    file you created on purpose. Nothing else goes into the commit.
-9. Commit message format: `cleanup(cycle-N): <one line describing the item>`
-   where N is the cycle number you append to the Cycle log.
+9. Commit message format: `cleanup(cycle-N): <one line describing the item>`.
+   Your cycle number N is the number in the last Cycle log entry plus one.
+10. Every 20 cycles, or when no file row is left `unchecked`, run
+    `python -m ruff check .` repo-wide. Any finding in a file the ledger calls
+    `clean` or `fixed` flips that row back to `unchecked` with the count.
+    This heals ledger drift.
 
 ## Commands (use these verbatim)
 
@@ -87,7 +91,10 @@ one line of reason.
    file passes. If the file has no test coverage, note `no-tests` in its
    ledger row - do not invent behavior changes in untested code; keep manual
    fixes strictly behavior-preserving there.
-5. **Spec-to-test linkage.** Pick one capability directory under
+5. **Spec-to-test linkage and spec validation.** First: if the ledger's
+   "Openspec validation baseline" list still has unchecked items, pick one,
+   run `openspec validate <name> --type spec` (or `--type change`), fix the
+   file format, and check it off. Otherwise: pick one capability directory under
    `openspec/specs/` whose ledger row in the "Spec coverage" section is
    `unchecked`. For each `#### Scenario:` in its `spec.md`, find a test that
    exercises it (grep `tests/` for the behavior, not the scenario title).

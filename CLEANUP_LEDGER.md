@@ -16,6 +16,29 @@ Baselines recorded 2026-08-27 at cycle 0.
 - 558 findings across 111 files with the [tool.ruff] config in pyproject.toml.
 - 174 safely autofixable. Top offender: tests/test_stage0_trainability_reports.py (210).
 
+## Openspec validation baseline (cycle 0)
+
+`openspec validate --all --strict --no-interactive`: 27 passed, 12 failed.
+Failing at cycle 0 (any NEW failure beyond these is a regression to fix):
+- spec/eval/corpus
+- spec/eval/events
+- spec/eval/generators/assoc
+- spec/eval/generators/split-classify
+- spec/eval/serialize
+- spec/eval/subject-protocol
+- spec/eval/vocab
+- change/stage-1-persistent-state
+- change/stage-2-fast-weight-hippocampus
+- change/stage-3-idle-consolidation
+- change/stage-4-bottlenecked-dual
+- change/stage-5-always-on-runtime
+
+Fixing one of these baseline failures is valid work under priority 5: run
+`openspec validate <name> --type spec` (or `--type change`) to see the details,
+fix the spec/change file, and check the item off this list. The stage-1
+through stage-5 changes are future-stage plans; fix their format, never
+their intent.
+
 ## Delete candidates
 
 Format: path | decision (proposed/approved/rejected) | reason
