@@ -342,6 +342,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 
 ## Additional notes:
 - tests taking >10 minutes is not acceptable, optimize performance to get it down to preferably <1 minute, but at least <5
+- SPEC/IMPL CONFLICT (found cycle 35, active change validate-stage0-trainability): compute_recalibration_eligibility (train/stage0_trainability.py:1197) is dead code - only tests call it; production sets recalibration_eligible inside classify_method_status, which requires causal_status == "passed". The helper instead treats causal_status "direction_mismatch" as eligible, contradicting the spec: scenario "Update moves against its prediction" says direction_mismatch makes the method ineligible, and requirement "Recalibration eligibility is method-specific and limited" says eligibility requires the causal probe to pass. Two tests enshrine the wrong behavior: test_eligibility_table's ("passed","viable","direction_mismatch",True) row and test_eligible_direction_mismatch_with_causal. Left for a human/spec decision; do not change the assertions without first deciding the direction_mismatch contract.
 
 ## Cycle log
 
@@ -490,3 +491,4 @@ Format: cycle N | item | outcome
 - cycle 34 | write tests for eval/metrics "three distinct counters" | new tests/metrics/test_compute.py pins steps/flops/wall_seconds independently derived; ruff clean, 2 tests pass
 - cycle 35 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift; added missing conftest.py clean row
 - cycle 35 | strengthen 3 vacuous recalibration tests in tests/test_stage0_trainability_reports.py | replaced `assert True` bodies (cycle 26 "later item") with spec-grounded negative assertions per validate-stage0-trainability "Recalibration eligibility is method-specific and limited": report/arm schema has no authorize_full_gradient/authorize_full_eggroll/full_training_authorized field, recalibration_eligible is the only flag; ruff clean, 156 tests pass (639s)
+- cycle 35 | finding: compute_recalibration_eligibility treats direction_mismatch as eligible, contradicting the active spec | recorded as SPEC/IMPL CONFLICT in Additional notes (dead helper, only tests call it; production classify_method_status is correct); left for human decision
