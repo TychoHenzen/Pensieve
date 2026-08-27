@@ -249,7 +249,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_probe_isolation.py | clean | 0 | -
 - tests/test_qwen_latent_loop.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_qwen_tap_equivalence.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
-- tests/test_run_alternating.py | scanned | 2 | autofix (prior cycle-10 commit); 1 left: B007
+- tests/test_run_alternating.py | fixed | 2 | cycle 21 manual: B007 (loop var _expected_message); ruff clean
 - tests/test_run_eggroll.py | fixed | 2 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_run_eggroll_stability.py | clean | 0 | -
 - tests/test_run_stage0_trainability.py | scanned | 10 | autofix (prior cycle-10 commit); 7 left: PLC0415 x7
@@ -381,3 +381,4 @@ Format: cycle N | item | outcome
 - cycle 20 | end-of-cycle full suite (5 files fixed) | 1365 passed, 2 skipped, 0 failed, 493s
 - cycle 21 | manual F841 (dropped unused `schedule =`) in tests/test_alternating_checkpoint.py | ruff clean, 21 tests pass
 - cycle 21 | manual B905 (zip strict=True) in tests/test_alternating_evaluation.py | ruff clean, 7 tests pass
+- cycle 21 | manual B007 (loop var _expected_message) in tests/test_run_alternating.py | ruff clean, 30 tests pass

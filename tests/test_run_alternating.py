@@ -189,7 +189,7 @@ def test_invalid_eggroll_values_fail_during_argument_parsing() -> None:
     ]
     observed_messages: list[str] = []
 
-    for option, value, expected_message in invalid_values:
+    for option, value, _expected_message in invalid_values:
         with pytest.raises(ValueError) as error:
             run_alternating._parse_args([option, value])
         observed_messages.append(str(error.value))
