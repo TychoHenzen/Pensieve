@@ -284,7 +284,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/eggroll_stability.py | fixed | 6 | ruff clean cycle 2; empty-tuple thaw bug fixed
 - train/eggroll_stability_evaluation.py | clean | 0 | -
 - train/eggroll_stability_guard.py | fixed | 1 | cycle 18 manual: ISC004 (parenthesized implicit concat inside tuple arg); ruff clean
-- train/eggroll_trainer.py | scanned | 7 | autofix cycle 6 (4 stale imports removed); 2 left: E731, PLC0415
+- train/eggroll_trainer.py | fixed | 7 | cycle 23 manual: E731 (lambda -> def) + PLC0415 (removed redundant deferred AsdivRecord import, already top-level); ruff clean
 - train/eggroll_updates.py | fixed | 1 | cycle 19 manual: SIM108 ternary conversion; ruff clean
 - train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
 - train/run_alternating.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted numpy import to top); ruff clean
@@ -395,3 +395,4 @@ Format: cycle N | item | outcome
 - cycle 23 | manual TRY004 x2 (callable guards -> TypeError) in train/answer_objective.py | ruff clean, 10 tests pass
 - cycle 23 | manual B905 + PLC0415 in train/alternating_checkpoint.py | ruff clean, 21 tests pass
 - cycle 23 | manual B905 + PLC0415 (numpy hoist) in train/run_alternating.py | ruff clean, 30 tests pass
+- cycle 23 | manual E731 + PLC0415 in train/eggroll_trainer.py | ruff clean, 11 covering tests pass (test_eggroll_training + test_run_eggroll + test_eggroll_step_equivalence)

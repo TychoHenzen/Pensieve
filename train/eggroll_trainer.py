@@ -157,9 +157,10 @@ class EggrollTrainer:
         """Evaluate several perturbed candidates in each frozen-model pass."""
         batch_size = len(perturbations)
         signs = [candidate.sign for candidate in perturbations]
-        matrix_directions = lambda index: self._matrix_directions(
-            perturbations, index
-        )
+
+        def matrix_directions(index: int) -> list[MatrixFactors]:
+            return self._matrix_directions(perturbations, index)
+
         expected_token_width = self.encoder.projection.weight.shape[1]
         if (
             token_embeddings.ndim != 3
@@ -431,8 +432,6 @@ class EggrollTrainer:
         optimizer_call_count: int = 1,
     ) -> StepResult:
         """Apply one EGGROLL update for compatibility with one-record callers."""
-        from eval.stream.generators.asdiv_a import AsdivRecord
-
         current_position = 0 if position is None else position.example_position
         fitness_batch = FitnessBatch(
             records=(
