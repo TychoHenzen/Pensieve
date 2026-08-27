@@ -204,6 +204,7 @@ def test_subprocess_replay_matches():
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
+        check=False,
         env={
             **dict(__import__("os").environ),
             "PYTHONHASHSEED": "12345",
