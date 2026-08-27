@@ -272,7 +272,7 @@ def test_phase_boundary_resume_starts_next_example_in_saved_phase(tmp_path) -> N
 
 def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tmp_path) -> None:
     scheduler = FakeResumableScheduler(phase_steps=5)
-    schedule = scheduler.run_until_epoch_boundary(["first", "second", "third"])
+    scheduler.run_until_epoch_boundary(["first", "second", "third"])
     metadata = _metadata(epoch_boundary=True)
     checkpoint = capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
     path = tmp_path / "epoch-boundary.ckpt"

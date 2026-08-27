@@ -223,7 +223,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/subject/test_oracles.py | fixed | 2 | cycle 18 manual: B007 (value->_value) + C416 (dict comprehension -> dict()); ruff clean
 - tests/subject/test_protocol.py | fixed | 1 | cycle 18 manual: PLC0415 (import abc hoisted to top); ruff clean
 - tests/subject/test_snapshot_restore.py | clean | 0 | -
-- tests/test_alternating_checkpoint.py | scanned | 5 | autofix cycle 9; 1 left: F841
+- tests/test_alternating_checkpoint.py | fixed | 5 | cycle 21 manual: F841 (dropped unused `schedule =`); ruff clean
 - tests/test_alternating_config.py | fixed | 1 | cycle 18 manual: RUF043 (match pattern -> raw string); ruff clean
 - tests/test_alternating_evaluation.py | scanned | 2 | autofix cycle 9; 1 left: B905
 - tests/test_alternating_scheduler.py | clean | 0 | -
@@ -379,3 +379,4 @@ Format: cycle N | item | outcome
 - cycle 20 | manual SIM102 (combined nested if) in train/search_alignment_weight.py | ruff clean, 16 tests pass
 - cycle 20 | manual B905 (zip strict=True) x2 in train/standalone_checkpoint.py | ruff clean, 9 tests pass
 - cycle 20 | end-of-cycle full suite (5 files fixed) | 1365 passed, 2 skipped, 0 failed, 493s
+- cycle 21 | manual F841 (dropped unused `schedule =`) in tests/test_alternating_checkpoint.py | ruff clean, 21 tests pass
