@@ -22,7 +22,8 @@ Baselines recorded 2026-08-27 at cycle 0.
   load serially (knob verified in transformers/core_model_loading.py).
 - Full suite at cycle 7: 1365 passed, 2 skipped, 0 failed, 471s.
 - Full suite at cycle 10: 1365 passed, 2 skipped, 0 failed, 579s.
-- Last full-suite run: cycle 10.
+- Full suite at cycle 11: 1365 passed, 2 skipped, 0 failed, 474s.
+- Last full-suite run: cycle 11.
 
 ## Ruff baseline (cycle 0)
 
@@ -115,7 +116,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/gate/answer_scoring.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/cycling_sweep.py | clean | 0 | -
 - eval/gate/gate_report.py | scanned | 4 | autofix cycle 3; 3 left: PLC0415 function-level imports
-- eval/gate/latent_eval.py | unchecked | 9 | -
+- eval/gate/latent_eval.py | fixed | 9 | cycle 11 manual: TRY004 x7 (ValueError->TypeError on isinstance checks) + PLC0415 x2 (hoisted deferred imports to module refs result_cache.*/token_cot_baseline.*); ruff clean
 - eval/gate/result_cache.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/run_gate.py | fixed | 3 | autofix cycle 5, ruff clean (stale in-function import removed)
 - eval/gate/slot_ablation.py | scanned | 4 | autofix cycle 5; 3 left: TRY004
@@ -317,3 +318,5 @@ Format: cycle N | item | outcome
 - cycle 10 | manual PLW0127 fix in eval/baselines/joint.py | ruff clean, 20 covering tests pass
 - cycle 10 | manual PLW0127 fix in eval/baselines/naive.py | ruff clean, 20 covering tests pass
 - cycle 10 | healed ledger drift: prior commit 4f13aff autofixed 10 test files without a ledger entry; verified current ruff state and corrected those 10 rows
+- cycle 11 | full suite verification (manual fixes landed after cycle-10 run) | 1365 passed, 2 skipped, 0 failed, 474s
+- cycle 11 | manual fixes in eval/gate/latent_eval.py: TRY004 x7 + PLC0415 x2 | ruff clean, 28 covering tests pass

@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import torch
 
+from eval.gate import result_cache, token_cot_baseline
 from eval.gate.answer_scoring import extract_predicted_number, score_numerical_answer
 from eval.stage0_identity import (
     ASDIV_REVISION,
@@ -177,15 +178,15 @@ def _token_order(
         raise ValueError("token result schema_version must be 2")
     identity = token_result.get("identity")
     if not isinstance(identity, Mapping):
-        raise ValueError("token result identity must be an object")
+        raise TypeError("token result identity must be an object")
     selection = identity.get("selection")
     if not isinstance(selection, Mapping):
-        raise ValueError("token result selection identity must be an object")
+        raise TypeError("token result selection identity must be an object")
     if selection.get("split") != "test" or selection.get("seed") != 0:
         raise ValueError("token result selection must be the seed-0 test split")
     ordered = selection.get("ordered_item_ids")
     if not isinstance(ordered, Sequence) or isinstance(ordered, (str, bytes)):
-        raise ValueError("token result ordered item identifiers must be a list")
+        raise TypeError("token result ordered item identifiers must be a list")
     ordered_ids = tuple(ordered)
     if any(not isinstance(item_id, str) or not item_id for item_id in ordered_ids):
         raise ValueError("token result item identifiers must be non-empty strings")
@@ -207,11 +208,11 @@ def _token_order(
 
     items = token_result.get("items")
     if not isinstance(items, Sequence) or isinstance(items, (str, bytes)):
-        raise ValueError("token result items must be a list")
+        raise TypeError("token result items must be a list")
     item_ids: list[str] = []
     for item in items:
         if not isinstance(item, Mapping) or not isinstance(item.get("item_id"), str):
-            raise ValueError("token result items must contain item identifiers")
+            raise TypeError("token result items must contain item identifiers")
         item_ids.append(item["item_id"])
     if len(set(item_ids)) != len(item_ids):
         raise ValueError("token result contains duplicate item identifiers")
@@ -312,10 +313,10 @@ def run_eval(
         for item_index, record in enumerate(selection_records, start=1):
             evaluated = item_evaluator(subject, record)
             if not isinstance(evaluated, Mapping):
-                raise ValueError("item evaluator must return a mapping")
+                raise TypeError("item evaluator must return a mapping")
             prediction = evaluated.get("prediction")
             if not isinstance(prediction, str):
-                raise ValueError("item evaluator prediction must be a string")
+                raise TypeError("item evaluator prediction must be a string")
             input_ids = evaluated.get("input_ids")
             if not isinstance(input_ids, list) or any(
                 isinstance(item, bool) or not isinstance(item, int) for item in input_ids
@@ -422,20 +423,17 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    from eval.gate.result_cache import read_token_result, write_gate_result
-    from eval.gate.token_cot_baseline import prepare_baseline_request
-
     configure_deterministic_runtime()
     args = _parse_args()
     seeds = [int(token) for token in args.seeds.split(",") if token.strip()]
     records = tuple(load_asdiv_a_record_split("test"))
-    prepared = prepare_baseline_request(
+    prepared = token_cot_baseline.prepare_baseline_request(
         device=args.device,
         development_limit=args.development_limit,
         records=records,
         runtime_configurer=lambda: None,
     )
-    token_result = read_token_result(
+    token_result = result_cache.read_token_result(
         args.token_result,
         expected_identity=prepared.identity,
         records=prepared.selection.records,
@@ -452,7 +450,7 @@ def main() -> None:
         backbone_loader=lambda **_kwargs: prepared.backbone,
         runtime_configurer=lambda: None,
     )
-    write_gate_result(args.output, result)
+    result_cache.write_gate_result(args.output, result)
     for run in result["runs"]:
         accuracy = run["correct"] / run["total"] if run["total"] else 0.0
         print(f"seed={run['seed']} accuracy={accuracy:.4f} ({run['correct']}/{run['total']})")
