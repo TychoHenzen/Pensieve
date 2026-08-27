@@ -124,3 +124,23 @@ def test_probe_truth_has_non_empty_answer():
     for item in _probes(items):
         assert isinstance(item.truth, ProbeTruth)
         assert item.truth.answer
+
+
+# covers: eval/generators/gsm8k::GSM8K generator supports a configurable subset::full dataset default
+def test_default_config_uses_all_available_problems(monkeypatch):
+    problems = [
+        {"question": f"problem {i}?", "answer": f"worked solution #### {i}"}
+        for i in range(1, 8)
+    ]
+    monkeypatch.setattr(
+        "eval.stream.generators.gsm8k._load_split",
+        lambda split: problems,
+    )
+
+    items = _items(_config(problem_count=None))
+
+    observes = [item for item in items if isinstance(item.event, Observe)]
+    assert len(observes) == len(problems)
+    assert len(items) == 2 * len(problems)
+    observed_questions = {item.event.payload["text"] for item in observes}
+    assert observed_questions == {problem["question"] for problem in problems}
