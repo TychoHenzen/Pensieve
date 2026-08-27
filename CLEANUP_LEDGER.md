@@ -142,6 +142,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - codecs_module/decoder.py | clean | 0 | -
 - codecs_module/encoder.py | clean | 0 | -
 - codecs_module/narration.py | clean | 0 | -
+- conftest.py | clean | 0 | added cycle 35 (repo-wide ruff rescan found no findings; was missing from ledger since cycle 4)
 - core/__init__.py | clean | 0 | -
 - core/latent_loop.py | fixed | 1 | autofix cycle 3, ruff clean
 - core/qwen_tap.py | fixed | 2 | cycle 10 manual TRY004 x2 (ValueError -> TypeError), ruff clean
@@ -487,3 +488,4 @@ Format: cycle N | item | outcome
 - cycle 34 | write test for train/alternating-cycle "Non-progress output remains independent" | added test_progress_filter_leaves_non_structured_output_untouched; ruff clean, 31 tests pass (test_run_alternating.py)
 - cycle 34 | complete asdiv-a "Selection input changes" coverage | extended test_selection_is_repeatable_and_binds_every_identity_input to assert split/seed/problem_count changes alter identity; ruff clean, 11 tests pass
 - cycle 34 | write tests for eval/metrics "three distinct counters" | new tests/metrics/test_compute.py pins steps/flops/wall_seconds independently derived; ruff clean, 2 tests pass
+- cycle 35 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift; added missing conftest.py clean row
