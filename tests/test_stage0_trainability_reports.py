@@ -2204,9 +2204,15 @@ class TestTrainabilityDistinctness:
         assert trainability_fields != stability_fields
 
     def test_trainability_cannot_authorize_full_gradient(self) -> None:
-        """Test that trainability alone cannot authorize full gradient training."""
+        """A trainability report never authorizes a full gradient training run.
 
-        eligible, _ = compute_recalibration_eligibility(
+        ``compute_recalibration_eligibility`` returns only a bounded
+        per-method eligibility flag plus its missing prerequisites, and the
+        trainability report schema carries no field that authorizes full
+        gradient training.
+        """
+
+        eligible, missing = compute_recalibration_eligibility(
             "gradient",
             "passed",
             "viable",
@@ -2214,14 +2220,22 @@ class TestTrainabilityDistinctness:
         )
 
         assert eligible is True
+        assert missing == []
 
-        if eligible:
-            assert True
+        report_fields = set(inspect.signature(TrainabilityReport).parameters)
+        arm_fields = set(inspect.signature(ArmResult).parameters)
+        assert "authorize_full_gradient" not in report_fields
+        assert "authorize_full_gradient" not in arm_fields
 
     def test_trainability_cannot_authorize_full_eggroll(self) -> None:
-        """Test that trainability alone cannot authorize full EGGROLL training."""
+        """A trainability report never authorizes a full EGGROLL training run.
 
-        eligible, _ = compute_recalibration_eligibility(
+        Even a method that meets every bounded prerequisite is only marked
+        ``recalibration_eligible``; no report field authorizes a full EGGROLL
+        training run.
+        """
+
+        eligible, missing = compute_recalibration_eligibility(
             "eggroll",
             "passed",
             "viable",
@@ -2229,24 +2243,35 @@ class TestTrainabilityDistinctness:
         )
 
         assert eligible is True
+        assert missing == []
 
-        if eligible:
-            assert True
+        report_fields = set(inspect.signature(TrainabilityReport).parameters)
+        arm_fields = set(inspect.signature(ArmResult).parameters)
+        assert "authorize_full_eggroll" not in report_fields
+        assert "authorize_full_eggroll" not in arm_fields
 
     def test_trainability_recalibration_eligibility_not_full_training(self) -> None:
-        """Test that recalibration eligibility is not authorization for full training."""
+        """Recalibration eligibility is not full-training acceptance.
 
-        eligible, _ = compute_recalibration_eligibility(
+        An eligible method is marked ``recalibration_eligible`` while no
+        field on the report marks full training as accepted.
+        """
+
+        eligible, missing = compute_recalibration_eligibility(
             "gradient",
             "passed",
             "viable",
             causal_status="passed",
         )
 
-        if eligible:
-            pass
+        assert eligible is True
+        assert missing == []
 
-        assert True
+        report_fields = set(inspect.signature(TrainabilityReport).parameters)
+        arm_fields = set(inspect.signature(ArmResult).parameters)
+        assert "full_training_authorized" not in report_fields
+        assert "full_training_authorized" not in arm_fields
+        assert "recalibration_eligible" in arm_fields
 
 
 class TestRecalibrationEligibility:
