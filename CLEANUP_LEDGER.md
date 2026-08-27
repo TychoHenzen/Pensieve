@@ -91,7 +91,7 @@ Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/eval/config | scanned | 11 / 11 | StreamConfig immutability + canonical hashability + frozen dataclass. All covered by tests/stream/test_hashing.py (each test carries a "covers: eval/config::" comment)
 - openspec/specs/eval/corpus | scanned | 22 / 22 | resolve/load_corpus/Corpus.walk/next_span contract. All covered by tests/stream/test_corpus.py (each test carries a "covers: eval/corpus::" comment). Note: spec's wordless-snapshot requirement still says "No test exercises this path" but test_load_corpus_rejects_wordless_snapshot does - stale spec observation, not a gap
 - openspec/specs/eval/events | scanned | 41 / 41 | event immutability/required fields/defaults, BoundaryKind values, Event union, StreamItem truth pairing, ProbeTruth, subject_view/harness_view, narration/hostile hooks. All covered by tests/stream/test_events.py + tests/stream/test_truth.py (each test carries a "covers: eval/events::" comment)
-- openspec/specs/eval/generator | unchecked | - | -
+- openspec/specs/eval/generator | scanned | 17 / 17 | derive independence, StreamGenerator protocol, chance_rate, registry build/names, cross-process determinism. All covered by tests/stream/test_generator.py + test_registry.py + test_chance.py (each test carries a "covers: eval/generator::" comment)
 - openspec/specs/eval/generators/asdiv-a | unchecked | - | -
 - openspec/specs/eval/generators/assoc | unchecked | - | -
 - openspec/specs/eval/generators/difficulty-mix | unchecked | - | -
@@ -443,3 +443,4 @@ Format: cycle N | item | outcome
 - cycle 27 | spec coverage scan: openspec/specs/eval/config | 11 scenarios, 11 covered (all via tests/stream/test_hashing.py)
 - cycle 27 | spec coverage scan: openspec/specs/eval/corpus | 22 scenarios, 22 covered (all via tests/stream/test_corpus.py)
 - cycle 27 | spec coverage scan: openspec/specs/eval/events | 41 scenarios, 41 covered (all via tests/stream/test_events.py + test_truth.py)
+- cycle 27 | spec coverage scan: openspec/specs/eval/generator | 17 scenarios, 17 covered (all via tests/stream/test_generator.py + test_registry.py + test_chance.py)
