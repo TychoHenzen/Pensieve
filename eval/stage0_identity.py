@@ -17,6 +17,10 @@ from types import MappingProxyType
 from typing import Any
 
 import torch
+from datasets import load_dataset
+from huggingface_hub import hf_hub_download
+from sentence_transformers import SentenceTransformer
+from transformers import AutoConfig, AutoModelForCausalLM, AutoTokenizer, GenerationConfig
 
 ASDIV_DATASET = "MU-NLPC/Calc-asdiv_a"
 ASDIV_CONFIGURATION = "default"
@@ -231,6 +235,13 @@ class FrozenQwenBackbone:
     generation_config: Any
 
 
+def _require_digest_match(
+    path: str, expected: Mapping[str, str], actual: str
+) -> None:
+    if actual != expected["digest"]:
+        raise ValueError(f"{path}: expected {expected['digest']}, actual {actual}")
+
+
 def verify_huggingface_manifest(
     repository: str,
     revision: str,
@@ -238,8 +249,6 @@ def verify_huggingface_manifest(
 ) -> None:
     """Download and verify every asset allowed by a pinned manifest."""
     try:
-        from huggingface_hub import hf_hub_download
-
         for path, expected in manifest.items():
             local_path = hf_hub_download(
                 repository,
@@ -247,10 +256,7 @@ def verify_huggingface_manifest(
                 revision=revision,
             )
             actual = digest_bytes(Path(local_path).read_bytes(), expected["algorithm"])
-            if actual != expected["digest"]:
-                raise ValueError(
-                    f"{path}: expected {expected['digest']}, actual {actual}"
-                )
+            _require_digest_match(path, expected, actual)
     except Exception as error:
         raise _load_failure(repository, revision, error) from error
 
@@ -262,8 +268,6 @@ def verify_huggingface_dataset_manifest(
 ) -> None:
     """Download and verify every allowed asset from a pinned dataset repo."""
     try:
-        from huggingface_hub import hf_hub_download
-
         for path, expected in manifest.items():
             local_path = hf_hub_download(
                 repository,
@@ -272,10 +276,7 @@ def verify_huggingface_dataset_manifest(
                 repo_type="dataset",
             )
             actual = digest_bytes(Path(local_path).read_bytes(), expected["algorithm"])
-            if actual != expected["digest"]:
-                raise ValueError(
-                    f"{path}: expected {expected['digest']}, actual {actual}"
-                )
+            _require_digest_match(path, expected, actual)
     except Exception as error:
         raise _load_failure(repository, revision, error) from error
 
@@ -296,13 +297,6 @@ def load_frozen_qwen_backbone(
     if manifest_verifier is None:
         manifest_verifier = verify_huggingface_manifest
     if model_loader is None or tokenizer_loader is None or config_loader is None or generation_config_loader is None:
-        from transformers import (
-            AutoConfig,
-            AutoModelForCausalLM,
-            AutoTokenizer,
-            GenerationConfig,
-        )
-
         model_loader = model_loader or AutoModelForCausalLM.from_pretrained
         tokenizer_loader = tokenizer_loader or AutoTokenizer.from_pretrained
         config_loader = config_loader or AutoConfig.from_pretrained
@@ -354,8 +348,6 @@ def load_frozen_qwen_backbone(
 
 def load_qwen_model(model_loader: Callable[..., Any] | None = None) -> Any:
     if model_loader is None:
-        from transformers import AutoModelForCausalLM
-
         model_loader = AutoModelForCausalLM.from_pretrained
     try:
         return model_loader(
@@ -370,8 +362,6 @@ def load_qwen_model(model_loader: Callable[..., Any] | None = None) -> Any:
 
 def load_qwen_tokenizer(tokenizer_loader: Callable[..., Any] | None = None) -> Any:
     if tokenizer_loader is None:
-        from transformers import AutoTokenizer
-
         tokenizer_loader = AutoTokenizer.from_pretrained
     try:
         return tokenizer_loader(
@@ -390,8 +380,6 @@ def _sentence_transformer_loader(
     trust_remote_code: bool,
     use_safetensors: bool,
 ) -> Any:
-    from sentence_transformers import SentenceTransformer
-
     return SentenceTransformer(
         repository,
         revision=revision,
@@ -432,8 +420,6 @@ def load_asdiv_source(
 ) -> list[Mapping[str, Any]]:
     injected_loader = dataset_loader is not None
     if dataset_loader is None:
-        from datasets import load_dataset
-
         dataset_loader = load_dataset
     if manifest_verifier is None and not injected_loader:
         manifest_verifier = verify_huggingface_dataset_manifest

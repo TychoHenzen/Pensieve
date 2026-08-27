@@ -134,7 +134,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/run/config.py | clean | 0 | -
 - eval/run/retention_policy.py | clean | 0 | -
 - eval/run/runner.py | fixed | 1 | autofix cycle 5, ruff clean
-- eval/stage0_identity.py | scanned | 10 | autofix cycle 5; 8 left: PLC0415 x6, TRY301 x2
+- eval/stage0_identity.py | fixed | 10 | autofix cycle 5; cycle 13 manual: PLC0415 x7 (hoisted huggingface_hub/transformers/sentence_transformers/datasets imports to top) + TRY301 x2 (digest-mismatch raise extracted to _require_digest_match); ruff clean
 - eval/stream/__init__.py | clean | 0 | -
 - eval/stream/config.py | clean | 0 | -
 - eval/stream/corpus.py | fixed | 1 | cycle 12 manual: PLW2901 (loop var line renamed to raw_line); ruff clean
@@ -332,3 +332,4 @@ Format: cycle N | item | outcome
 - cycle 12 | manual PLW2901 in eval/metrics/first_use.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual PLC0415 in eval/subject/oracles/forgetful.py | ruff clean, 17 covering tests pass
 - cycle 12 | end-of-cycle full suite (5 files incl. 2 __init__ import reorders) | 1365 passed, 2 skipped, 0 failed, 493s
+- cycle 13 | manual PLC0415 x7 + TRY301 x2 in eval/stage0_identity.py | ruff clean, 273 covering tests pass (1 skipped)
