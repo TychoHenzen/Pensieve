@@ -294,7 +294,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/run_stage0_trainability.py | scanned | 27 | autofix cycle 7 (11 stale imports removed); 7 left: PLC0415 x2, BLE001 x3, F841, TRY004
 - train/run_training.py | fixed | 8 | cycle 22 manual: B023 x8 (bound _on_step loop captures as default args); ruff clean
 - train/search_alignment_weight.py | fixed | 5 | SIM102 combined nested if, ruff clean
-- train/stage0_checkpoint.py | scanned | 6 | autofix cycle 7; 4 left: SIM102 x2, SIM105, PLC0415
+- train/stage0_checkpoint.py | fixed | 6 | cycle 24 manual: SIM102 x2 (nested if -> and), SIM105 (contextlib.suppress), PLC0415 (hoisted safetensors.torch.load); ruff clean
 - train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
 - train/stage0_trainability.py | scanned | 27 | autofix cycle 7; 25 left: BLE001 x8, PLC0415 x5, SIM x3, B904 x2, RUF059 x2, misc
 - train/standalone_checkpoint.py | fixed | 4 | B905 zip strict=True x2, ruff clean
@@ -399,3 +399,4 @@ Format: cycle N | item | outcome
 - cycle 23 | manual E731 + PLC0415 in train/eggroll_trainer.py | ruff clean, 11 covering tests pass (test_eggroll_training + test_run_eggroll + test_eggroll_step_equivalence)
 - cycle 23 | end-of-cycle full suite (5 train/ files fixed) | 1365 passed, 2 skipped, 0 failed, 489s
 - cycle 24 | manual PLW0108 x2 + SIM117 x3 in tests/test_stage0_checkpoint_container.py | ruff clean, 34 tests pass
+- cycle 24 | manual SIM102 x2 + SIM105 + PLC0415 in train/stage0_checkpoint.py | ruff clean, 140 checkpoint tests pass
