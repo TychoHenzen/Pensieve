@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-SUBJECT_PROTOCOL_VERSION = "1"
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from eval.stream.events import Event, Probe
+
+SUBJECT_PROTOCOL_VERSION = "1"
 
 
 @dataclass(frozen=True)

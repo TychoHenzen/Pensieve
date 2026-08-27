@@ -152,7 +152,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/stream/serialize.py | clean | 0 | -
 - eval/stream/truth.py | clean | 0 | -
 - eval/stream/vocab.py | clean | 0 | -
-- eval/subject/__init__.py | unchecked | 3 | -
+- eval/subject/__init__.py | fixed | 3 | cycle 12 manual: E402 x3 (imports hoisted above SUBJECT_PROTOCOL_VERSION); ruff clean
 - eval/subject/isolation.py | clean | 0 | -
 - eval/subject/oracles/__init__.py | clean | 0 | -
 - eval/subject/oracles/chance.py | clean | 0 | -
@@ -326,3 +326,4 @@ Format: cycle N | item | outcome
 - cycle 11 | manual fix in eval/stream/events.py: UP007 | ruff clean, 38 covering tests pass
 - cycle 11 | end-of-cycle full suite (after 5 files incl. import hoisting) | 1365 passed, 2 skipped, 0 failed, 480s
 - cycle 12 | manual E402 x2 in eval/metrics/__init__.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual E402 x3 in eval/subject/__init__.py | ruff clean, 78 covering tests pass
