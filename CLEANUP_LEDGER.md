@@ -289,7 +289,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
 - train/run_stage0_trainability.py | scanned | 27 | autofix cycle 7 (11 stale imports removed); 7 left: PLC0415 x2, BLE001 x3, F841, TRY004
 - train/run_training.py | unchecked | 8 | -
-- train/search_alignment_weight.py | scanned | 5 | autofix cycle 7; 1 left: SIM102
+- train/search_alignment_weight.py | fixed | 5 | SIM102 combined nested if, ruff clean
 - train/stage0_checkpoint.py | scanned | 6 | autofix cycle 7; 4 left: SIM102 x2, SIM105, PLC0415
 - train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
 - train/stage0_trainability.py | scanned | 27 | autofix cycle 7; 25 left: BLE001 x8, PLC0415 x5, SIM x3, B904 x2, RUF059 x2, misc
@@ -375,3 +375,4 @@ Format: cycle N | item | outcome
 - cycle 20 | manual B905 (zip strict=True) in train/vicreg.py | ruff clean, 3 tests pass
 - cycle 20 | manual B905 + PLC0415 (hoisted SlotDecoder import) in train/alternating_evaluation.py | ruff clean, 7 tests pass
 - cycle 20 | manual PLC0415 (hoisted run_training import) in tests/test_run_training.py | ruff clean, 2 tests pass
+- cycle 20 | manual SIM102 (combined nested if) in train/search_alignment_weight.py | ruff clean, 16 tests pass

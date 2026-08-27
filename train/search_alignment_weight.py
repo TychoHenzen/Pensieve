@@ -928,13 +928,16 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     for method in methods:
-        if method == "eggroll" and eggroll_stability is not None:
-            if eggroll_stability.report.status != "passed":
-                search_results[method] = unhealthy_eggroll_search_result(
-                    eggroll_stability
-                )
-                _log("EGGROLL zero control is unhealthy; skipping positive trials")
-                continue
+        if (
+            method == "eggroll"
+            and eggroll_stability is not None
+            and eggroll_stability.report.status != "passed"
+        ):
+            search_results[method] = unhealthy_eggroll_search_result(
+                eggroll_stability
+            )
+            _log("EGGROLL zero control is unhealthy; skipping positive trials")
+            continue
         _log(f"starting independent {method} search")
         if assets is None:
             raise RuntimeError("search assets were not loaded for a runnable method")
