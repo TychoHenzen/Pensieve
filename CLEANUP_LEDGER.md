@@ -281,7 +281,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/eggroll_stability_evaluation.py | clean | 0 | -
 - train/eggroll_stability_guard.py | fixed | 1 | cycle 18 manual: ISC004 (parenthesized implicit concat inside tuple arg); ruff clean
 - train/eggroll_trainer.py | scanned | 7 | autofix cycle 6 (4 stale imports removed); 2 left: E731, PLC0415
-- train/eggroll_updates.py | unchecked | 1 | -
+- train/eggroll_updates.py | fixed | 1 | cycle 19 manual: SIM108 ternary conversion; ruff clean
 - train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
 - train/run_alternating.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
 - train/run_eggroll.py | scanned | 9 | autofix cycle 7; 8 left: B023 x8 (one closure)
@@ -364,3 +364,4 @@ Format: cycle N | item | outcome
 - cycle 18 | manual RUF043 (raw match pattern) in tests/test_alternating_config.py | ruff clean, 12 tests pass
 - cycle 18 | manual RUF043 (match -> re.escape) in tests/test_benchmark_eggroll.py | ruff clean, 7 tests pass
 - cycle 18 | manual ISC004 (parenthesized implicit concat) in train/eggroll_stability_guard.py | ruff clean, 16 covering tests pass
+- cycle 19 | manual SIM108 (ternary) in train/eggroll_updates.py | ruff clean, 5 covering tests pass
