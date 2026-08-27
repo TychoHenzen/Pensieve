@@ -33,7 +33,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 22 (after removing sentence_transformers stubs from 3 test files): 1365 passed, 2 skipped, 0 failed, 483s.
 - Full suite at cycle 23 (after 5 train/ manual fixes): 1365 passed, 2 skipped, 0 failed, 489s.
 - Full suite at cycle 24 (after 5 manual-fix items incl. safetensors import hoist): 1365 passed, 2 skipped, 0 failed, 495s.
-- Last full-suite run: cycle 24.
+- Full suite at cycle 26 (start of cycle, post cycle-25 code fixes): 1365 passed, 2 skipped, 0 failed, 737s.
+- Last full-suite run: cycle 26.
 
 ## Ruff baseline (cycle 0)
 
@@ -267,7 +268,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_stage0_identity.py | fixed | 1 | autofix cycle 10, ruff clean
 - tests/test_stage0_shapes.py | fixed | 1 | autofix cycle 10, ruff clean
 - tests/test_stage0_trainability_identity.py | fixed | 13 | cycle 22 manual: PLC0415 x13 (hoisted train.stage0_trainability imports to top); ruff clean
-- tests/test_stage0_trainability_reports.py | scanned | 210 | autofix cycle 10; 171 left: PLC0415 x138, C408 x25, BLE001 x3, SIM222 x2, F841 x1, RUF059 x1, SIM102 x1
+- tests/test_stage0_trainability_reports.py | fixed | 210 | cycle 26 manual: hoisted 142 in-function imports to top (PLC0415 x138 incl. 4 plain `import inspect`/`import math`), C408 x25 (tuple() -> ()), F841 (removed unused held_out_record_ids, renamed unpack to _held_out_64_ids), RUF059 (status, _), SIM102 (combined nested if), SIM222 x2 (vacuous assert -> True), BLE001 x3 (dropped try/except Exception -> pytest.fail, exceptions now propagate); ruff clean
 - tests/test_standalone_checkpoint.py | fixed | 7 | cycle 21 manual: B905 (zip strict=True in _same_state); ruff clean
 - tests/test_trainability_types_verification.py | clean | 0 | -
 - tests/test_training_results.py | clean | 0 | -
@@ -407,3 +408,6 @@ Format: cycle N | item | outcome
 - cycle 24 | end-of-cycle full suite (5 items incl. stage0_checkpoint safetensors hoist) | 1365 passed, 2 skipped, 0 failed, 495s
 - cycle 25 | manual fixes in train/stage0_trainability.py: 20 of 24 findings fixed | ruff: 4 BLE001 left (blocked); 204 covering tests pass (identity 12 + types 2 + run_stage0 23 + reports 156; reports 377s)
 - cycle 25 | spec coverage scan: openspec/specs/codecs (decoder+encoder+narration) | 17 scenarios, 10 covered, 7 uncovered (recorded above)
+- cycle 26 | full suite verification (cycle 25 landed stage0_trainability code fixes) | 1365 passed, 2 skipped, 0 failed, 737s
+- cycle 26 | manual fixes in tests/test_stage0_trainability_reports.py: hoisted 138 PLC0415 + C408 x25 + F841 + RUF059 + SIM102 + SIM222 x2 + BLE001 x3 | ruff clean, 156 tests pass (538s)
+- cycle 26 | finding: 3 recalibration tests are vacuous placeholders (test_trainability_cannot_authorize_full_gradient/eggroll, test_trainability_recalibration_eligibility_not_full_training) - docstrings claim authorization limits compute_recalibration_eligibility never models; SIM222 exposed the vacuous asserts, fixed to `assert True` to preserve behavior, real assertions left for a later item
