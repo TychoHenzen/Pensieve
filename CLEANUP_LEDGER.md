@@ -20,8 +20,8 @@ Baselines recorded 2026-08-27 at cycle 0.
   access violation in torch/storage.py __getitem__, different tests each
   time). Root conftest.py now sets HF_DEACTIVATE_ASYNC_LOAD=1 so weights
   load serially (knob verified in transformers/core_model_loading.py).
-- Full suite at cycle 4: 1365 passed, 2 skipped, 0 failed, 511s.
-- Last full-suite run: cycle 4.
+- Full suite at cycle 7: 1365 passed, 2 skipped, 0 failed, 471s.
+- Last full-suite run: cycle 7.
 
 ## Ruff baseline (cycle 0)
 
