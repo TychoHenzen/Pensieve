@@ -127,7 +127,7 @@ Format: spec dir | status | scenarios total / covered | notes
 
 Format: change | status | notes
 - 2026-08-16-spec-test-coverage-alignment | scanned | clean. Test+spec alignment pass, no production code. 5 new specs (eval/package, eval/subject/{protocol,snapshot,isolation,oracles}) all exist under openspec/specs/eval/ and are coverage-scanned (4/4, 12/12, 2/2, 4/4, 15/15). 19/20 claimed tests present under exact names; 1 renamed: test_default_token_counter_name_is_regex_whitespace_v1 -> test_default_token_counter_name_equals_regex_whitespace_v1 (test_render.py:420, same scenario, still asserts name == "regex-whitespace-v1"). No TODO/FIXME/stub/pass in touched files. No defect found.
-- 2026-08-16-split-compound-requirements | unchecked | -
+- 2026-08-16-split-compound-requirements | scanned | clean. Spec-only restructure of 15 eval specs (events, config, vocab, generator, corpus, render, serialize, assoc, split-classify, difficulty-mix, package, subject/{protocol,snapshot,isolation,oracles}); no code changes. All 15 exist and are coverage-scanned in the ledger (one scenario per obligation confirmed, e.g. events 41 scenarios). Task 9.2 (spec-test generation) marked skipped in the change - acceptable, 9.3 full pytest passed. check-spec-hygiene.mjs no longer in repo (tool removed after use). No TODO/FIXME in eval specs. No defect found.
 - 2026-08-16-wire-unwired-scenarios | unchecked | -
 - 2026-08-17-stage-minus-1-remainder | unchecked | -
 - 2026-08-18-stage-0-latent-core | unchecked | -
@@ -473,3 +473,4 @@ Format: cycle N | item | outcome
 - cycle 31 | spec coverage scan: openspec/specs/train/stage0-training | 9 scenarios, 9 covered (recorded above)
 - cycle 32 | full suite verification (rule 2: last run was cycle 26, code fixes landed since) | 1365 passed, 2 skipped, 0 failed, 762s; access-violation crash recurred 2x before passing (noted in Pytest baseline)
 - cycle 32 | archived-changes audit: 2026-08-16-spec-test-coverage-alignment | clean: 5 specs + 19/20 tests shipped, 1 renamed; no defect (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-16-split-compound-requirements | clean: 15 eval specs split, no code changes, no defect (recorded above)
