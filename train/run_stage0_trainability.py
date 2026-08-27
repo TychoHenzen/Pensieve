@@ -29,6 +29,14 @@ from train.stage0_trainability import (
 from train.standalone_checkpoint import configure_deterministic_runtime
 
 
+def _compute_exit_code(status: str) -> int:
+    """Compute exit code from overall classification status.
+
+    Returns 0 for bounded_trainability_observed (viable), 1 for all other statuses.
+    """
+    return 0 if status == "bounded_trainability_observed" else 1
+
+
 class TrainabilityProgressWriter:
     """Append-only exclusive-create JSONL progress writer with flushing."""
 
@@ -155,7 +163,7 @@ def _write_final_report(
         args.final_output.write_text(report_json, encoding="utf-8")
 
         # Exit code: 0 for viable/bounded, 1 for non-viable
-        return 1 if status != "bounded_trainability_observed" else 0
+        return _compute_exit_code(status)
     except Exception as e:
         print(f"Failed to write report: {e}", file=sys.stderr, flush=True)
         return 1
