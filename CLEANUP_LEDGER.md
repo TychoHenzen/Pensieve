@@ -508,3 +508,4 @@ Format: cycle N | item | outcome
 - cycle 39 | write test for train/alternating-cycle "Epoch boundary progress records" | added test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record; ruff clean, 32 tests pass (test_run_alternating.py)
 - cycle 39 | write test for gsm8k "full dataset default" | added test_default_config_uses_all_available_problems (monkeypatched _load_split, problem_count=None yields all 7 problems); ruff clean, 12 tests pass (test_gsm8k.py)
 - cycle 39 | end-of-cycle full suite (4 test files added) | 1379 passed, 2 skipped, 0 failed, 1169s
+- cycle 40 | repo-wide ruff re-scan (rule 11: cycle 40 is a multiple of 20) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
