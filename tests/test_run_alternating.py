@@ -689,6 +689,42 @@ def test_alternating_fixture_separates_batch_observation_log_and_epoch_boundarie
     }
 
 
+# covers: train/alternating-cycle :: Throttled progress output :: Non-progress output remains independent
+def test_progress_filter_leaves_non_structured_output_untouched() -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+    output = StringIO()
+    log_output = StringIO()
+
+    run_alternating._run_schedule(
+        examples=["a", "b", "c", "d", "e"],
+        epochs=1,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=2,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=_save_nothing,
+        output=output,
+        log_output=log_output,
+    )
+
+    structured = output.getvalue().splitlines()
+    assert structured, "the structured stream should carry at least one progress record"
+    for line in structured:
+        record = json.loads(line)
+        assert record["record_type"] in {"training", "evaluation", "checkpoint"}
+
+    human = log_output.getvalue().splitlines()
+    assert human, "the human-readable stream should carry at least one line"
+    for line in human:
+        with pytest.raises(ValueError):
+            json.loads(line)
+    assert any("epoch 1/1 done" in line for line in human)
+
+
 def test_main_builds_shared_production_run_and_executes_schedule(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
