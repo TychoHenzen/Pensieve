@@ -222,7 +222,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/subject/test_protocol.py | fixed | 1 | cycle 18 manual: PLC0415 (import abc hoisted to top); ruff clean
 - tests/subject/test_snapshot_restore.py | clean | 0 | -
 - tests/test_alternating_checkpoint.py | scanned | 5 | autofix cycle 9; 1 left: F841
-- tests/test_alternating_config.py | unchecked | 1 | -
+- tests/test_alternating_config.py | fixed | 1 | cycle 18 manual: RUF043 (match pattern -> raw string); ruff clean
 - tests/test_alternating_evaluation.py | scanned | 2 | autofix cycle 9; 1 left: B905
 - tests/test_alternating_scheduler.py | clean | 0 | -
 - tests/test_answer_objective.py | clean | 0 | -
@@ -361,3 +361,4 @@ Format: cycle N | item | outcome
 - cycle 18 | full suite verification (code fixes landed since cycle 14) | 1365 passed, 2 skipped, 0 failed, 485s
 - cycle 18 | manual B007 + C416 in tests/subject/test_oracles.py | ruff clean, 17 tests pass
 - cycle 18 | manual PLC0415 (import abc hoisted) in tests/subject/test_protocol.py | ruff clean, 12 tests pass
+- cycle 18 | manual RUF043 (raw match pattern) in tests/test_alternating_config.py | ruff clean, 12 tests pass
