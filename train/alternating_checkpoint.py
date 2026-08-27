@@ -14,6 +14,7 @@ import torch
 from safetensors.torch import save as save_safetensors
 
 from train.stage0_checkpoint import (
+    ALLOWED_MODEL_PARAMETER_PATHS,
     EGGROLL_MODEL_PARAMETER_PATHS,
     LoadedCheckpointContainer,
     read_checkpoint_container,
@@ -172,7 +173,7 @@ def _optimizer_checkpoint_state(
 
     scalar_state: dict[str, dict[str, Any]] = {}
     references: dict[str, dict[str, str]] = {}
-    for parameter_name, parameter_id in zip(parameter_names, parameter_ids):
+    for parameter_name, parameter_id in zip(parameter_names, parameter_ids, strict=True):
         scalar_state[parameter_name] = {}
         references[parameter_name] = {}
         parameter_state = state["state"].get(parameter_id, {})
@@ -206,8 +207,6 @@ def _optimizer_checkpoint_state(
 
 def stage0_parameter_paths(method: str | None = None) -> tuple[str, ...]:
     """Return the canonical trainable-parameter order used by optimizers."""
-    from train.stage0_checkpoint import ALLOWED_MODEL_PARAMETER_PATHS
-
     if method == "eggroll":
         return EGGROLL_MODEL_PARAMETER_PATHS
     return ALLOWED_MODEL_PARAMETER_PATHS

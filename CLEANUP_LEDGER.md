@@ -273,7 +273,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_vicreg.py | clean | 0 | -
 - tests/test_workspace.py | clean | 0 | -
 - train/__init__.py | clean | 0 | -
-- train/alternating_checkpoint.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
+- train/alternating_checkpoint.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted ALLOWED_MODEL_PARAMETER_PATHS import); ruff clean
 - train/alternating_config.py | fixed | 1 | autofix cycle 6, ruff clean
 - train/alternating_evaluation.py | fixed | 2 | B905 zip strict=True + PLC0415 SlotDecoder import hoisted, ruff clean
 - train/alternating_scheduler.py | fixed | 3 | cycle 23 manual: UP046 x2 (PEP 695 type params on EvaluationRecord, TrainingEngine, PhaseEvaluator, VarianceHysteresisScheduler; dropped Generic/TypeVar imports); ruff clean
@@ -393,3 +393,4 @@ Format: cycle N | item | outcome
 - cycle 22 | manual PLC0415 x7 (hoisted stage0_trainability imports to top) in tests/test_run_stage0_trainability.py | ruff clean, 23 tests pass
 - cycle 23 | manual UP046 x2 (PEP 695 type params) in train/alternating_scheduler.py | ruff clean, 7 tests pass
 - cycle 23 | manual TRY004 x2 (callable guards -> TypeError) in train/answer_objective.py | ruff clean, 10 tests pass
+- cycle 23 | manual B905 + PLC0415 in train/alternating_checkpoint.py | ruff clean, 21 tests pass
