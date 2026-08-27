@@ -689,6 +689,75 @@ def test_alternating_fixture_separates_batch_observation_log_and_epoch_boundarie
     }
 
 
+# covers: train/alternating-cycle :: Throttled progress output :: Epoch boundary progress records
+def test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record(
+    tmp_path: Path,
+) -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+    output = StringIO()
+
+    def save(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del evaluation_record
+        names: list[Path] = []
+        if phase_boundary:
+            names.append(tmp_path / f"phase-{schedule.global_step}.pt")
+        if epoch_boundary:
+            names.append(tmp_path / f"epoch-{schedule.epoch}.pt")
+        for path in names:
+            path.write_text("{}", encoding="utf-8")
+        return tuple(names)
+
+    run_alternating._run_schedule(
+        examples=["a", "b"],
+        epochs=2,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=10,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=save,
+        output=output,
+    )
+
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    evaluation_records = [
+        record for record in records if record["record_type"] == "evaluation"
+    ]
+    checkpoint_records = [
+        record for record in records if record["record_type"] == "checkpoint"
+    ]
+
+    # Epoch 1 ends at global_step 2 with an incomplete observation window, so
+    # it is a pure epoch-only boundary: exactly one evaluation record carrying
+    # the epoch and global step, and one checkpoint record naming the saved file.
+    assert [record["global_step"] for record in evaluation_records] == [2, 4]
+    assert evaluation_records[0]["boundaries"] == ["epoch"]
+    assert evaluation_records[0]["epoch"] == 1
+    assert evaluation_records[0]["global_step"] == 2
+    assert evaluation_records[1]["boundaries"] == ["epoch", "partial_phase"]
+
+    assert checkpoint_records == [
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-1.pt")],
+        },
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-2.pt")],
+        },
+    ]
+    assert all(record["paths"] for record in checkpoint_records)
+
+
 # covers: train/alternating-cycle :: Throttled progress output :: Non-progress output remains independent
 def test_progress_filter_leaves_non_structured_output_untouched() -> None:
     eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
