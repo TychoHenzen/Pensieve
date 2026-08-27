@@ -27,7 +27,6 @@ from eval.stream.generators.asdiv_a import (
     asdiv_a_selection_identity,
 )
 
-
 MAX_RESULT_BYTES = 16 * 1024 * 1024
 MAX_DEPTH = 8
 MAX_COLLECTION_ITEMS = 3_000

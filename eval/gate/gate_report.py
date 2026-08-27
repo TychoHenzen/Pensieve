@@ -12,7 +12,6 @@ from typing import Any
 from eval.gate import result_cache
 from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
 
-
 DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_OUTPUT = DEFAULT_RESULTS_DIR / "gate_report.json"
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]

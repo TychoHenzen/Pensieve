@@ -91,12 +91,12 @@ Format: change | status | notes
 ## Files
 
 Format: path | status | ruff findings at cycle 0 | notes
-- codecs_module/__init__.py | unchecked | 1 | -
+- codecs_module/__init__.py | fixed | 1 | autofix cycle 3, ruff clean
 - codecs_module/decoder.py | clean | 0 | -
 - codecs_module/encoder.py | clean | 0 | -
 - codecs_module/narration.py | clean | 0 | -
 - core/__init__.py | clean | 0 | -
-- core/latent_loop.py | unchecked | 1 | -
+- core/latent_loop.py | fixed | 1 | autofix cycle 3, ruff clean
 - core/qwen_tap.py | unchecked | 2 | -
 - eval/__init__.py | clean | 0 | -
 - eval/baselines/__init__.py | clean | 0 | -
@@ -104,15 +104,15 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/baselines/frozen.py | clean | 0 | -
 - eval/baselines/joint.py | unchecked | 1 | -
 - eval/baselines/model.py | clean | 0 | -
-- eval/baselines/naive.py | unchecked | 2 | -
+- eval/baselines/naive.py | scanned | 2 | autofix cycle 3; 1 left: PLW0127 self-assignment
 - eval/baselines/param_match.py | clean | 0 | -
 - eval/baselines/replay.py | clean | 0 | -
 - eval/gate/__init__.py | clean | 0 | -
-- eval/gate/answer_scoring.py | unchecked | 1 | -
+- eval/gate/answer_scoring.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/cycling_sweep.py | clean | 0 | -
-- eval/gate/gate_report.py | unchecked | 4 | -
+- eval/gate/gate_report.py | scanned | 4 | autofix cycle 3; 3 left: PLC0415 function-level imports
 - eval/gate/latent_eval.py | unchecked | 9 | -
-- eval/gate/result_cache.py | unchecked | 1 | -
+- eval/gate/result_cache.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/run_gate.py | unchecked | 3 | -
 - eval/gate/slot_ablation.py | unchecked | 4 | -
 - eval/gate/token_cot_baseline.py | unchecked | 3 | -
@@ -297,3 +297,4 @@ Format: cycle N | item | outcome
 - cycle 0 | setup: ruff config, prompt, ledger | baselines recorded
 - cycle 1 | install torchvision 0.26.0+cpu, rerun full suite | mnist test fixed; found 2 real failures in test_search_alignment_weight.py (device_topology)
 - cycle 2 | fix empty-tuple thaw bug in train/eggroll_stability.py + clear its ruff findings | 2 failing tests now pass; regression test added; 94 related tests green
+- cycle 3 | ruff autofix batch: codecs_module/__init__, core/latent_loop, eval/baselines/naive, eval/gate/{answer_scoring,gate_report,result_cache} | 6 findings fixed, 177 covering tests pass
