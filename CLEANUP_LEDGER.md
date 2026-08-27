@@ -24,7 +24,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 10: 1365 passed, 2 skipped, 0 failed, 579s.
 - Full suite at cycle 11: 1365 passed, 2 skipped, 0 failed, 474s.
 - Full suite at cycle 12: 1365 passed, 2 skipped, 0 failed, 493s.
-- Last full-suite run: cycle 12.
+- Full suite at cycle 13: 1365 passed, 2 skipped, 0 failed, 499s.
+- Last full-suite run: cycle 13.
 
 ## Ruff baseline (cycle 0)
 
@@ -337,3 +338,4 @@ Format: cycle N | item | outcome
 - cycle 13 | manual B905 in eval/stream/generators/difficulty_mix.py | ruff clean, 30 covering tests pass
 - cycle 13 | manual PLC0415 in eval/stream/generators/gsm8k.py | ruff clean, 17 covering tests pass
 - cycle 13 | split_classify.py PLC0415 marked blocked | torchvision import is an intentional optional-dependency boundary (pyproject `baselines` extra); hoisting would break the documented synthetic-only import path
+- cycle 13 | end-of-cycle full suite (4 source files incl. stage0_identity import hoisting) | 1365 passed, 2 skipped, 0 failed, 499s
