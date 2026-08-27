@@ -221,11 +221,11 @@ def test_exit_code_non_viable_outcomes(status: str) -> None:
 def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     """Final report is written with exclusive-create semantics and temp file cleanup."""
     from train.stage0_trainability import (
-        TrainabilityReport,
-        TrainabilityConfiguration,
-        TrainabilityAssetIdentity,
         ImplementationIdentity,
         OverfitProbeResult,
+        TrainabilityAssetIdentity,
+        TrainabilityConfiguration,
+        TrainabilityReport,
     )
 
     output_path = tmp_path / "report.json"
@@ -341,11 +341,11 @@ def test_progress_record_eta_field_validation() -> None:
 def test_final_report_schema_required_fields() -> None:
     """Final reports have all required schema fields."""
     from train.stage0_trainability import (
-        TrainabilityReport,
-        TrainabilityConfiguration,
-        TrainabilityAssetIdentity,
         ImplementationIdentity,
         OverfitProbeResult,
+        TrainabilityAssetIdentity,
+        TrainabilityConfiguration,
+        TrainabilityReport,
     )
 
     report = TrainabilityReport(
@@ -406,12 +406,12 @@ def test_command_output_structure_on_fixture(
 ) -> None:
     """Command produces correct JSON and JSONL output structure on fixture."""
     from train.stage0_trainability import (
-        TrainabilityReport,
-        TrainabilityConfiguration,
-        TrainabilityAssetIdentity,
         ImplementationIdentity,
         OverfitProbeResult,
+        TrainabilityAssetIdentity,
+        TrainabilityConfiguration,
         TrainabilityProgressRecord,
+        TrainabilityReport,
     )
 
     report = tmp_path / "stability.json"

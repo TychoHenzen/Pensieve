@@ -19,7 +19,6 @@ from safetensors.torch import save as save_safetensors
 from eval.stage0_identity import training_identity
 from train import alternating_checkpoint, stage0_checkpoint
 
-
 PARAMETER_PATHS = stage0_checkpoint.ALLOWED_MODEL_PARAMETER_PATHS
 EGGROLL_PARAMETER_PATHS = stage0_checkpoint.EGGROLL_MODEL_PARAMETER_PATHS
 RUNTIME_IDENTITY = {

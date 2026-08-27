@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.eggroll_stability_fixtures import write_stability_report
+from train.eggroll_stability_guard import load_guarded_stability_report
 from train.search_alignment_weight import (
     TrialMetrics,
     alignment_candidate_rejection_reasons,
@@ -15,9 +17,7 @@ from train.search_alignment_weight import (
     search_method_weights,
     unhealthy_eggroll_search_result,
 )
-from train.eggroll_stability_guard import load_guarded_stability_report
 from train.standalone_checkpoint import configure_deterministic_runtime
-from tests.eggroll_stability_fixtures import write_stability_report
 
 
 def _metrics(

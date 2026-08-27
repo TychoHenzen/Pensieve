@@ -21,7 +21,6 @@ from train.alternating_checkpoint import CheckpointSchedule
 from train.alternating_scheduler import EvaluationRecord
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 
-
 METADATA_MEMBER = "metadata.json"
 TENSORS_MEMBER = "tensors.safetensors"
 
@@ -36,7 +35,7 @@ def _metadata_bytes(
     *, schema_version: int = 2, extra_json: str = ""
 ) -> bytes:
     suffix = f",{extra_json}" if extra_json else ""
-    return f'{{"schema_version":{schema_version}{suffix}}}'.encode("utf-8")
+    return f'{{"schema_version":{schema_version}{suffix}}}'.encode()
 
 
 def _tiny_safetensors_bytes() -> bytes:
@@ -78,11 +77,10 @@ def _write_archive(
         (METADATA_MEMBER, _metadata_bytes(), ZIP_STORED),
         (TENSORS_MEMBER, _tiny_safetensors_bytes(), ZIP_STORED),
     ]
-    with ZipFile(path, "w") as archive:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            for name, payload, compression in archive_members:
-                archive.writestr(name, payload, compress_type=compression)
+    with ZipFile(path, "w") as archive, warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        for name, payload, compression in archive_members:
+            archive.writestr(name, payload, compress_type=compression)
 
 
 def _read(path: Path, tensor_loader: Callable[[bytes], object] | None = None):
@@ -255,12 +253,11 @@ def test_reader_rejects_tensor_shape_before_calling_loader(tmp_path: Path) -> No
         module,
         "validate_checkpoint_metadata",
         return_value=_validated_tiny_metadata(shape=[2]),
-    ):
-        with pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"):
-            module.read_checkpoint_container(
-                path,
-                tensor_loader=lambda payload: calls.append(payload),
-            )
+    ), pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"):
+        module.read_checkpoint_container(
+            path,
+            tensor_loader=lambda payload: calls.append(payload),
+        )
 
     assert calls == []
 

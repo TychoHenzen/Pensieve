@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import copy
 import hashlib
-from io import StringIO
 import json
-from pathlib import Path
 import random
+from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 from torch import nn
 
 from train import run_alternating
-from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
 from train.alternating_checkpoint import (
     CheckpointSchedule,
     build_alternating_checkpoint,
@@ -24,23 +24,25 @@ from train.alternating_config import (
     DEFAULT_VARIANCE_LOWER_THRESHOLD,
     DEFAULT_VARIANCE_UPPER_THRESHOLD,
 )
+from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
 from train.alternating_scheduler import EvaluationRecord
+from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
-    DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
     DEFAULT_RANK,
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
 )
-from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
-from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
+from train.eggroll_trainer import (
+    DEFAULT_LR as DEFAULT_EGGROLL_LR,
+)
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
+from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
-from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 
 
 def _position() -> ExperimentPosition:

@@ -3,8 +3,8 @@ from __future__ import annotations
 import builtins
 import copy
 import importlib
-from pathlib import Path
 import sys
+from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
 import pytest
@@ -12,13 +12,13 @@ import torch
 from torch import nn
 
 from eval.stream.generators.asdiv_a import AsdivRecord
+from tests.test_stage0_checkpoint_resume import _metadata
 from train.stage0_checkpoint import (
     ALLOWED_MODEL_PARAMETER_PATHS,
     EGGROLL_MODEL_PARAMETER_PATHS,
 )
 from train.stage0_data import plan_eggroll_fitness_batch
 from train.standalone_checkpoint import load_checkpoint
-from tests.test_stage0_checkpoint_resume import _metadata
 
 
 def test_main_constructs_and_runs_only_eggroll_trainer(monkeypatch) -> None:
@@ -366,7 +366,7 @@ def test_public_command_writes_inspects_and_resumes_real_sgd_checkpoint(
     )
     monkeypatch.setattr(run_eggroll, "EggrollTrainer", CheckpointTrainer)
     monkeypatch.setattr(run_eggroll, "_log", lambda _message: None)
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
 
     run_eggroll.main()
     first_path = tmp_path / "epoch-1.ckpt"
