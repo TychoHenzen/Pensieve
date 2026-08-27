@@ -79,26 +79,33 @@ def test_rendered_probe_text_contains_no_answer():
         assert answer not in rendered
 
 
-# covers: eval/generators/gsm8k::event shape::Observe payloads carry text
-def test_observe_events_have_text_payload():
+# covers: eval/generators/gsm8k::GSM8K generator yields a stream of math word problems::observe events contain word problems
+def test_observe_events_render_word_problems():
     items = _items()
     observes = [item.event for item in items if isinstance(item.event, Observe)]
     assert observes
     for obs in observes:
-        assert isinstance(obs.payload, dict)
-        assert isinstance(obs.payload["text"], str)
-        assert obs.payload["text"]
+        rendered = render_event(obs)
+        # A GSM8K word problem is natural-language prose about numbers: it
+        # carries alphabetic text, at least one digit, and several words.
+        assert any(char.isalpha() for char in rendered)
+        assert any(char.isdigit() for char in rendered)
+        assert len(rendered.split()) > 1
 
 
-# covers: eval/generators/gsm8k::event shape::Probe events carry a query string
-def test_probe_events_have_query_string():
+# covers: eval/generators/gsm8k::GSM8K generator yields a stream of math word problems::probe events ask for numerical answers
+def test_probe_events_ask_for_numerical_answers():
     items = _items()
     probes = _probes(items)
     assert probes
     for item in probes:
         assert isinstance(item.event, Probe)
-        assert isinstance(item.event.query, str)
-        assert item.event.query
+        rendered = render_event(item.event)
+        # The probe asks for a numerical answer to the observed word problem:
+        # it is a question that names the answer and refers back to the problem.
+        assert rendered.strip().endswith("?")
+        assert "answer" in rendered.lower()
+        assert "problem" in rendered.lower()
 
 
 # covers: eval/generators/gsm8k::event shape::each problem yields one Observe followed by one Probe
