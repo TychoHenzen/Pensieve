@@ -279,7 +279,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/eggroll_perturbations.py | clean | 0 | -
 - train/eggroll_stability.py | fixed | 6 | ruff clean cycle 2; empty-tuple thaw bug fixed
 - train/eggroll_stability_evaluation.py | clean | 0 | -
-- train/eggroll_stability_guard.py | unchecked | 1 | -
+- train/eggroll_stability_guard.py | fixed | 1 | cycle 18 manual: ISC004 (parenthesized implicit concat inside tuple arg); ruff clean
 - train/eggroll_trainer.py | scanned | 7 | autofix cycle 6 (4 stale imports removed); 2 left: E731, PLC0415
 - train/eggroll_updates.py | unchecked | 1 | -
 - train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
@@ -363,3 +363,4 @@ Format: cycle N | item | outcome
 - cycle 18 | manual PLC0415 (import abc hoisted) in tests/subject/test_protocol.py | ruff clean, 12 tests pass
 - cycle 18 | manual RUF043 (raw match pattern) in tests/test_alternating_config.py | ruff clean, 12 tests pass
 - cycle 18 | manual RUF043 (match -> re.escape) in tests/test_benchmark_eggroll.py | ruff clean, 7 tests pass
+- cycle 18 | manual ISC004 (parenthesized implicit concat) in train/eggroll_stability_guard.py | ruff clean, 16 covering tests pass

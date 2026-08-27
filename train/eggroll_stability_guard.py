@@ -55,8 +55,8 @@ def load_guarded_stability_report(
         raise StabilityReportValidationError(
             (
                 "$.configuration.asset_identity.held_out_item_ids: expected "
-                f"{BASELINE_PROBLEM_COUNT} unique non-empty strings",
-            )
+                f"{BASELINE_PROBLEM_COUNT} unique non-empty strings"
+            ),
         )
     root = (
         Path(repository_root).resolve()
