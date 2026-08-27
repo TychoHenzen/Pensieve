@@ -76,4 +76,4 @@
 - [x] 7.2 Run the complete suite with `.\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider`.
 - [x] 7.3 Run optimized-reference equivalence and the existing CUDA performance and memory gates to confirm diagnostic reuse did not change training math.
 - [x] 7.4 Run `openspec validate validate-stage0-trainability --strict --no-interactive` and require complete scenario coverage with zero regressions.
-- [ ] 7.5 Run the bounded command against `gate_results/stabilize-eggroll-training/stability-seed0-cuda-20260826T1555.json`, retain its JSON and JSONL result, and stop without recalibration, full training, threshold changes, default selection, or archival.
+- [x] 7.5 Run the bounded command against `gate_results/stabilize-eggroll-training/stability-seed0-cuda-20260826T1555.json`, retain its JSON and JSONL result, and stop without recalibration, full training, threshold changes, default selection, or archival.
