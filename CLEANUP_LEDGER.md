@@ -28,7 +28,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 14: 1365 passed, 2 skipped, 0 failed, 494s.
 - Full suite at cycle 18: 1365 passed, 2 skipped, 0 failed, 485s.
 - Full suite at cycle 20: 1365 passed, 2 skipped, 0 failed, 465s.
-- Last full-suite run: cycle 20.
+- Full suite at cycle 20 (post-fixes): 1365 passed, 2 skipped, 0 failed, 493s.
+- Last full-suite run: cycle 20 (post-fixes).
 
 ## Ruff baseline (cycle 0)
 
@@ -377,3 +378,4 @@ Format: cycle N | item | outcome
 - cycle 20 | manual PLC0415 (hoisted run_training import) in tests/test_run_training.py | ruff clean, 2 tests pass
 - cycle 20 | manual SIM102 (combined nested if) in train/search_alignment_weight.py | ruff clean, 16 tests pass
 - cycle 20 | manual B905 (zip strict=True) x2 in train/standalone_checkpoint.py | ruff clean, 9 tests pass
+- cycle 20 | end-of-cycle full suite (5 files fixed) | 1365 passed, 2 skipped, 0 failed, 493s
