@@ -89,7 +89,7 @@ Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/core | scanned | 15 / 10 | latent-loop. Uncovered: "different step counts produce different compute", "flops counter reflects forward passes", "all protocol methods present", "observe runs encoder then latent loop", "answer runs latent loop then decoder"
 - openspec/specs/eval/baselines | scanned | 10 / 5 | five baselines + param matching + MNIST binding. Covered: "each baseline is a valid subject" (test_baselines_smoke.py protocol+snapshot-restore), "mismatched parameters rejected" + "report includes architecture metadata" (test_param_match.py), "real MNIST features in payload" + "hash changes with data source" (test_mnist_binding.py). Uncovered: "catastrophic forgetting visible" (naive), "high accuracy on all tasks" (joint), "accuracy at initialization level" (frozen), "EWC collapses in class-incremental setting", "replay retains old task accuracy" - no test asserts any baseline's accuracy/forgetting behavior
 - openspec/specs/eval/config | scanned | 11 / 11 | StreamConfig immutability + canonical hashability + frozen dataclass. All covered by tests/stream/test_hashing.py (each test carries a "covers: eval/config::" comment)
-- openspec/specs/eval/corpus | unchecked | - | -
+- openspec/specs/eval/corpus | scanned | 22 / 22 | resolve/load_corpus/Corpus.walk/next_span contract. All covered by tests/stream/test_corpus.py (each test carries a "covers: eval/corpus::" comment). Note: spec's wordless-snapshot requirement still says "No test exercises this path" but test_load_corpus_rejects_wordless_snapshot does - stale spec observation, not a gap
 - openspec/specs/eval/events | unchecked | - | -
 - openspec/specs/eval/generator | unchecked | - | -
 - openspec/specs/eval/generators/asdiv-a | unchecked | - | -
@@ -441,3 +441,4 @@ Format: cycle N | item | outcome
 - cycle 26 | spec coverage scan: openspec/specs/eval/subject/isolation | 4 scenarios, 4 covered (all via tests/subject/test_isolation.py)
 - cycle 27 | spec coverage scan: openspec/specs/eval/baselines | 10 scenarios, 5 covered, 5 uncovered (accuracy/forgetting behaviors of the five baselines have no test)
 - cycle 27 | spec coverage scan: openspec/specs/eval/config | 11 scenarios, 11 covered (all via tests/stream/test_hashing.py)
+- cycle 27 | spec coverage scan: openspec/specs/eval/corpus | 22 scenarios, 22 covered (all via tests/stream/test_corpus.py)
