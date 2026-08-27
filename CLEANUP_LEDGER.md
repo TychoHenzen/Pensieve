@@ -297,7 +297,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/search_alignment_weight.py | fixed | 5 | SIM102 combined nested if, ruff clean
 - train/stage0_checkpoint.py | fixed | 6 | cycle 24 manual: SIM102 x2 (nested if -> and), SIM105 (contextlib.suppress), PLC0415 (hoisted safetensors.torch.load); ruff clean
 - train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
-- train/stage0_trainability.py | scanned | 27 | autofix cycle 7; 25 left: BLE001 x8, PLC0415 x5, SIM x3, B904 x2, RUF059 x2, misc
+- train/stage0_trainability.py | blocked | 27 | cycle 25 manual: 20 of 24 fixed (SIM102, C416, B904 x2, PLC0415 x5, RUF059 x2, B007, C408, RUF015, TRY300, SIM105, BLE001 x3 removed/narrowed); 4 left: BLE001 x4 - deliberate catch-all graceful degradation (evaluate_single_record_loss -> NaN, run_overfit_attempt train_step + outer fatal, _compute_state_hash -> "")
 - train/standalone_checkpoint.py | fixed | 4 | B905 zip strict=True x2, ruff clean
 - train/trainer.py | fixed | 5 | autofix cycle 7, ruff clean (4 stale imports removed)
 - train/training_results.py | clean | 0 | -
@@ -405,3 +405,4 @@ Format: cycle N | item | outcome
 - cycle 24 | manual B023 x8 in train/run_eggroll.py | ruff clean, 10 tests pass
 - cycle 24 | manual PLC0415 x2 + F841 + BLE001 x3 in train/run_stage0_trainability.py | 1 left: TRY004 blocked (test asserts ValueError); 23 tests pass
 - cycle 24 | end-of-cycle full suite (5 items incl. stage0_checkpoint safetensors hoist) | 1365 passed, 2 skipped, 0 failed, 495s
+- cycle 25 | manual fixes in train/stage0_trainability.py: 20 of 24 findings fixed | ruff: 4 BLE001 left (blocked); 204 covering tests pass (identity 12 + types 2 + run_stage0 23 + reports 156; reports 377s)
