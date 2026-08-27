@@ -84,7 +84,7 @@ Format: path | decision (proposed/approved/rejected) | reason
 ## Spec coverage
 
 Format: spec dir | status | scenarios total / covered | notes
-- openspec/specs/codecs | unchecked | - | -
+- openspec/specs/codecs | scanned | 17 / 10 | decoder+encoder+narration. Uncovered: "answer returns decoded text", "answer does not mutate workspace", "observe writes encoded input to workspace", "narration field populated", "narration field absent when disabled", "off by default", "enabled via config". Conflicts/gaps: answer() runs latent_loop.run which mutates workspace in place (contradicts "answer does not mutate workspace"; overlaps core "answer runs latent loop then decoder"); narration is only a LatentCoreSubject constructor arg, eval/run/runner.py discards observe's return and never writes event.narration, no run-config toggle exists
 - openspec/specs/core | scanned | 15 / 10 | latent-loop. Uncovered: "different step counts produce different compute", "flops counter reflects forward passes", "all protocol methods present", "observe runs encoder then latent loop", "answer runs latent loop then decoder"
 - openspec/specs/eval | unchecked | - | -
 - openspec/specs/train | unchecked | - | -
@@ -406,3 +406,4 @@ Format: cycle N | item | outcome
 - cycle 24 | manual PLC0415 x2 + F841 + BLE001 x3 in train/run_stage0_trainability.py | 1 left: TRY004 blocked (test asserts ValueError); 23 tests pass
 - cycle 24 | end-of-cycle full suite (5 items incl. stage0_checkpoint safetensors hoist) | 1365 passed, 2 skipped, 0 failed, 495s
 - cycle 25 | manual fixes in train/stage0_trainability.py: 20 of 24 findings fixed | ruff: 4 BLE001 left (blocked); 204 covering tests pass (identity 12 + types 2 + run_stage0 23 + reports 156; reports 377s)
+- cycle 25 | spec coverage scan: openspec/specs/codecs (decoder+encoder+narration) | 17 scenarios, 10 covered, 7 uncovered (recorded above)
