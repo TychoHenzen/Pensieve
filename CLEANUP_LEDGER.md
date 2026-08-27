@@ -36,20 +36,20 @@ Baselines recorded 2026-08-27 at cycle 0.
 
 ## Openspec validation baseline (cycle 0)
 
-`openspec validate --all --strict --no-interactive`: 27 passed, 12 failed.
+`openspec validate --all --strict --no-interactive`: 27 passed, 12 failed at cycle 0; 39 passed, 0 failed at cycle 19 (all resolved).
 Failing at cycle 0 (any NEW failure beyond these is a regression to fix):
 - spec/eval/corpus | fixed cycle 19 | SHOULD -> MUST in "load_corpus rejects a wordless snapshot"; strict validation now passes
-- spec/eval/events
-- spec/eval/generators/assoc
-- spec/eval/generators/split-classify
-- spec/eval/serialize
-- spec/eval/subject-protocol
-- spec/eval/vocab
-- change/stage-1-persistent-state
-- change/stage-2-fast-weight-hippocampus
-- change/stage-3-idle-consolidation
-- change/stage-4-bottlenecked-dual
-- change/stage-5-always-on-runtime
+- spec/eval/events | fixed cycle 19 | SHOULD -> MUST in "narration and hostile flags exist for future stages"
+- spec/eval/generators/assoc | fixed cycle 19 | SHOULD -> MUST in "Interleaving puts other pairs' events between a teaching and its probe"
+- spec/eval/generators/split-classify | fixed cycle 19 | SHOULD -> MUST in "Class clusters stay separable"
+- spec/eval/serialize | fixed cycle 19 | SHOULD -> MUST in "canonical_json forbids NaN and Infinity" + "items_to_plain output shape"
+- spec/eval/subject-protocol | fixed cycle 19 | added MUST to 4 oracle requirements (Perfect-memory, Forgetful, Task-wiper, Cheater)
+- spec/eval/vocab | fixed cycle 19 | SHOULD -> MUST in "VOCAB_VERSION tracks vocabulary changes"
+- change/stage-1-persistent-state | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-2-fast-weight-hippocampus | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-3-idle-consolidation | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-4-bottlenecked-dual | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-5-always-on-runtime | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
 
 Fixing one of these baseline failures is valid work under priority 5: run
 `openspec validate <name> --type spec` (or `--type change`) to see the details,
@@ -366,3 +366,5 @@ Format: cycle N | item | outcome
 - cycle 18 | manual ISC004 (parenthesized implicit concat) in train/eggroll_stability_guard.py | ruff clean, 16 covering tests pass
 - cycle 19 | manual SIM108 (ternary) in train/eggroll_updates.py | ruff clean, 5 covering tests pass
 - cycle 19 | spec validation: eval/corpus SHOULD -> MUST (wordless-snapshot requirement) | openspec validate --strict now passes
+- cycle 19 | spec validation batch: SHOULD -> MUST in eval/{events,generators/assoc,generators/split-classify,serialize,subject-protocol,vocab} | all strict-valid
+- cycle 19 | spec validation batch: skip_specs: true for change/stage-1..5 (planning-pass changes) | openspec validate --all --strict: 39 passed, 0 failed

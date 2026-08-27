@@ -246,7 +246,7 @@ The same `(config, seed)` MUST reproduce an identical stream. A different `seed`
 
 ### Requirement: Class clusters stay separable
 
-Feature draws for different classes SHOULD remain well-separated relative to noise at any `classes_per_task`. No test measures separability directly. [OBSERVED]
+Feature draws for different classes MUST remain well-separated relative to noise at any `classes_per_task`. No test measures separability directly. [OBSERVED]
 
 #### Scenario: cluster geometry
 

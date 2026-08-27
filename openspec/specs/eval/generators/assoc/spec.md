@@ -296,7 +296,7 @@ The same `(config, seed)` MUST reproduce an identical stream. A different `seed`
 
 ### Requirement: Interleaving puts other pairs' events between a teaching and its probe
 
-The scheduler SHOULD allow other pairs' teachings and probes to fall between one pair's teaching and its own probe. [OBSERVED - direct test exists but no non-test caller depends on it]
+The scheduler MUST allow other pairs' teachings and probes to fall between one pair's teaching and its own probe. [OBSERVED - direct test exists but no non-test caller depends on it]
 
 #### Scenario: interleaving occurs
 
