@@ -13,7 +13,7 @@ to commit only when asked.
 
 1. Work on branch `chore/incremental-cleanup`. If it does not exist, create it
    from the current HEAD. If it exists, check it out.
-2. Do exactly ONE work item per cycle, then update the ledger, commit, and stop.
+2. Do 1-5 work items per cycle, after each work item, update the ledger, commit. Stop after spending ~100k tokens.
    Exception: a "scan" item may update the status of many files at once.
 3. Never delete or weaken a test to make it pass. Never change an assertion to
    match buggy output. If a test exposes a real bug, fix the code.
@@ -31,7 +31,8 @@ to commit only when asked.
    file you created on purpose. Nothing else goes into the commit.
 9. Commit message format: `cleanup(cycle-N): <one line describing the item>`.
    Your cycle number N is the number in the last Cycle log entry plus one.
-10. Every 20 cycles, or when no file row is left `unchecked`, run
+10. commits always affect all files, all tests should pass, nothing is stale, nothing is pre-existing.
+11. Every 20 cycles, or when no file row is left `unchecked`, run
     `python -m ruff check .` repo-wide. Any finding in a file the ledger calls
     `clean` or `fixed` flips that row back to `unchecked` with the count.
     This heals ledger drift.
