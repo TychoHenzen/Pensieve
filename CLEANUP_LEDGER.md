@@ -234,22 +234,22 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_eggroll_updates.py | clean | 0 | -
 - tests/test_eggroll_workflow_guards.py | fixed | 1 | autofix cycle 9, ruff clean
 - tests/test_frozen_qwen_backbone.py | clean | 0 | -
-- tests/test_gradient_training.py | unchecked | 3 | -
+- tests/test_gradient_training.py | scanned | 3 | autofix (prior cycle-10 commit 4f13aff); 2 left: E402 x2
 - tests/test_latent_eval.py | clean | 0 | -
 - tests/test_latent_loop.py | clean | 0 | -
-- tests/test_narration.py | unchecked | 1 | -
+- tests/test_narration.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_plot_training.py | clean | 0 | -
 - tests/test_probe_isolation.py | clean | 0 | -
-- tests/test_qwen_latent_loop.py | unchecked | 1 | -
-- tests/test_qwen_tap_equivalence.py | unchecked | 1 | -
-- tests/test_run_alternating.py | unchecked | 2 | -
-- tests/test_run_eggroll.py | unchecked | 2 | -
+- tests/test_qwen_latent_loop.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_qwen_tap_equivalence.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_run_alternating.py | scanned | 2 | autofix (prior cycle-10 commit); 1 left: B007
+- tests/test_run_eggroll.py | fixed | 2 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_run_eggroll_stability.py | clean | 0 | -
-- tests/test_run_stage0_trainability.py | unchecked | 10 | -
+- tests/test_run_stage0_trainability.py | scanned | 10 | autofix (prior cycle-10 commit); 7 left: PLC0415 x7
 - tests/test_run_training.py | unchecked | 1 | -
-- tests/test_search_alignment_weight.py | unchecked | 1 | -
-- tests/test_stage0_checkpoint_container.py | unchecked | 9 | -
-- tests/test_stage0_checkpoint_resume.py | unchecked | 2 | -
+- tests/test_search_alignment_weight.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_stage0_checkpoint_container.py | scanned | 9 | autofix (prior cycle-10 commit); 5 left: PLW0108 x2, SIM117 x3
+- tests/test_stage0_checkpoint_resume.py | scanned | 2 | autofix (prior cycle-10 commit); 1 left: PLW0108
 - tests/test_stage0_checkpoint_schema.py | fixed | 4 | autofix cycle 10, ruff clean
 - tests/test_stage0_cli_runtime_order.py | clean | 0 | -
 - tests/test_stage0_dataset_contract.py | fixed | 1 | autofix cycle 10, ruff clean
@@ -316,3 +316,4 @@ Format: cycle N | item | outcome
 - cycle 10 | manual PLC0206+PLW0127 fixes in eval/baselines/ewc.py | ruff clean, 29 covering tests pass
 - cycle 10 | manual PLW0127 fix in eval/baselines/joint.py | ruff clean, 20 covering tests pass
 - cycle 10 | manual PLW0127 fix in eval/baselines/naive.py | ruff clean, 20 covering tests pass
+- cycle 10 | healed ledger drift: prior commit 4f13aff autofixed 10 test files without a ledger entry; verified current ruff state and corrected those 10 rows
