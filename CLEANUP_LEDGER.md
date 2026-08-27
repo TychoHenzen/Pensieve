@@ -115,7 +115,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/gate/__init__.py | clean | 0 | -
 - eval/gate/answer_scoring.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/cycling_sweep.py | clean | 0 | -
-- eval/gate/gate_report.py | scanned | 4 | autofix cycle 3; 3 left: PLC0415 function-level imports
+- eval/gate/gate_report.py | fixed | 4 | autofix cycle 3; cycle 11 manual: PLC0415 x3 (deferred imports hoisted to module refs); ruff clean
 - eval/gate/latent_eval.py | fixed | 9 | cycle 11 manual: TRY004 x7 (ValueError->TypeError on isinstance checks) + PLC0415 x2 (hoisted deferred imports to module refs result_cache.*/token_cot_baseline.*); ruff clean
 - eval/gate/result_cache.py | fixed | 1 | autofix cycle 3, ruff clean
 - eval/gate/run_gate.py | fixed | 3 | autofix cycle 5, ruff clean (stale in-function import removed)
@@ -322,3 +322,4 @@ Format: cycle N | item | outcome
 - cycle 11 | manual fixes in eval/gate/latent_eval.py: TRY004 x7 + PLC0415 x2 | ruff clean, 28 covering tests pass
 - cycle 11 | manual fixes in eval/gate/slot_ablation.py: TRY004 x3 | ruff clean, 13 covering tests pass
 - cycle 11 | manual fixes in eval/gate/token_cot_baseline.py: TRY004 x1 + PLC0415 x1 | ruff clean, 22 covering tests pass
+- cycle 11 | manual fixes in eval/gate/gate_report.py: PLC0415 x3 | ruff clean, 22 covering tests pass
