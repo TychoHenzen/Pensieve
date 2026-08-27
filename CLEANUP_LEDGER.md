@@ -254,7 +254,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_run_alternating.py | fixed | 2 | cycle 21 manual: B007 (loop var _expected_message); ruff clean
 - tests/test_run_eggroll.py | fixed | 2 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_run_eggroll_stability.py | clean | 0 | -
-- tests/test_run_stage0_trainability.py | scanned | 10 | autofix (prior cycle-10 commit); 7 left: PLC0415 x7
+- tests/test_run_stage0_trainability.py | fixed | 10 | cycle 22 manual: PLC0415 x7 (hoisted train.stage0_trainability imports to top); ruff clean
 - tests/test_run_training.py | fixed | 1 | PLC0415 run_training import hoisted, ruff clean
 - tests/test_search_alignment_weight.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
 - tests/test_stage0_checkpoint_container.py | scanned | 9 | autofix (prior cycle-10 commit); 5 left: PLW0108 x2, SIM117 x3
@@ -390,3 +390,4 @@ Format: cycle N | item | outcome
 - cycle 22 | manual PLC0415 x13 (hoisted imports to top) in tests/test_stage0_trainability_identity.py | ruff clean, 13 tests pass
 - cycle 22 | manual B023 x8 (closure loop-capture -> default args) in train/run_training.py | ruff clean, 2 tests pass
 - cycle 22 | removed sentence_transformers stub from tests/test_{eggroll_training,gradient_training,training_state}.py (E402 x11) + PLC0415 x2 in eggroll_training | ruff clean, full suite 1365 passed, 2 skipped, 0 failed, 483s
+- cycle 22 | manual PLC0415 x7 (hoisted stage0_trainability imports to top) in tests/test_run_stage0_trainability.py | ruff clean, 23 tests pass
