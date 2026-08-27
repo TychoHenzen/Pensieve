@@ -52,7 +52,7 @@ def _decoder_hidden_states(
     """Run the pinned decoder body while retaining its final hidden state."""
     body = getattr(model, "model", None)
     if not callable(body):
-        raise ValueError("language model must expose a callable model body")
+        raise TypeError("language model must expose a callable model body")
     outputs = body(
         input_ids=input_ids,
         inputs_embeds=inputs_embeds,
@@ -82,7 +82,7 @@ def _decoder_hidden_and_logits(
     )
     lm_head = getattr(model, "lm_head", None)
     if not callable(lm_head):
-        raise ValueError("language model must expose callable model and lm_head modules")
+        raise TypeError("language model must expose callable model and lm_head modules")
     logits = lm_head(hidden_states)
     if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
         raise ValueError("language-model head must return three-dimensional logits")

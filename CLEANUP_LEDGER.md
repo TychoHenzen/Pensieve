@@ -277,7 +277,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/alternating_config.py | fixed | 1 | autofix cycle 6, ruff clean
 - train/alternating_evaluation.py | fixed | 2 | B905 zip strict=True + PLC0415 SlotDecoder import hoisted, ruff clean
 - train/alternating_scheduler.py | fixed | 3 | cycle 23 manual: UP046 x2 (PEP 695 type params on EvaluationRecord, TrainingEngine, PhaseEvaluator, VarianceHysteresisScheduler; dropped Generic/TypeVar imports); ruff clean
-- train/answer_objective.py | scanned | 3 | autofix cycle 6; 2 left: TRY004 x2
+- train/answer_objective.py | fixed | 3 | cycle 23 manual: TRY004 x2 (callable type guards raise TypeError, not ValueError); ruff clean
 - train/benchmark_eggroll.py | clean | 0 | -
 - train/eggroll_factorized.py | clean | 0 | -
 - train/eggroll_perturbations.py | clean | 0 | -
@@ -392,3 +392,4 @@ Format: cycle N | item | outcome
 - cycle 22 | removed sentence_transformers stub from tests/test_{eggroll_training,gradient_training,training_state}.py (E402 x11) + PLC0415 x2 in eggroll_training | ruff clean, full suite 1365 passed, 2 skipped, 0 failed, 483s
 - cycle 22 | manual PLC0415 x7 (hoisted stage0_trainability imports to top) in tests/test_run_stage0_trainability.py | ruff clean, 23 tests pass
 - cycle 23 | manual UP046 x2 (PEP 695 type params) in train/alternating_scheduler.py | ruff clean, 7 tests pass
+- cycle 23 | manual TRY004 x2 (callable guards -> TypeError) in train/answer_objective.py | ruff clean, 10 tests pass
