@@ -10,12 +10,11 @@ Baselines recorded 2026-08-27 at cycle 0.
   passed / 127s; that run must have been partial. This is the real baseline.)
 - torchvision failure RESOLVED cycle 1: installed torchvision==0.26.0+cpu
   pinned to torch 2.11.0+cpu; tests/stream/test_mnist_binding.py all pass.
-- Open failures (real bug, top item): tests/test_search_alignment_weight.py::
-  test_unhealthy_zero_control_blocks_every_positive_eggroll_trial_and_preserves_evidence
-  and ::test_public_combined_search_keeps_gradient_independent_when_eggroll_is_unhealthy.
-  Both raise StabilityReportValidationError:
-  "$.configuration.asset_identity.runtime.device_topology: expected array".
-  Deterministic, fails in isolation too.
+- device_topology failures RESOLVED cycle 2: _thaw_value in
+  train/eggroll_stability.py turned the frozen empty tuple back into {} instead
+  of []; on CPU-only hosts device_topology is [] so report validation failed.
+  Fixed the thaw, added regression test
+  test_report_with_empty_device_topology_round_trips_as_array.
 - Flaky: one full-suite run died with a Windows access violation in
   transformers weight loading (torch/storage.py __getitem__) during
   tests/test_narration.py. Did not reproduce in isolation or on rerun.
@@ -225,7 +224,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_eggroll_perturbations.py | clean | 0 | -
 - tests/test_eggroll_reference.py | clean | 0 | -
 - tests/test_eggroll_resume_equivalence.py | unchecked | 2 | -
-- tests/test_eggroll_stability.py | unchecked | 2 | -
+- tests/test_eggroll_stability.py | fixed | 2 | ruff clean cycle 2; regression test added
 - tests/test_eggroll_step_equivalence.py | unchecked | 1 | -
 - tests/test_eggroll_training.py | unchecked | 10 | -
 - tests/test_eggroll_updates.py | clean | 0 | -
@@ -269,7 +268,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/benchmark_eggroll.py | clean | 0 | -
 - train/eggroll_factorized.py | clean | 0 | -
 - train/eggroll_perturbations.py | clean | 0 | -
-- train/eggroll_stability.py | unchecked | 6 | -
+- train/eggroll_stability.py | fixed | 6 | ruff clean cycle 2; empty-tuple thaw bug fixed
 - train/eggroll_stability_evaluation.py | clean | 0 | -
 - train/eggroll_stability_guard.py | unchecked | 1 | -
 - train/eggroll_trainer.py | unchecked | 7 | -
@@ -297,3 +296,4 @@ Format: path | status | ruff findings at cycle 0 | notes
 Format: cycle N | item | outcome
 - cycle 0 | setup: ruff config, prompt, ledger | baselines recorded
 - cycle 1 | install torchvision 0.26.0+cpu, rerun full suite | mnist test fixed; found 2 real failures in test_search_alignment_weight.py (device_topology)
+- cycle 2 | fix empty-tuple thaw bug in train/eggroll_stability.py + clear its ruff findings | 2 failing tests now pass; regression test added; 94 related tests green

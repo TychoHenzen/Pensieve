@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import copy
-from dataclasses import FrozenInstanceError
 import builtins
+import copy
 import json
 import random
 import sys
+from dataclasses import FrozenInstanceError
 from types import SimpleNamespace
 
 import numpy as np
@@ -16,7 +16,6 @@ from torch import nn
 from eval.stream.generators.asdiv_a import AsdivRecord
 from train.eggroll_stability import (
     BASELINE_PROBLEM_COUNT,
-    DEVELOPMENT_CHECKPOINTS,
     FailedThreshold,
     ImplementationIdentity,
     ParameterRms,
@@ -571,3 +570,22 @@ def test_report_validator_recomputes_passing_health_conditions(tmp_path) -> None
         load_compatible_stability_report(report_path, report.configuration.to_dict())
 
     assert any("$.checkpoints[-1].exact_accuracy" in issue for issue in caught.value.issues)
+
+
+def test_report_with_empty_device_topology_round_trips_as_array(tmp_path) -> None:
+    trainer = FakeTrainer()
+    report = _passing_report(trainer)
+    payload = report.to_dict()
+    payload["configuration"]["asset_identity"]["runtime"]["device_topology"] = []
+    expected = report.configuration.to_dict()
+    expected["asset_identity"]["runtime"]["device_topology"] = []
+    report_path = tmp_path / "cpu-only.json"
+    report_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    validated = load_compatible_stability_report(report_path, expected)
+
+    topology = validated.report.configuration.to_dict()["asset_identity"]["runtime"][
+        "device_topology"
+    ]
+    assert topology == []
+    assert isinstance(topology, list)

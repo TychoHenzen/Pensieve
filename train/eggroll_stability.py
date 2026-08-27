@@ -8,14 +8,14 @@ the deterministic 0/8/32/256-example development loop.
 from __future__ import annotations
 
 import copy
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
 import hashlib
 import json
 import math
-from pathlib import Path
 import random
 import time
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import numpy as np
@@ -26,7 +26,6 @@ from eval.stream.generators.asdiv_a import AsdivRecord
 from train.stage0_data import FitnessBatch
 from train.training_results import ExperimentPosition
 from train.training_state import EGGROLL_PARAMETER_PATHS
-
 
 STABILITY_SCHEMA_VERSION = 1
 BASELINE_PROBLEM_COUNT = 64
@@ -102,7 +101,7 @@ class ImplementationIdentity:
     def to_dict(self) -> dict[str, Any]:
         return {
             "sha256": self.sha256,
-            "sources": {path: digest for path, digest in self.sources},
+            "sources": dict(self.sources),
         }
 
 
@@ -261,7 +260,7 @@ class StabilityCheckpoint:
             "optimizer_call_count": self.optimizer_call_count,
             "baseline": self.baseline.to_dict(),
             "current": self.current.to_dict(),
-            "deltas": {name: value for name, value in self.deltas},
+            "deltas": dict(self.deltas),
             "max_update_relative_matrix_rms": (
                 self.max_update_relative_matrix_rms
             ),
@@ -372,7 +371,7 @@ def canonical_implementation_identity(
             raise ValueError(f"guarded implementation source is invalid: {relative}")
         sources.append((relative.replace("\\", "/"), hashlib.sha256(path.read_bytes()).hexdigest()))
     combined = hashlib.sha256(
-        canonical_json_bytes({path: digest for path, digest in sources})
+        canonical_json_bytes(dict(sources))
     ).hexdigest()
     return ImplementationIdentity(combined, tuple(sources))
 
@@ -388,7 +387,7 @@ def build_stability_configuration(
     if len(trainer.optimizer.param_groups) != 1:
         raise ValueError("EGGROLL stability requires one optimizer parameter group")
     if not isinstance(trainer.optimizer, torch.optim.SGD):
-        raise ValueError("EGGROLL stability requires torch.optim.SGD")
+        raise TypeError("EGGROLL stability requires torch.optim.SGD")
     optimizer_group = trainer.optimizer.param_groups[0]
     if float(optimizer_group.get("momentum", 0.0)) != 0.0:
         raise ValueError("EGGROLL stability requires zero SGD momentum")
@@ -1002,11 +1001,14 @@ def _thaw_mapping(value: tuple[tuple[str, Any], ...]) -> dict[str, Any]:
 
 def _thaw_value(value: Any) -> Any:
     if isinstance(value, tuple):
-        if all(
+        if value and all(
             isinstance(item, tuple) and len(item) == 2 and isinstance(item[0], str)
             for item in value
         ):
             return _thaw_mapping(value)
+        # An empty frozen container is ambiguous; identity documents contain
+        # empty arrays (device_topology on CPU-only hosts) but never empty
+        # objects, so thaw () to a list.
         return [_thaw_value(item) for item in value]
     return value
 
@@ -1352,7 +1354,9 @@ def _collect_configuration_mismatches(
             return
         if len(actual) != len(expected):
             issues.append(f"{path}: expected {len(expected)} items, found {len(actual)}")
-        for index, (actual_item, expected_item) in enumerate(zip(actual, expected)):
+        for index, (actual_item, expected_item) in enumerate(
+            zip(actual, expected, strict=False)
+        ):
             _collect_configuration_mismatches(
                 actual_item, expected_item, f"{path}[{index}]", issues
             )
