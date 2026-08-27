@@ -272,7 +272,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/__init__.py | clean | 0 | -
 - train/alternating_checkpoint.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
 - train/alternating_config.py | fixed | 1 | autofix cycle 6, ruff clean
-- train/alternating_evaluation.py | unchecked | 2 | -
+- train/alternating_evaluation.py | fixed | 2 | B905 zip strict=True + PLC0415 SlotDecoder import hoisted, ruff clean
 - train/alternating_scheduler.py | scanned | 3 | autofix cycle 6; 2 left: UP046 x2
 - train/answer_objective.py | scanned | 3 | autofix cycle 6; 2 left: TRY004 x2
 - train/benchmark_eggroll.py | clean | 0 | -
@@ -373,3 +373,4 @@ Format: cycle N | item | outcome
 - cycle 19 | spec coverage scan: openspec/specs/workspace (concept-slots) | 8 scenarios, 8 covered
 - cycle 20 | full suite + repo-wide ruff re-scan (rule 11) | 1365 passed, 2 skipped; 291 findings across 31 files, no clean/fixed drift
 - cycle 20 | manual B905 (zip strict=True) in train/vicreg.py | ruff clean, 3 tests pass
+- cycle 20 | manual B905 + PLC0415 (hoisted SlotDecoder import) in train/alternating_evaluation.py | ruff clean, 7 tests pass
