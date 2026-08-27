@@ -32,7 +32,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 21 (after 5 test-file manual fixes): 1365 passed, 2 skipped, 0 failed, 481s.
 - Full suite at cycle 22 (after removing sentence_transformers stubs from 3 test files): 1365 passed, 2 skipped, 0 failed, 483s.
 - Full suite at cycle 23 (after 5 train/ manual fixes): 1365 passed, 2 skipped, 0 failed, 489s.
-- Last full-suite run: cycle 23.
+- Full suite at cycle 24 (after 5 manual-fix items incl. safetensors import hoist): 1365 passed, 2 skipped, 0 failed, 495s.
+- Last full-suite run: cycle 24.
 
 ## Ruff baseline (cycle 0)
 
@@ -403,3 +404,4 @@ Format: cycle N | item | outcome
 - cycle 24 | manual TRY004 x2 + SIM108 + E731 x2 + RUF046 in train/plot_training.py | ruff clean, 3 tests pass
 - cycle 24 | manual B023 x8 in train/run_eggroll.py | ruff clean, 10 tests pass
 - cycle 24 | manual PLC0415 x2 + F841 + BLE001 x3 in train/run_stage0_trainability.py | 1 left: TRY004 blocked (test asserts ValueError); 23 tests pass
+- cycle 24 | end-of-cycle full suite (5 items incl. stage0_checkpoint safetensors hoist) | 1365 passed, 2 skipped, 0 failed, 495s
