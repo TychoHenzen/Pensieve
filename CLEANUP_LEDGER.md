@@ -136,7 +136,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/stage0_identity.py | scanned | 10 | autofix cycle 5; 8 left: PLC0415 x6, TRY301 x2
 - eval/stream/__init__.py | clean | 0 | -
 - eval/stream/config.py | clean | 0 | -
-- eval/stream/corpus.py | unchecked | 1 | -
+- eval/stream/corpus.py | fixed | 1 | cycle 12 manual: PLW2901 (loop var line renamed to raw_line); ruff clean
 - eval/stream/corpus_walk.py | clean | 0 | -
 - eval/stream/events.py | fixed | 1 | cycle 11 manual: UP007 (Union -> X | Y); ruff clean
 - eval/stream/generator.py | fixed | 1 | autofix cycle 5, ruff clean
@@ -327,3 +327,4 @@ Format: cycle N | item | outcome
 - cycle 11 | end-of-cycle full suite (after 5 files incl. import hoisting) | 1365 passed, 2 skipped, 0 failed, 480s
 - cycle 12 | manual E402 x2 in eval/metrics/__init__.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual E402 x3 in eval/subject/__init__.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual PLW2901 in eval/stream/corpus.py | ruff clean, 78 covering tests pass
