@@ -146,7 +146,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/stream/generators/assoc.py | clean | 0 | -
 - eval/stream/generators/difficulty_mix.py | fixed | 1 | cycle 13 manual: B905 (zip strict=True; both sequences derive from num_items); ruff clean
 - eval/stream/generators/gsm8k.py | fixed | 1 | cycle 13 manual: PLC0415 (hoisted datasets import to top); ruff clean
-- eval/stream/generators/split_classify.py | scanned | 2 | autofix cycle 5; 1 left: PLC0415
+- eval/stream/generators/split_classify.py | blocked | 2 | autofix cycle 5; 1 left: PLC0415 (torchvision import intentionally lazy - keeps the synthetic stream path free of the optional `baselines` extra; documented in _MnistData docstring)
 - eval/stream/hashing.py | clean | 0 | -
 - eval/stream/registry.py | fixed | 1 | autofix cycle 5, ruff clean
 - eval/stream/render.py | unchecked | 1 | -
@@ -336,3 +336,4 @@ Format: cycle N | item | outcome
 - cycle 13 | manual TRY301 + TRY004 in eval/stream/generators/asdiv_a.py | ruff clean, 18 covering tests pass
 - cycle 13 | manual B905 in eval/stream/generators/difficulty_mix.py | ruff clean, 30 covering tests pass
 - cycle 13 | manual PLC0415 in eval/stream/generators/gsm8k.py | ruff clean, 17 covering tests pass
+- cycle 13 | split_classify.py PLC0415 marked blocked | torchvision import is an intentional optional-dependency boundary (pyproject `baselines` extra); hoisting would break the documented synthetic-only import path
