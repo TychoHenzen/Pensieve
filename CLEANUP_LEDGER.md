@@ -287,7 +287,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/eggroll_trainer.py | scanned | 7 | autofix cycle 6 (4 stale imports removed); 2 left: E731, PLC0415
 - train/eggroll_updates.py | fixed | 1 | cycle 19 manual: SIM108 ternary conversion; ruff clean
 - train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
-- train/run_alternating.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
+- train/run_alternating.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted numpy import to top); ruff clean
 - train/run_eggroll.py | scanned | 9 | autofix cycle 7; 8 left: B023 x8 (one closure)
 - train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
 - train/run_stage0_trainability.py | scanned | 27 | autofix cycle 7 (11 stale imports removed); 7 left: PLC0415 x2, BLE001 x3, F841, TRY004
@@ -394,3 +394,4 @@ Format: cycle N | item | outcome
 - cycle 23 | manual UP046 x2 (PEP 695 type params) in train/alternating_scheduler.py | ruff clean, 7 tests pass
 - cycle 23 | manual TRY004 x2 (callable guards -> TypeError) in train/answer_objective.py | ruff clean, 10 tests pass
 - cycle 23 | manual B905 + PLC0415 in train/alternating_checkpoint.py | ruff clean, 21 tests pass
+- cycle 23 | manual B905 + PLC0415 (numpy hoist) in train/run_alternating.py | ruff clean, 30 tests pass

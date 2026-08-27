@@ -14,6 +14,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol, TextIO
 
+import numpy as np
 import torch
 
 from eval.stage0_identity import (
@@ -710,7 +711,7 @@ def _optimizer_state_from_checkpoint(
             "does not match the constructed optimizer"
         )
     restored_state: dict[int, dict[str, object]] = {}
-    for parameter_id, parameter, name in zip(parameter_ids, parameters, names):
+    for parameter_id, parameter, name in zip(parameter_ids, parameters, names, strict=True):
         values = dict(manifest["scalar_state"][name])
         for state_name, tensor_name in manifest["tensor_references"][name].items():
             tensor = checkpoint.tensors[tensor_name]
@@ -784,8 +785,6 @@ def _restore_checkpoint_state(
     gradient_optimizer.load_state_dict(gradient_state)
     eggroll_optimizer.load_state_dict(eggroll_state)
     random.setstate(python_state)
-    import numpy as np
-
     np.random.set_state(numpy_state)
     torch.set_rng_state(checkpoint.tensors[rng["pytorch_cpu"]["state_tensor"]])
     if cuda_states:
