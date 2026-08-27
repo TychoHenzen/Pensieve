@@ -438,7 +438,7 @@ def _run_dataset(dataset: str, device: str) -> None:
 def main() -> None:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     _log(f"device={device}")
-    _log(f"Cycling experiment: 5 tasks, 2 classes each.")
+    _log("Cycling experiment: 5 tasks, 2 classes each.")
     _log(f"Datasets: {', '.join(DATASETS)}")
     _log(f"{TOTAL_EXAMPLES_PER_TASK} total examples per task, {NUM_SEEDS} seeds per config.")
 
@@ -449,13 +449,13 @@ def main() -> None:
 
     total_time = time.monotonic() - experiment_start
     _log(f"  Total experiment time: {_format_duration(total_time)}")
-    _log(f"  Reading guide:")
-    _log(f"  - 'seq' is the original single-pass baseline.")
-    _log(f"  - Higher cycle counts approach interleaved training.")
-    _log(f"  - 'joint' retrains on all data each boundary (the ceiling).")
-    _log(f"  - If replay's mean rises with cycle count, cycling helps.")
-    _log(f"  - If EWC's mean drops, Fisher over-consolidation hurts it.")
-    _log(f"  - fashion-mnist is harder: fuzzier class boundaries test replay quality.")
+    _log("  Reading guide:")
+    _log("  - 'seq' is the original single-pass baseline.")
+    _log("  - Higher cycle counts approach interleaved training.")
+    _log("  - 'joint' retrains on all data each boundary (the ceiling).")
+    _log("  - If replay's mean rises with cycle count, cycling helps.")
+    _log("  - If EWC's mean drops, Fisher over-consolidation hurts it.")
+    _log("  - fashion-mnist is harder: fuzzier class boundaries test replay quality.")
     _log(f"{'=' * 60}")
 
 

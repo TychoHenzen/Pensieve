@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
 
 import torch
 import torch.nn.functional as F
 
 from eval.stage0_identity import apply_qwen_chat_template
 from eval.stream.generators.asdiv_a import canonicalize_numerical_target
-
 
 SUBJECT_LATENT_RUNS_PER_ANSWER = 2
 QWEN_PROMPT_TOKEN_LIMIT = 512

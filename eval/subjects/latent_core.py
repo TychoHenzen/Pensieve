@@ -17,10 +17,10 @@ from codecs_module.decoder import SlotDecoder
 from codecs_module.encoder import SlotEncoder
 from codecs_module.narration import NarrationDecoder
 from core.latent_loop import LatentLoop
+from eval.stage0_identity import load_frozen_qwen_backbone
 from eval.stream.events import Event, Probe
 from eval.stream.render import render_event
 from eval.subject import CostCounters, Subject
-from eval.stage0_identity import load_frozen_qwen_backbone
 from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
 
 DEFAULT_NUM_STEPS = 2

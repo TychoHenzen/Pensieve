@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import math
 
-
 DEFAULT_VARIANCE_LOWER_THRESHOLD = 0.01
 DEFAULT_VARIANCE_UPPER_THRESHOLD = 0.02
 

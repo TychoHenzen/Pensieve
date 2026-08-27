@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
-from pathlib import Path
 import random
-from typing import Any, Mapping
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -19,7 +20,6 @@ from train.stage0_checkpoint import (
     validate_checkpoint_metadata,
     write_checkpoint_container,
 )
-
 
 CHECKPOINT_VERSION = 2
 RESUME_MUTABLE_SETTINGS = frozenset({"epochs", "logging_frequency"})

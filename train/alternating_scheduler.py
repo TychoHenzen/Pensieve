@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Generic, Protocol, TypeVar
 
 from train.alternating_config import (
@@ -13,7 +13,6 @@ from train.alternating_config import (
     validate_scheduler_config,
 )
 from train.training_results import ExperimentPosition
-
 
 ResultT = TypeVar("ResultT")
 EvaluationT = TypeVar("EvaluationT")

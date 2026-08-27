@@ -15,17 +15,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-from torch import nn
 
-from codecs_module.encoder import SlotEncoder
-from core.latent_loop import LatentLoop
 from core.qwen_tap import PreparedQwenPrefix
-from train.eggroll_factorized import factorized_linear
-from train.eggroll_perturbations import (
-    MatrixFactors,
-    SignedPerturbationSet,
-    sample_antithetic_pair,
-)
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     SUBJECT_LATENT_RUNS_PER_ANSWER,
@@ -34,13 +26,18 @@ from train.answer_objective import (
     prompt_teacher_state,
     validate_prompt_alignment_weight,
 )
-from train.training_results import ExperimentPosition, StepResult
-from train.stage0_data import FitnessBatch, plan_eggroll_fitness_batch
-from eval.stream.generators.asdiv_a import AsdivRecord
-from train.training_state import TrainingState
+from train.eggroll_factorized import factorized_linear
+from train.eggroll_perturbations import (
+    MatrixFactors,
+    SignedPerturbationSet,
+    sample_antithetic_pair,
+)
 from train.eggroll_updates import apply_factorized_update
+from train.stage0_data import FitnessBatch, plan_eggroll_fitness_batch
+from train.training_results import ExperimentPosition, StepResult
+from train.training_state import TrainingState
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
-from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
+from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 DEFAULT_POP_SIZE = 128
 DEFAULT_SIGMA = 0.001

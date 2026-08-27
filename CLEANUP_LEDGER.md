@@ -160,11 +160,11 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/subject/oracles/task_wiper.py | unchecked | 1 | -
 - eval/subject/oracles/variable_compute.py | clean | 0 | -
 - eval/subjects/__init__.py | clean | 0 | -
-- eval/subjects/latent_core.py | unchecked | 1 | -
+- eval/subjects/latent_core.py | fixed | 1 | autofix cycle 6, ruff clean
 - main.py | clean | 0 | -
 - scripts/fetch_corpus.py | unchecked | 2 | -
-- scripts/run_gate.py | unchecked | 3 | -
-- scripts/show_gate.py | unchecked | 8 | -
+- scripts/run_gate.py | scanned | 3 | autofix cycle 6; 2 left: PLW2901, UP031
+- scripts/show_gate.py | fixed | 8 | autofix cycle 6, ruff clean (F541 x8)
 - scripts/show_stream.py | clean | 0 | -
 - tests/baselines/__init__.py | clean | 0 | -
 - tests/baselines/test_baselines_smoke.py | unchecked | 1 | -
@@ -263,21 +263,21 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/test_vicreg.py | clean | 0 | -
 - tests/test_workspace.py | clean | 0 | -
 - train/__init__.py | clean | 0 | -
-- train/alternating_checkpoint.py | unchecked | 4 | -
-- train/alternating_config.py | unchecked | 1 | -
+- train/alternating_checkpoint.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
+- train/alternating_config.py | fixed | 1 | autofix cycle 6, ruff clean
 - train/alternating_evaluation.py | unchecked | 2 | -
-- train/alternating_scheduler.py | unchecked | 3 | -
-- train/answer_objective.py | unchecked | 3 | -
+- train/alternating_scheduler.py | scanned | 3 | autofix cycle 6; 2 left: UP046 x2
+- train/answer_objective.py | scanned | 3 | autofix cycle 6; 2 left: TRY004 x2
 - train/benchmark_eggroll.py | clean | 0 | -
 - train/eggroll_factorized.py | clean | 0 | -
 - train/eggroll_perturbations.py | clean | 0 | -
 - train/eggroll_stability.py | fixed | 6 | ruff clean cycle 2; empty-tuple thaw bug fixed
 - train/eggroll_stability_evaluation.py | clean | 0 | -
 - train/eggroll_stability_guard.py | unchecked | 1 | -
-- train/eggroll_trainer.py | unchecked | 7 | -
+- train/eggroll_trainer.py | scanned | 7 | autofix cycle 6 (4 stale imports removed); 2 left: E731, PLC0415
 - train/eggroll_updates.py | unchecked | 1 | -
-- train/plot_training.py | unchecked | 8 | -
-- train/run_alternating.py | unchecked | 4 | -
+- train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
+- train/run_alternating.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
 - train/run_eggroll.py | unchecked | 9 | -
 - train/run_eggroll_stability.py | unchecked | 1 | -
 - train/run_stage0_trainability.py | unchecked | 27 | -
@@ -303,3 +303,4 @@ Format: cycle N | item | outcome
 - cycle 3 | ruff autofix batch: codecs_module/__init__, core/latent_loop, eval/baselines/naive, eval/gate/{answer_scoring,gate_report,result_cache} | 6 findings fixed, 177 covering tests pass
 - cycle 4 | add conftest.py with HF_DEACTIVATE_ASYNC_LOAD=1 | full suite green: 1365 passed, 2 skipped, 511s
 - cycle 5 | ruff autofix batch: eval/gate/{run_gate,slot_ablation,token_cot_baseline}, eval/run/runner, eval/stage0_identity, eval/stream/{generator,registry}, eval/stream/generators/{asdiv_a,split_classify} | 12 findings fixed, 129 covering tests pass
+- cycle 6 | ruff autofix batch: eval/subjects/latent_core, scripts/{run_gate,show_gate}, train/{alternating_checkpoint,alternating_config,alternating_scheduler,answer_objective,eggroll_trainer,plot_training,run_alternating} | 26 findings fixed, 107 covering tests pass

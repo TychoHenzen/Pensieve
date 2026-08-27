@@ -169,7 +169,7 @@ def _read_probe_log(run_dir: Path) -> list[ProbeLogEntry]:
     """Read `run_dir`'s probe log back into `ProbeLogEntry` values."""
     path = run_dir / PROBE_LOG_FILENAME
     entries: list[ProbeLogEntry] = []
-    with open(path, "r", encoding="utf-8") as handle:
+    with open(path, encoding="utf-8") as handle:
         for line in handle:
             line = line.strip()
             if not line:

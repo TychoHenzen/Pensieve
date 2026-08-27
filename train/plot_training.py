@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import dataclass
-from html import escape
 import json
 import math
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from html import escape
 from pathlib import Path
-from typing import Callable, Sequence
 
 
 @dataclass(frozen=True)
