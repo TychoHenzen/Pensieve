@@ -125,7 +125,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - eval/metrics/__init__.py | fixed | 2 | cycle 12 manual: E402 x2 (imports hoisted above METRICS_VERSION); ruff clean
 - eval/metrics/accuracy.py | clean | 0 | -
 - eval/metrics/compute.py | clean | 0 | -
-- eval/metrics/first_use.py | unchecked | 1 | -
+- eval/metrics/first_use.py | fixed | 1 | cycle 12 manual: PLW2901 (loop var distance renamed to raw_distance); ruff clean
 - eval/metrics/retention.py | clean | 0 | -
 - eval/metrics/transfer.py | clean | 0 | -
 - eval/run/__init__.py | clean | 0 | -
@@ -328,3 +328,4 @@ Format: cycle N | item | outcome
 - cycle 12 | manual E402 x2 in eval/metrics/__init__.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual E402 x3 in eval/subject/__init__.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual PLW2901 in eval/stream/corpus.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual PLW2901 in eval/metrics/first_use.py | ruff clean, 78 covering tests pass

@@ -39,10 +39,12 @@ def time_to_first_use(log: list[ProbeLogEntry], cutoff: int) -> FirstUseResult:
     per_fact: dict[str, int] = {}
     cutoff_hits = 0
 
-    for (probe_id, _teaching_position), distance in first_use.items():
-        if distance is None:
+    for (probe_id, _teaching_position), raw_distance in first_use.items():
+        if raw_distance is None:
             distance = cutoff
             cutoff_hits += 1
+        else:
+            distance = raw_distance
         values.append(distance)
         per_fact[probe_id] = distance
 
