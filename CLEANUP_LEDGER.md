@@ -106,7 +106,7 @@ Format: spec dir | status | scenarios total / covered | notes
 - openspec/specs/eval/serialize | unchecked | - | -
 - openspec/specs/eval/stage0-gate | unchecked | - | -
 - openspec/specs/eval/subject-protocol | unchecked | - | -
-- openspec/specs/eval/subject/isolation | unchecked | - | -
+- openspec/specs/eval/subject/isolation | scanned | 4 / 4 | isolated_answer + CheaterOracle. All scenarios covered by tests/subject/test_isolation.py
 - openspec/specs/eval/subject/oracles | unchecked | - | -
 - openspec/specs/eval/subject/protocol | unchecked | - | -
 - openspec/specs/eval/subject/snapshot | scanned | 2 / 2 | snapshot/restore contract. Both scenarios covered by tests/subject/test_snapshot_restore.py
@@ -438,3 +438,4 @@ Format: cycle N | item | outcome
 - cycle 26 | finding: 3 recalibration tests are vacuous placeholders (test_trainability_cannot_authorize_full_gradient/eggroll, test_trainability_recalibration_eligibility_not_full_training) - docstrings claim authorization limits compute_recalibration_eligibility never models; SIM222 exposed the vacuous asserts, fixed to `assert True` to preserve behavior, real assertions left for a later item
 - cycle 26 | repo-wide ruff re-scan (rule 11: no unchecked/scanned rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons; no clean/fixed drift
 - cycle 26 | spec coverage scan: openspec/specs/eval/subject/snapshot | 2 scenarios, 2 covered (both via tests/subject/test_snapshot_restore.py). Also split the coarse eval/train spec-coverage rows into 27 per-capability rows
+- cycle 26 | spec coverage scan: openspec/specs/eval/subject/isolation | 4 scenarios, 4 covered (all via tests/subject/test_isolation.py)
