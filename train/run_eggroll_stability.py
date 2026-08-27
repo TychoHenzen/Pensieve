@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
-from functools import partial
 import json
 import math
 import os
-from pathlib import Path
 import sys
 import time
+from collections.abc import Sequence
+from functools import partial
+from pathlib import Path
 
 import torch
 

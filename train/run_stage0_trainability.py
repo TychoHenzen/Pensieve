@@ -7,24 +7,17 @@ fixed fresh-state probes and equal-budget method comparisons.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 import json
 import os
-from pathlib import Path
 import sys
+from collections.abc import Sequence
+from pathlib import Path
 
 from train.stage0_trainability import (
-    canonical_trainability_implementation_identity,
-    classify_method_status,
-    classify_overall_trainability,
-    compute_recalibration_eligibility,
-    load_and_validate_stability_report,
-    run_no_update_arm,
-    run_gradient_only_arm,
-    run_eggroll_only_arm,
+    TRAINABILITY_SCHEMA_VERSION,
     TrainabilityProgressRecord,
     TrainabilityReport,
-    TRAINABILITY_SCHEMA_VERSION,
+    canonical_trainability_implementation_identity,
 )
 from train.standalone_checkpoint import configure_deterministic_runtime
 
@@ -95,7 +88,7 @@ def _run_investigation(
 ) -> tuple[str, list[str]]:
     """Run the bounded trainability investigation and return (status, failed_conditions)."""
     import time
-    from train.stage0_trainability import OverfitProbeResult
+
 
     start_time = time.time()
     failed_conditions = []
@@ -105,7 +98,7 @@ def _run_investigation(
         # This allows the command to at least run and produce output
         return "inconclusive", ["investigation_incomplete"]
     except Exception as e:
-        failed_conditions.append(f"investigation_error: {str(e)}")
+        failed_conditions.append(f"investigation_error: {e!s}")
         return "inconclusive", failed_conditions
 
 
@@ -124,12 +117,6 @@ def _write_final_report(
     elapsed_seconds: float,
 ) -> int:
     """Write the final TrainabilityReport JSON file and return exit code."""
-    from train.stage0_trainability import (
-        OverfitProbeResult,
-        TrainabilityAssetIdentity,
-        TrainabilityConfiguration,
-        ImplementationIdentity,
-    )
 
     try:
         # Create minimal report with investigation status
@@ -240,7 +227,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as e:
         print(f"implementation identity error: {e}", file=sys.stderr, flush=True)
         elapsed = time.time() - start_time
-        return _write_final_report(args, "inconclusive", [f"identity_error: {str(e)}"], elapsed)
+        return _write_final_report(args, "inconclusive", [f"identity_error: {e!s}"], elapsed)
 
     # Run the investigation
     try:
@@ -249,7 +236,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     except Exception as e:
         print(f"investigation error: {e}", file=sys.stderr, flush=True)
         elapsed = time.time() - start_time
-        return _write_final_report(args, "inconclusive", [f"investigation_exception: {str(e)}"], elapsed)
+        return _write_final_report(args, "inconclusive", [f"investigation_exception: {e!s}"], elapsed)
 
     elapsed = time.time() - start_time
     return _write_final_report(args, status, failed_conds, elapsed)

@@ -13,7 +13,6 @@ from eval.stream.generators.asdiv_a import (
     select_asdiv_a_records,
 )
 
-
 STAGE0_SEED = 0
 HELD_OUT_COUNT = 128
 TRAINING_MODES = frozenset({"gradient", "eggroll", "alternating"})

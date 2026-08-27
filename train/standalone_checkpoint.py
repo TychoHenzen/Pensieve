@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
-from pathlib import Path
 import platform
 import random
 import re
-from typing import Any, Mapping
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch

@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
 import gc
 import json
 import math
 import os
-from pathlib import Path
 import sys
 import time
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import torch
@@ -32,20 +32,23 @@ from train.answer_objective import (
     prepare_training_example,
     prompt_teacher_state,
 )
+from train.eggroll_stability import StabilityMetrics, ValidatedStabilityReport
+from train.eggroll_stability_guard import load_guarded_stability_report
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
-    DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_RANK,
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
     EggrollTrainer,
 )
-from train.eggroll_stability import StabilityMetrics, ValidatedStabilityReport
-from train.eggroll_stability_guard import load_guarded_stability_report
+from train.eggroll_trainer import (
+    DEFAULT_LR as DEFAULT_EGGROLL_LR,
+)
 from train.stage0_data import HELD_OUT_COUNT, load_stage0_dataset, training_examples
 from train.standalone_checkpoint import configure_deterministic_runtime
-from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
+from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
+from train.trainer import LatentCoreTrainer
 from train.training_state import TrainingState
 from train.vicreg import post_loop_slot_variance
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
@@ -307,7 +310,7 @@ def search_method_weights(
         started = time.perf_counter()
         metrics = run_trial(method, weight)
         score_components = (
-            {name: 0.0 for name in SCORE_WEIGHTS}
+            dict.fromkeys(SCORE_WEIGHTS, 0.0)
             if baseline is None
             else alignment_effectiveness_components(metrics, baseline)
         )
@@ -342,7 +345,7 @@ def search_method_weights(
             method=method,
             weight=0.0,
             score=0.0,
-            score_components={name: 0.0 for name in SCORE_WEIGHTS},
+            score_components=dict.fromkeys(SCORE_WEIGHTS, 0.0),
             eligible=True,
             rejection_reasons=(),
             metrics=zero_control_metrics,
@@ -442,7 +445,7 @@ def unhealthy_eggroll_search_result(
         method="eggroll",
         weight=0.0,
         score=0.0,
-        score_components={name: 0.0 for name in SCORE_WEIGHTS},
+        score_components=dict.fromkeys(SCORE_WEIGHTS, 0.0),
         eligible=False,
         rejection_reasons=failure_paths,
         metrics=_trial_metrics_from_stability(final_metrics),

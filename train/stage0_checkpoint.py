@@ -8,15 +8,14 @@ import os
 import struct
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
-from zipfile import BadZipFile, ZIP_STORED, ZipFile, ZipInfo
+from zipfile import ZIP_STORED, BadZipFile, ZipFile, ZipInfo
 
 from eval.stage0_identity import STAGE0_IDENTITY
-
 
 CHECKPOINT_SCHEMA_VERSION = 2
 CHECKPOINT_MODES = frozenset({"gradient", "eggroll", "alternating"})

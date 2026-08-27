@@ -44,7 +44,6 @@ from train.eggroll_trainer import (
     validate_eggroll_config,
 )
 from train.stage0_data import load_stage0_dataset, training_examples
-from train.training_state import EGGROLL_PARAMETER_PATHS
 from train.standalone_checkpoint import (
     build_checkpoint,
     checkpoint_epoch,
@@ -57,6 +56,7 @@ from train.standalone_checkpoint import (
     selection_metadata,
     validate_compatibility,
 )
+from train.training_state import EGGROLL_PARAMETER_PATHS
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 

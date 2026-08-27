@@ -6,11 +6,11 @@ fixed fresh-state probes and equal-budget method comparisons.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
 import hashlib
 import json
 import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,7 +23,6 @@ from train.eggroll_stability import (
     _is_sha256,
     _require_finite,
 )
-
 
 TRAINABILITY_SCHEMA_VERSION = 1
 TRAINABILITY_IMPLEMENTATION_PATHS = (
@@ -766,7 +765,7 @@ def run_overfit_attempt(
                         "status": "non_finite",
                         "baseline_loss": baseline_loss,
                         "checkpoints": checkpoints,
-                        "failed_reason": f"Exception at step {current_step + 1}: {str(e)}",
+                        "failed_reason": f"Exception at step {current_step + 1}: {e!s}",
                     }
 
             checkpoint_loss, checkpoint_objective = evaluate_single_record_loss(
@@ -817,7 +816,7 @@ def run_overfit_attempt(
             "status": "non_finite",
             "baseline_loss": None,
             "checkpoints": [],
-            "failed_reason": f"Fatal exception: {str(e)}",
+            "failed_reason": f"Fatal exception: {e!s}",
         }
 
 

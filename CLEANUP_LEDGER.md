@@ -278,20 +278,20 @@ Format: path | status | ruff findings at cycle 0 | notes
 - train/eggroll_updates.py | unchecked | 1 | -
 - train/plot_training.py | scanned | 8 | autofix cycle 6; 6 left: TRY004 x2, SIM108, E731 x2, RUF046
 - train/run_alternating.py | scanned | 4 | autofix cycle 6; 2 left: B905, PLC0415
-- train/run_eggroll.py | unchecked | 9 | -
-- train/run_eggroll_stability.py | unchecked | 1 | -
-- train/run_stage0_trainability.py | unchecked | 27 | -
+- train/run_eggroll.py | scanned | 9 | autofix cycle 7; 8 left: B023 x8 (one closure)
+- train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
+- train/run_stage0_trainability.py | scanned | 27 | autofix cycle 7 (11 stale imports removed); 7 left: PLC0415 x2, BLE001 x3, F841, TRY004
 - train/run_training.py | unchecked | 8 | -
-- train/search_alignment_weight.py | unchecked | 5 | -
-- train/stage0_checkpoint.py | unchecked | 6 | -
-- train/stage0_data.py | unchecked | 1 | -
-- train/stage0_trainability.py | unchecked | 27 | -
-- train/standalone_checkpoint.py | unchecked | 4 | -
-- train/trainer.py | unchecked | 5 | -
+- train/search_alignment_weight.py | scanned | 5 | autofix cycle 7; 1 left: SIM102
+- train/stage0_checkpoint.py | scanned | 6 | autofix cycle 7; 4 left: SIM102 x2, SIM105, PLC0415
+- train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
+- train/stage0_trainability.py | scanned | 27 | autofix cycle 7; 25 left: BLE001 x8, PLC0415 x5, SIM x3, B904 x2, RUF059 x2, misc
+- train/standalone_checkpoint.py | scanned | 4 | autofix cycle 7; 2 left: B905 x2
+- train/trainer.py | fixed | 5 | autofix cycle 7, ruff clean (4 stale imports removed)
 - train/training_results.py | clean | 0 | -
 - train/training_state.py | clean | 0 | -
 - train/vicreg.py | unchecked | 1 | -
-- workspace/__init__.py | unchecked | 1 | -
+- workspace/__init__.py | fixed | 1 | autofix cycle 7, ruff clean
 - workspace/concept_slots.py | clean | 0 | -
 
 ## Cycle log
@@ -304,3 +304,4 @@ Format: cycle N | item | outcome
 - cycle 4 | add conftest.py with HF_DEACTIVATE_ASYNC_LOAD=1 | full suite green: 1365 passed, 2 skipped, 511s
 - cycle 5 | ruff autofix batch: eval/gate/{run_gate,slot_ablation,token_cot_baseline}, eval/run/runner, eval/stage0_identity, eval/stream/{generator,registry}, eval/stream/generators/{asdiv_a,split_classify} | 12 findings fixed, 129 covering tests pass
 - cycle 6 | ruff autofix batch: eval/subjects/latent_core, scripts/{run_gate,show_gate}, train/{alternating_checkpoint,alternating_config,alternating_scheduler,answer_objective,eggroll_trainer,plot_training,run_alternating} | 26 findings fixed, 107 covering tests pass
+- cycle 7 | ruff autofix batch: train/{run_eggroll,run_eggroll_stability,run_stage0_trainability,search_alignment_weight,stage0_checkpoint,stage0_data,stage0_trainability,standalone_checkpoint,trainer}, workspace/__init__ | 39 findings fixed, 429 covering tests pass
