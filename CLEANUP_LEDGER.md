@@ -26,7 +26,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 12: 1365 passed, 2 skipped, 0 failed, 493s.
 - Full suite at cycle 13: 1365 passed, 2 skipped, 0 failed, 499s.
 - Full suite at cycle 14: 1365 passed, 2 skipped, 0 failed, 494s.
-- Last full-suite run: cycle 14.
+- Full suite at cycle 18: 1365 passed, 2 skipped, 0 failed, 485s.
+- Last full-suite run: cycle 18.
 
 ## Ruff baseline (cycle 0)
 
@@ -217,7 +218,7 @@ Format: path | status | ruff findings at cycle 0 | notes
 - tests/stream/test_truth.py | fixed | 7 | cycle 17 manual RUF007 (itertools.pairwise, also clears B905) + PLC0415 x5 (hoisted Path/StreamConfig/generator imports to top); ruff clean
 - tests/stream/test_vocab.py | fixed | 2 | autofix cycle 9; cycle 17 manual PLC0415 (hoisted VOCAB_VERSION import to top); ruff clean
 - tests/subject/test_isolation.py | clean | 0 | -
-- tests/subject/test_oracles.py | unchecked | 2 | -
+- tests/subject/test_oracles.py | fixed | 2 | cycle 18 manual: B007 (value->_value) + C416 (dict comprehension -> dict()); ruff clean
 - tests/subject/test_protocol.py | unchecked | 1 | -
 - tests/subject/test_snapshot_restore.py | clean | 0 | -
 - tests/test_alternating_checkpoint.py | scanned | 5 | autofix cycle 9; 1 left: F841
@@ -357,3 +358,5 @@ Format: cycle N | item | outcome
 - cycle 17 | manual B905 x2 + PLC0415 x2 in tests/stream/test_split_classify.py | ruff clean, 36 tests pass
 - cycle 17 | manual RUF007 + PLC0415 x5 in tests/stream/test_truth.py | ruff clean, 27 tests pass
 - cycle 17 | manual PLC0415 in tests/stream/test_vocab.py | ruff clean, 23 tests pass
+- cycle 18 | full suite verification (code fixes landed since cycle 14) | 1365 passed, 2 skipped, 0 failed, 485s
+- cycle 18 | manual B007 + C416 in tests/subject/test_oracles.py | ruff clean, 17 tests pass
