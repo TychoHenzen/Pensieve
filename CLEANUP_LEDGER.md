@@ -23,7 +23,8 @@ Baselines recorded 2026-08-27 at cycle 0.
 - Full suite at cycle 7: 1365 passed, 2 skipped, 0 failed, 471s.
 - Full suite at cycle 10: 1365 passed, 2 skipped, 0 failed, 579s.
 - Full suite at cycle 11: 1365 passed, 2 skipped, 0 failed, 474s.
-- Last full-suite run: cycle 11.
+- Full suite at cycle 12: 1365 passed, 2 skipped, 0 failed, 493s.
+- Last full-suite run: cycle 12.
 
 ## Ruff baseline (cycle 0)
 
@@ -330,3 +331,4 @@ Format: cycle N | item | outcome
 - cycle 12 | manual PLW2901 in eval/stream/corpus.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual PLW2901 in eval/metrics/first_use.py | ruff clean, 78 covering tests pass
 - cycle 12 | manual PLC0415 in eval/subject/oracles/forgetful.py | ruff clean, 17 covering tests pass
+- cycle 12 | end-of-cycle full suite (5 files incl. 2 __init__ import reorders) | 1365 passed, 2 skipped, 0 failed, 493s
