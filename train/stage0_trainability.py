@@ -6,24 +6,32 @@ fixed fresh-state probes and equal-budget method comparisons.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+import contextlib
 import hashlib
 import json
 import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
 
 import torch
 
 from eval.stage0_identity import canonical_json_bytes
+from train.answer_objective import (
+    SUBJECT_LATENT_RUNS_PER_ANSWER,
+    prepare_training_example,
+    prompt_aligned_answer_objective,
+    prompt_teacher_state,
+)
 from train.eggroll_stability import (
     ImplementationIdentity,
+    ParameterRms,
     StabilityMetrics,
     _is_sha256,
     _require_finite,
 )
-
+from train.trainer import LatentCoreTrainer
 
 TRAINABILITY_SCHEMA_VERSION = 1
 TRAINABILITY_IMPLEMENTATION_PATHS = (
@@ -181,9 +189,10 @@ class OverfitProbeResult:
     failed_conditions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.status == "passed":
-            if not any(attempt.status == "passed" for attempt in self.attempts):
-                raise ValueError("passed overfit probe must have a passing attempt")
+        if self.status == "passed" and not any(
+            attempt.status == "passed" for attempt in self.attempts
+        ):
+            raise ValueError("passed overfit probe must have a passing attempt")
         if self.status == "inconclusive" and not self.failed_conditions:
             raise ValueError("inconclusive probe must specify failed conditions")
 
@@ -472,7 +481,7 @@ def canonical_trainability_implementation_identity(
             raise ValueError(f"guarded trainability source is invalid: {relative}")
         sources.append((relative.replace("\\", "/"), hashlib.sha256(path.read_bytes()).hexdigest()))
     combined = hashlib.sha256(
-        canonical_json_bytes({path: digest for path, digest in sources})
+        canonical_json_bytes(dict(sources))
     ).hexdigest()
     return ImplementationIdentity(combined, tuple(sources))
 
@@ -507,7 +516,7 @@ def load_and_validate_stability_report(
         report_data = json.loads(report_bytes)
     except (json.JSONDecodeError, OSError) as e:
         issues.append(f"stability report malformed or unreadable: {e}")
-        raise TrainabilityReportValidationError(issues)
+        raise TrainabilityReportValidationError(issues) from e
 
     if not isinstance(report_data, dict):
         issues.append("stability report root must be an object")
@@ -648,13 +657,6 @@ def evaluate_single_record_loss(
     Returns:
         Tuple of (language_model_loss, total_objective)
     """
-    from train.answer_objective import (
-        SUBJECT_LATENT_RUNS_PER_ANSWER,
-        prepare_training_example,
-        prompt_aligned_answer_objective,
-        prompt_teacher_state,
-    )
-
     try:
         trainer.optimizer.zero_grad()
         latent_loop = trainer.latent_loop
@@ -713,15 +715,13 @@ def run_overfit_attempt(
     Returns:
         Dictionary with attempt status, baseline metrics, and checkpoints
     """
-    from train.trainer import LatentCoreTrainer
-
     try:
         trainer = LatentCoreTrainer(
             lr=learning_rate,
             device=device,
         )
 
-        baseline_loss, baseline_objective = evaluate_single_record_loss(
+        baseline_loss, _ = evaluate_single_record_loss(
             trainer,
             question,
             answer,
@@ -766,10 +766,10 @@ def run_overfit_attempt(
                         "status": "non_finite",
                         "baseline_loss": baseline_loss,
                         "checkpoints": checkpoints,
-                        "failed_reason": f"Exception at step {current_step + 1}: {str(e)}",
+                        "failed_reason": f"Exception at step {current_step + 1}: {e!s}",
                     }
 
-            checkpoint_loss, checkpoint_objective = evaluate_single_record_loss(
+            checkpoint_loss, _ = evaluate_single_record_loss(
                 trainer,
                 question,
                 answer,
@@ -802,6 +802,15 @@ def run_overfit_attempt(
                     "passed_loss_ratio": loss_ratio,
                 }
 
+    except Exception as e:
+        return {
+            "learning_rate": learning_rate,
+            "status": "non_finite",
+            "baseline_loss": None,
+            "checkpoints": [],
+            "failed_reason": f"Fatal exception: {e!s}",
+        }
+    else:
         return {
             "learning_rate": learning_rate,
             "status": "failed",
@@ -809,15 +818,6 @@ def run_overfit_attempt(
             "checkpoints": checkpoints,
             "checkpoint_steps": checkpoint_steps,
             "failed_reason": "Did not meet loss reduction criteria within 64 steps",
-        }
-
-    except Exception as e:
-        return {
-            "learning_rate": learning_rate,
-            "status": "non_finite",
-            "baseline_loss": None,
-            "checkpoints": [],
-            "failed_reason": f"Fatal exception: {str(e)}",
         }
 
 
@@ -845,7 +845,7 @@ def classify_overfit_probe(
         if not attempt.baseline_metrics or not attempt.checkpoints:
             continue
 
-        for checkpoint_count, checkpoint_metrics in attempt.checkpoints:
+        for _checkpoint_count, checkpoint_metrics in attempt.checkpoints:
             if checkpoint_metrics is None:
                 continue
 
@@ -960,14 +960,11 @@ def evaluate_objective_on_training_records(
 
     metric_components = []
     for question, answer in selected_records:
-        try:
-            lm_loss, total_obj = evaluate_single_record_loss(
-                trainer, question, answer
-            )
-            if not math.isnan(lm_loss):
-                metric_components.append((lm_loss, total_obj))
-        except Exception:
-            continue
+        lm_loss, total_obj = evaluate_single_record_loss(
+            trainer, question, answer
+        )
+        if not math.isnan(lm_loss):
+            metric_components.append((lm_loss, total_obj))
 
     if not metric_components:
         raise ValueError("failed to evaluate any training records")
@@ -976,7 +973,7 @@ def evaluate_objective_on_training_records(
 
     metrics = StabilityMetrics(
         problem_count=len(metric_components),
-        parameter_rms=tuple(),
+        parameter_rms=(),
         language_model_loss=avg_lm_loss,
         exact_accuracy=0.0,
         first_token_accuracy=0.0,
@@ -1164,7 +1161,7 @@ def validate_causal_safety_checks(
     try:
         baseline_sep_float = float(baseline_separation)
     except (TypeError, ValueError):
-        raise ValueError("baseline separation must be non-negative and finite")
+        raise ValueError("baseline separation must be non-negative and finite") from None
 
     if baseline_sep_float <= 0:
         raise ValueError("baseline separation must be positive for ratio check")
@@ -1278,7 +1275,7 @@ def classify_overall_trainability(
     if len(viable_methods) == 0:
         non_viable_statuses = set(method_statuses.values())
         if len(non_viable_statuses) == 1:
-            shared_status = list(non_viable_statuses)[0]
+            shared_status = next(iter(non_viable_statuses))
             if shared_status in ("no_improvement", "direction_mismatch", "unsafe_update"):
                 failed_conditions.append(f"shared_{shared_status}")
                 return "shared_loss_behavior_conflict", failed_conditions
@@ -1369,8 +1366,6 @@ def classify_method_status(
         return "unsafe_update", failed_conditions, False
 
     if len(final_checkpoint.metrics.parameter_rms) > 0:
-        from train.eggroll_stability import ParameterRms
-
         rms_values = [
             item.rms if isinstance(item, ParameterRms) else 0.0
             for item in final_checkpoint.metrics.parameter_rms
@@ -1557,8 +1552,6 @@ def check_arm_evaluation_safety(
             )
 
     if len(metrics.parameter_rms) > 0:
-        from train.eggroll_stability import ParameterRms
-
         rms_values = [
             item.rms if isinstance(item, ParameterRms) else 0.0
             for item in metrics.parameter_rms
@@ -1627,8 +1620,6 @@ def _run_arm_with_updates(
     Returns:
         MethodArm with evaluations at each checkpoint
     """
-    from train.trainer import LatentCoreTrainer
-
     if len(manifest.training_records) < 32:
         raise ValueError(
             f"{arm_kind} arm requires at least 32 records, "
@@ -1654,7 +1645,7 @@ def _run_arm_with_updates(
                     status="active",
                 )
                 evaluations.append(evaluation)
-            except Exception:
+            except ValueError:
                 break
         else:
             steps_to_run = target_checkpoint - examples_consumed
@@ -1666,13 +1657,11 @@ def _run_arm_with_updates(
                     break
 
                 record_idx = examples_consumed
-                try:
+                with contextlib.suppress(Exception):
                     trainer.train_step(
                         manifest.training_records[record_idx][0],
                         manifest.training_records[record_idx][1],
                     )
-                except Exception:
-                    pass
                 examples_consumed += 1
 
             try:
@@ -1688,7 +1677,7 @@ def _run_arm_with_updates(
                     status="active",
                 )
                 evaluations.append(evaluation)
-            except Exception:
+            except ValueError:
                 break
 
     return MethodArm(

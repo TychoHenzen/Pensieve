@@ -169,9 +169,9 @@ def _read_probe_log(run_dir: Path) -> list[ProbeLogEntry]:
     """Read `run_dir`'s probe log back into `ProbeLogEntry` values."""
     path = run_dir / PROBE_LOG_FILENAME
     entries: list[ProbeLogEntry] = []
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
+    with open(path, encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
             if not line:
                 continue
             raw = json.loads(line)
@@ -267,7 +267,7 @@ def _print_summary(report: dict[str, Any]) -> None:
         print(
             f"{method:8s} mean={stats['mean']:.2f}%  std={stats['std']:.2f}%  "
             f"total={stats['total_seconds']:.1f}s  "
-            f"accuracies={['%.2f' % a for a in stats['accuracies']]}"
+            f"accuracies={[f'{a:.2f}' for a in stats['accuracies']]}"
         )
     print()
     for name, passed in report["criteria"].items():

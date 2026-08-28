@@ -2,16 +2,15 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping
 from dataclasses import dataclass
-import math
 
 import torch
 import torch.nn.functional as F
 
 from eval.stage0_identity import apply_qwen_chat_template
 from eval.stream.generators.asdiv_a import canonicalize_numerical_target
-
 
 SUBJECT_LATENT_RUNS_PER_ANSWER = 2
 QWEN_PROMPT_TOKEN_LIMIT = 512
@@ -53,7 +52,7 @@ def _decoder_hidden_states(
     """Run the pinned decoder body while retaining its final hidden state."""
     body = getattr(model, "model", None)
     if not callable(body):
-        raise ValueError("language model must expose a callable model body")
+        raise TypeError("language model must expose a callable model body")
     outputs = body(
         input_ids=input_ids,
         inputs_embeds=inputs_embeds,
@@ -83,7 +82,7 @@ def _decoder_hidden_and_logits(
     )
     lm_head = getattr(model, "lm_head", None)
     if not callable(lm_head):
-        raise ValueError("language model must expose callable model and lm_head modules")
+        raise TypeError("language model must expose callable model and lm_head modules")
     logits = lm_head(hidden_states)
     if not isinstance(logits, torch.Tensor) or logits.ndim != 3:
         raise ValueError("language-model head must return three-dimensional logits")

@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pytest
 from torch import nn
 
+from codecs_module.decoder import SlotDecoder
 from codecs_module.encoder import SlotEncoder
 from core.latent_loop import LatentLoop
 from workspace.concept_slots import SLOT_DIM
@@ -69,6 +70,14 @@ def test_encoder_slot_queries_trainable(encoder: SlotEncoder) -> None:
 
 def test_latent_loop_model_params_frozen(loop: LatentLoop) -> None:
     params = list(loop.model.parameters())
+    assert len(params) > 0
+    assert all(not param.requires_grad for param in params)
+
+
+# covers: codecs/decoder::Decoder is frozen at first::frozen decoder weights
+def test_decoder_model_params_frozen(loop: LatentLoop) -> None:
+    decoder = SlotDecoder(model=loop.model, tokenizer=object(), device="cpu")
+    params = list(decoder.model.parameters())
     assert len(params) > 0
     assert all(not param.requires_grad for param in params)
 

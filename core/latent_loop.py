@@ -5,8 +5,8 @@ from torch import nn
 from transformers import AutoModelForCausalLM
 
 from core.qwen_tap import PreparedQwenPrefix, QwenTapAdapter
-from eval.subject import CostCounters
 from eval.stage0_identity import LATENT_TAP_LAYER, QWEN_MODEL, WORKSPACE_DIMENSION
+from eval.subject import CostCounters
 from workspace.concept_slots import SLOT_DIM, Workspace
 
 DEFAULT_MODEL_NAME = QWEN_MODEL

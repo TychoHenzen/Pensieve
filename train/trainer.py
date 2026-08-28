@@ -15,10 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import torch
-
-from codecs_module.encoder import SlotEncoder
-from core.latent_loop import LatentLoop
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     SUBJECT_LATENT_RUNS_PER_ANSWER,
@@ -35,7 +31,7 @@ from train.vicreg import (
     post_loop_slot_variance,
     slot_variance_penalty,
 )
-from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
+from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
 @dataclass
@@ -155,7 +151,7 @@ class LatentCoreTrainer:
     def train_epoch(
         self,
         dataset: list[tuple[str, str]],
-        on_step: None | object = None,
+        on_step: object | None = None,
     ) -> EpochStats:
         """Runs one pass over `dataset`, returning aggregated stats.
 

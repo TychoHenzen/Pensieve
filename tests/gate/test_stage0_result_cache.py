@@ -34,8 +34,8 @@ from eval.stage0_identity import (
     ASDIV_REVISION,
     PROMPT_CONTRACT_VERSION,
     QWEN_ANSWER_PREFILL,
-    QWEN_MATH_PROMPT,
     QWEN_MANIFEST,
+    QWEN_MATH_PROMPT,
     QWEN_MODEL,
     QWEN_REVISION,
     canonical_json_bytes,
@@ -44,7 +44,6 @@ from eval.stream.generators.asdiv_a import (
     AsdivRecord,
     asdiv_a_selection_identity,
 )
-
 
 MAX_RESULT_BYTES = 16 * 1024 * 1024
 SEEDS = [0, 1, 2, 3, 4]

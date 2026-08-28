@@ -146,12 +146,13 @@ class EWCBaseline(Subject):
                 for name, param in self._model.named_parameters():
                     if param.grad is not None:
                         new_fisher[name] += param.grad.detach() ** 2
-            for name in new_fisher:
-                new_fisher[name] /= len(examples)
+            for name, fisher_value in new_fisher.items():
+                normalized = fisher_value / len(examples)
+                new_fisher[name] = normalized
                 if name in self._fisher:
-                    self._fisher[name] = self._fisher[name] + new_fisher[name]
+                    self._fisher[name] = self._fisher[name] + normalized
                 else:
-                    self._fisher[name] = new_fisher[name]
+                    self._fisher[name] = normalized
 
         self._theta_star = {
             name: param.detach().clone()
@@ -229,7 +230,6 @@ class EWCBaseline(Subject):
         }
 
     def restore(self, state: object) -> None:
-        state = state  # type: ignore[assignment]
         self._model.load_state_dict(state["model_state"])  # type: ignore[index]
         self._optimizer.load_state_dict(state["optimizer_state"])  # type: ignore[index]
         self._label_to_idx = dict(state["label_to_idx"])  # type: ignore[index]

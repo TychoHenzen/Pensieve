@@ -9,9 +9,9 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from eval.gate import result_cache
+from eval.gate import result_cache, token_cot_baseline
 from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
-
+from train import standalone_checkpoint
 
 DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_OUTPUT = DEFAULT_RESULTS_DIR / "gate_report.json"
@@ -208,17 +208,13 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    from eval.gate.result_cache import checkpoint_sha256
-    from eval.gate.token_cot_baseline import prepare_baseline_request
-    from train.standalone_checkpoint import configure_deterministic_runtime
-
-    configure_deterministic_runtime()
+    standalone_checkpoint.configure_deterministic_runtime()
     args = _parse_args()
     token_path = args.results_dir / "token_cot.json"
     latent_path = args.results_dir / "latent_eval.json"
     if token_path.exists() and latent_path.exists():
         records = tuple(load_asdiv_a_record_split("test"))
-        prepared = prepare_baseline_request(
+        prepared = token_cot_baseline.prepare_baseline_request(
             device=args.device,
             development_limit=args.development_limit,
             records=records,
@@ -228,7 +224,7 @@ def main() -> None:
             args.results_dir,
             records=records,
             expected_token_identity=prepared.identity,
-            expected_checkpoint_sha256=checkpoint_sha256(args.checkpoint),
+            expected_checkpoint_sha256=result_cache.checkpoint_sha256(args.checkpoint),
             expected_seeds=DEFAULT_SEEDS,
         )
     else:

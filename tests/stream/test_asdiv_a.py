@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
 import random
+from dataclasses import replace
 
 import pytest
 
@@ -17,6 +17,7 @@ from eval.stream.generators.asdiv_a import (
     load_asdiv_records,
     select_asdiv_a_records,
 )
+from eval.stream.render import render_event
 from eval.stream.truth import ProbeTruth
 
 
@@ -151,10 +152,16 @@ def test_selection_is_repeatable_and_binds_every_identity_input() -> None:
         problem_count=3,
         revision=ASDIV_REVISION,
     )
+    changed_split = select_asdiv_a_records(records, split="train", seed=17, problem_count=3)
+    changed_seed = select_asdiv_a_records(records, split="test", seed=18, problem_count=3)
+    changed_count = select_asdiv_a_records(records, split="test", seed=17, problem_count=2)
 
     assert baseline == repeated
     assert baseline.identity != changed_revision
     assert baseline.identity != changed_records
+    assert baseline.identity != changed_split.identity
+    assert baseline.identity != changed_seed.identity
+    assert baseline.identity != changed_count.identity
 
 
 def test_generator_emits_one_public_question_then_one_numerical_probe() -> None:
@@ -176,3 +183,38 @@ def test_generator_emits_one_public_question_then_one_numerical_probe() -> None:
     assert items[1].event.teaching_position == items[0].event.position
     assert isinstance(items[1].truth, ProbeTruth)
     assert items[1].truth.answer
+
+
+def test_truth_remains_isolated_from_model_facing_text() -> None:
+    records = _records()
+    selection = select_asdiv_a_records(
+        records, split="test", seed=17, problem_count=1
+    )
+    record = selection.records[0]
+
+    items = list(
+        AsdivGenerator(records_by_split=records).generate(
+            StreamConfig(
+                generator="asdiv-a",
+                params={"split": "test", "problem_count": 1},
+            ),
+            seed=17,
+        )
+    )
+    observe, probe = items[0], items[1]
+    assert isinstance(observe.event, Observe)
+    assert isinstance(probe.event, Probe)
+    assert isinstance(probe.truth, ProbeTruth)
+
+    # The spec requires the answer, source item id, probe id, and task id to
+    # stay on the harness side channel, never in the text a subject reads.
+    forbidden = {
+        record.target,
+        record.id,
+        probe.event.probe_id,
+        probe.event.task_id,
+    }
+    for event in (observe.event, probe.event):
+        rendered = render_event(event)
+        for token in forbidden:
+            assert token not in rendered

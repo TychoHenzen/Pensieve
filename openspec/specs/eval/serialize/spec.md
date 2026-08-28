@@ -114,7 +114,7 @@ For `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `s
 
 ### Requirement: canonical_json forbids NaN and Infinity
 
-`canonical_json` SHOULD pass `allow_nan=False` so non-finite floats raise rather than producing non-standard JSON. No test exercises this path. [OBSERVED]
+`canonical_json` MUST pass `allow_nan=False` so non-finite floats raise rather than producing non-standard JSON. No test exercises this path. [OBSERVED]
 
 #### Scenario: non-finite float rejected
 
@@ -124,7 +124,7 @@ For `StreamConfig(generator="assoc", params={"pairs": 10, "distance": 100})`, `s
 
 ### Requirement: items_to_plain output shape is not externally pinned
 
-`items_to_plain` SHOULD represent each `StreamItem` with `"event"` and `"truth"` top-level keys, with the event's class name under `"type"`. No test asserts on these field names directly - `test_replay.py` only compares the module's own output against itself. [OBSERVED]
+`items_to_plain` MUST represent each `StreamItem` with `"event"` and `"truth"` top-level keys, with the event's class name under `"type"`. No test asserts on these field names directly - `test_replay.py` only compares the module's own output against itself. [OBSERVED]
 
 #### Scenario: plain shape is self-consistent
 

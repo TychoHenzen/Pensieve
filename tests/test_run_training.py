@@ -7,6 +7,8 @@ import inspect
 import sys
 from types import ModuleType, SimpleNamespace
 
+import train.run_training as run_training
+
 
 def test_main_constructs_and_runs_only_gradient_trainer(monkeypatch) -> None:
     trainer_calls: list[dict[str, object]] = []
@@ -87,8 +89,6 @@ def test_main_constructs_and_runs_only_gradient_trainer(monkeypatch) -> None:
 
 
 def test_gradient_cli_has_no_alternating_scheduler_import_or_call() -> None:
-    import train.run_training as run_training
-
     tree = ast.parse(inspect.getsource(run_training))
     references = [
         node

@@ -7,24 +7,18 @@ fixed fresh-state probes and equal-budget method comparisons.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
 import json
 import os
-from pathlib import Path
 import sys
+import time
+from collections.abc import Sequence
+from pathlib import Path
 
 from train.stage0_trainability import (
-    canonical_trainability_implementation_identity,
-    classify_method_status,
-    classify_overall_trainability,
-    compute_recalibration_eligibility,
-    load_and_validate_stability_report,
-    run_no_update_arm,
-    run_gradient_only_arm,
-    run_eggroll_only_arm,
+    TRAINABILITY_SCHEMA_VERSION,
     TrainabilityProgressRecord,
     TrainabilityReport,
-    TRAINABILITY_SCHEMA_VERSION,
+    canonical_trainability_implementation_identity,
 )
 from train.standalone_checkpoint import configure_deterministic_runtime
 
@@ -94,19 +88,9 @@ def _run_investigation(
     progress_writer: TrainabilityProgressWriter,
 ) -> tuple[str, list[str]]:
     """Run the bounded trainability investigation and return (status, failed_conditions)."""
-    import time
-    from train.stage0_trainability import OverfitProbeResult
-
-    start_time = time.time()
-    failed_conditions = []
-
-    try:
-        # For now, return inconclusive - full investigation requires more work
-        # This allows the command to at least run and produce output
-        return "inconclusive", ["investigation_incomplete"]
-    except Exception as e:
-        failed_conditions.append(f"investigation_error: {str(e)}")
-        return "inconclusive", failed_conditions
+    # For now, return inconclusive - full investigation requires more work
+    # This allows the command to at least run and produce output
+    return "inconclusive", ["investigation_incomplete"]
 
 
 def _write_report_to_file(report: TrainabilityReport, output_path: Path) -> None:
@@ -124,12 +108,6 @@ def _write_final_report(
     elapsed_seconds: float,
 ) -> int:
     """Write the final TrainabilityReport JSON file and return exit code."""
-    from train.stage0_trainability import (
-        OverfitProbeResult,
-        TrainabilityAssetIdentity,
-        TrainabilityConfiguration,
-        ImplementationIdentity,
-    )
 
     try:
         # Create minimal report with investigation status
@@ -172,7 +150,7 @@ def _write_final_report(
 
         # Exit code: 0 for viable/bounded, 1 for non-viable
         return _compute_exit_code(status)
-    except Exception as e:
+    except OSError as e:
         print(f"Failed to write report: {e}", file=sys.stderr, flush=True)
         return 1
 
@@ -222,8 +200,6 @@ def _validate_args(args: argparse.Namespace) -> None:
 
 def main(argv: Sequence[str] | None = None) -> int:
     """Run the bounded trainability investigation."""
-    import time
-
     args = _build_parser().parse_args(argv)
     _validate_args(args)
 
@@ -240,16 +216,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ValueError as e:
         print(f"implementation identity error: {e}", file=sys.stderr, flush=True)
         elapsed = time.time() - start_time
-        return _write_final_report(args, "inconclusive", [f"identity_error: {str(e)}"], elapsed)
+        return _write_final_report(args, "inconclusive", [f"identity_error: {e!s}"], elapsed)
 
     # Run the investigation
     try:
         with TrainabilityProgressWriter(progress_path) as progress:
             status, failed_conds = _run_investigation(args, progress)
-    except Exception as e:
+    except OSError as e:
         print(f"investigation error: {e}", file=sys.stderr, flush=True)
         elapsed = time.time() - start_time
-        return _write_final_report(args, "inconclusive", [f"investigation_exception: {str(e)}"], elapsed)
+        return _write_final_report(args, "inconclusive", [f"investigation_exception: {e!s}"], elapsed)
 
     elapsed = time.time() - start_time
     return _write_final_report(args, status, failed_conds, elapsed)

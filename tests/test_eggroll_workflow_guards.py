@@ -6,10 +6,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from tests.eggroll_stability_fixtures import write_stability_report
 from train import run_alternating, run_eggroll
 from train.eggroll_stability import StabilityReportValidationError
 from train.standalone_checkpoint import configure_deterministic_runtime
-from tests.eggroll_stability_fixtures import write_stability_report
 
 
 def _eggroll_args(report: Path | None) -> SimpleNamespace:

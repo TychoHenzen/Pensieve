@@ -2,21 +2,23 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import math
 import os
 import struct
 import tempfile
 from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
-from zipfile import BadZipFile, ZIP_STORED, ZipFile, ZipInfo
+from zipfile import ZIP_STORED, BadZipFile, ZipFile, ZipInfo
+
+from safetensors.torch import load
 
 from eval.stage0_identity import STAGE0_IDENTITY
-
 
 CHECKPOINT_SCHEMA_VERSION = 2
 CHECKPOINT_MODES = frozenset({"gradient", "eggroll", "alternating"})
@@ -711,18 +713,16 @@ def _validate_run_selection(
     for field in ("dataset", "revision"):
         if field in obj:
             validator.string(obj[field], f"{path}.{field}")
-    if "split" in obj:
-        if (
-            validator.string(obj["split"], f"{path}.split")
-            and obj["split"] != expected_split
-        ):
-            validator.add(f"{path}.split", f"must equal {expected_split!r}")
-    if "seed" in obj:
-        if (
-            validator.integer(obj["seed"], f"{path}.seed", minimum=0)
-            and obj["seed"] != 0
-        ):
-            validator.add(f"{path}.seed", "must equal 0")
+    if "split" in obj and (
+        validator.string(obj["split"], f"{path}.split")
+        and obj["split"] != expected_split
+    ):
+        validator.add(f"{path}.split", f"must equal {expected_split!r}")
+    if "seed" in obj and (
+        validator.integer(obj["seed"], f"{path}.seed", minimum=0)
+        and obj["seed"] != 0
+    ):
+        validator.add(f"{path}.seed", "must equal 0")
     if "count" in obj:
         count = obj["count"]
         if count is not None or not count_may_be_null:
@@ -1450,10 +1450,8 @@ def write_checkpoint_container(
         temporary_path = None
     except Exception:
         if temporary_path is not None:
-            try:
+            with contextlib.suppress(OSError):
                 temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
         raise
 
 
@@ -1583,8 +1581,6 @@ def _parse_checkpoint_metadata(payload: bytes) -> ValidatedCheckpointMetadata:
 
 def _load_safetensors_on_cpu(payload: bytes) -> Mapping[str, Any]:
     try:
-        from safetensors.torch import load
-
         tensors = load(payload)
     except Exception as error:
         raise CheckpointContainerError(f"cannot load tensors.safetensors: {error}") from error

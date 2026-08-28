@@ -1,3 +1,4 @@
+import math
 import re
 
 import pytest
@@ -5,7 +6,11 @@ import pytest
 from eval.stream.config import StreamConfig
 from eval.stream.events import Boundary, BoundaryKind, Observe, Probe
 from eval.stream.generator import StreamGenerator
-from eval.stream.generators.split_classify import SplitClassifyGenerator
+from eval.stream.generators.split_classify import (
+    FEATURE_NOISE_STD,
+    SplitClassifyGenerator,
+    _class_center,
+)
 from eval.stream.render import render_event
 
 
@@ -393,24 +398,20 @@ def test_determinism_covers_all_event_fields():
     first = _items(seed=42)
     second = _items(seed=42)
     assert len(first) == len(second)
-    for first_item, second_item in zip(first, second):
+    for first_item, second_item in zip(first, second, strict=True):
         assert vars(first_item.event) == vars(second_item.event)
         assert first_item.truth == second_item.truth
 
 
 # covers: eval/generators::Class clusters stay separable::cluster geometry
 def test_cluster_centers_are_separable():
-    from eval.stream.generators.split_classify import (
-        FEATURE_NOISE_STD,
-        _class_center,
-    )
-    import math
-
     num_classes = 4
     centers = [_class_center(num_classes, i) for i in range(num_classes)]
     for i in range(num_classes):
         for j in range(i + 1, num_classes):
-            dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(centers[i], centers[j])))
+            dist = math.sqrt(
+                sum((a - b) ** 2 for a, b in zip(centers[i], centers[j], strict=True))
+            )
             assert dist > FEATURE_NOISE_STD, (
                 f"centers {i} and {j} are {dist:.2f} apart, "
                 f"less than noise std {FEATURE_NOISE_STD}"

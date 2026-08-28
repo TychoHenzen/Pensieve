@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import argparse
 import csv
-from dataclasses import dataclass
-from html import escape
 import json
 import math
+from collections.abc import Callable, Sequence
+from dataclasses import dataclass
+from html import escape
 from pathlib import Path
-from typing import Callable, Sequence
 
 
 @dataclass(frozen=True)
@@ -41,7 +41,7 @@ def _decode_log(path: Path) -> str:
 
 def _finite_number(value: object, field: str, line_number: int) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"line {line_number}: {field} must be a finite number")
+        raise TypeError(f"line {line_number}: {field} must be a finite number")
     result = float(value)
     if not math.isfinite(result):
         raise ValueError(f"line {line_number}: {field} must be a finite number")
@@ -50,7 +50,7 @@ def _finite_number(value: object, field: str, line_number: int) -> float:
 
 def _integer(value: object, field: str, line_number: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ValueError(f"line {line_number}: {field} must be an integer")
+        raise TypeError(f"line {line_number}: {field} must be an integer")
     return value
 
 
@@ -133,10 +133,7 @@ def _extent(values: Sequence[float], *, include_zero: bool = False) -> tuple[flo
     high = max(values)
     if include_zero:
         low = min(0.0, low)
-    if low == high:
-        padding = max(abs(low) * 0.05, 0.5)
-    else:
-        padding = (high - low) * 0.08
+    padding = max(abs(low) * 0.05, 0.5) if low == high else (high - low) * 0.08
     return low - padding, high + padding
 
 
@@ -184,13 +181,19 @@ def _chart(
     if log_scale:
         positive = [item for item in y_values if item > 0.0]
         floor = min(positive) / 10.0 if positive else 1e-9
-        transform = lambda item: math.log10(max(item, floor))
+
+        def transform(item: float) -> float:
+            return math.log10(max(item, floor))
+
         transformed = [transform(item) for item in y_values]
         transformed.extend(transform(item) for item, _, _ in reference_lines if item > 0.0)
         y_low, y_high = _extent(transformed)
     else:
         floor = 0.0
-        transform = lambda item: item
+
+        def transform(item: float) -> float:
+            return item
+
         transformed = y_values + [item for item, _, _ in reference_lines]
         y_low, y_high = _extent(transformed, include_zero=percent)
         if percent:
@@ -209,7 +212,7 @@ def _chart(
     for tick in x_ticks:
         x = sx(tick)
         grid.append(f'<line class="grid" x1="{x:.2f}" y1="{top}" x2="{x:.2f}" y2="{top + plot_height}"/>')
-        labels.append(f'<text class="tick" x="{x:.2f}" y="{height - 20}" text-anchor="middle">{int(round(tick))}</text>')
+        labels.append(f'<text class="tick" x="{x:.2f}" y="{height - 20}" text-anchor="middle">{round(tick)}</text>')
     for tick in y_ticks:
         y = top + (y_high - tick) / (y_high - y_low) * plot_height
         grid.append(f'<line class="grid" x1="{left}" y1="{y:.2f}" x2="{left + plot_width}" y2="{y:.2f}"/>')

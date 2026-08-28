@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 import torch
 from torch import nn
-
-
-sentence_transformers = ModuleType("sentence_transformers")
-sentence_transformers.SentenceTransformer = object
-sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
 from train.trainer import LatentCoreTrainer
 from train.training_results import ExperimentPosition, StepResult

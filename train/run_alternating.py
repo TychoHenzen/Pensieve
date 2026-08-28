@@ -3,17 +3,18 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Mapping, Sequence
 import importlib.metadata
 import json
 import os
-from pathlib import Path
 import platform
 import random
 import sys
 import time
-from typing import Any, Protocol, TextIO
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Protocol, TextIO
 
+import numpy as np
 import torch
 
 from eval.stage0_identity import (
@@ -26,11 +27,6 @@ from eval.stream.generators.asdiv_a import (
     AsdivSelection,
     asdiv_a_selection_identity,
 )
-from train.alternating_config import (
-    DEFAULT_VARIANCE_LOWER_THRESHOLD,
-    DEFAULT_VARIANCE_UPPER_THRESHOLD,
-    validate_scheduler_config,
-)
 from train.alternating_checkpoint import (
     AlternatingCheckpoint,
     CheckpointSchedule,
@@ -41,6 +37,11 @@ from train.alternating_checkpoint import (
     save_boundary_checkpoints,
     stage0_parameter_paths,
 )
+from train.alternating_config import (
+    DEFAULT_VARIANCE_LOWER_THRESHOLD,
+    DEFAULT_VARIANCE_UPPER_THRESHOLD,
+    validate_scheduler_config,
+)
 from train.alternating_evaluation import (
     DEFAULT_EVAL_PROBLEM_COUNT,
     HeldOutProblem,
@@ -49,18 +50,18 @@ from train.alternating_evaluation import (
 )
 from train.alternating_scheduler import (
     EvaluationRecord,
-    VarianceHysteresisScheduler,
     PhaseEvaluator,
     TrainingEngine,
+    VarianceHysteresisScheduler,
 )
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     validate_prompt_alignment_weight,
 )
+from train.eggroll_stability_guard import load_guarded_stability_report
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
-    DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
     DEFAULT_RANK,
@@ -69,19 +70,20 @@ from train.eggroll_trainer import (
     EggrollTrainer,
     validate_eggroll_config,
 )
-from train.eggroll_stability_guard import load_guarded_stability_report
-from train.stage0_data import FitnessBatch
-from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
+from train.eggroll_trainer import (
+    DEFAULT_LR as DEFAULT_EGGROLL_LR,
+)
+from train.stage0_data import FitnessBatch, load_stage0_dataset, training_examples
+from train.standalone_checkpoint import configure_deterministic_runtime
+from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
+from train.trainer import LatentCoreTrainer
+from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 from train.training_state import (
     EGGROLL_PARAMETER_PATHS,
     GRADIENT_PARAMETER_PATHS,
     TrainingState,
 )
-from train.training_results import EvaluationResult, ExperimentPosition, StepResult
-from train.stage0_data import load_stage0_dataset, training_examples
-from train.standalone_checkpoint import configure_deterministic_runtime
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
-
 
 DEFAULT_EPOCHS = 5
 DEFAULT_PHASE_STEPS = 50
@@ -709,7 +711,7 @@ def _optimizer_state_from_checkpoint(
             "does not match the constructed optimizer"
         )
     restored_state: dict[int, dict[str, object]] = {}
-    for parameter_id, parameter, name in zip(parameter_ids, parameters, names):
+    for parameter_id, parameter, name in zip(parameter_ids, parameters, names, strict=True):
         values = dict(manifest["scalar_state"][name])
         for state_name, tensor_name in manifest["tensor_references"][name].items():
             tensor = checkpoint.tensors[tensor_name]
@@ -783,8 +785,6 @@ def _restore_checkpoint_state(
     gradient_optimizer.load_state_dict(gradient_state)
     eggroll_optimizer.load_state_dict(eggroll_state)
     random.setstate(python_state)
-    import numpy as np
-
     np.random.set_state(numpy_state)
     torch.set_rng_state(checkpoint.tensors[rng["pytorch_cpu"]["state_tensor"]])
     if cuda_states:

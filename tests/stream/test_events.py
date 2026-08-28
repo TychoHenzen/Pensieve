@@ -3,8 +3,8 @@ import dataclasses
 import pytest
 
 from eval.stream.events import (
-    BoundaryKind,
     Boundary,
+    BoundaryKind,
     Event,
     Idle,
     Observe,

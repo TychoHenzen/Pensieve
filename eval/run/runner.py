@@ -23,6 +23,7 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 
+from eval.metrics import ProbeLogEntry
 from eval.run import CHECKPOINT_DIRNAME, PROBE_LOG_FILENAME
 from eval.run.checkpoint import (
     capture_rng_state,
@@ -31,7 +32,6 @@ from eval.run.checkpoint import (
     save_checkpoint,
 )
 from eval.run.config import RunConfig, config_hash
-from eval.metrics import ProbeLogEntry
 from eval.stream.events import Boundary, Idle, Observe, Probe
 from eval.stream.truth import StreamItem
 from eval.subject import Subject

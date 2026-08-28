@@ -11,6 +11,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
+from eval.stream.generators.asdiv_a import AsdivRecord
 from tests.eggroll_reference import (
     EggrollStepSnapshot,
     apply_reference_pair_loop_update,
@@ -21,7 +22,6 @@ from tests.eggroll_reference import (
 from train import eggroll_trainer as trainer_module
 from train.eggroll_trainer import EggrollTrainer
 from train.stage0_data import FitnessBatch
-from eval.stream.generators.asdiv_a import AsdivRecord
 
 
 class _TinyWorkspace:

@@ -18,10 +18,11 @@ from train.eggroll_perturbations import (
 def _pair_descent_scores(
     fitnesses: Sequence[float] | torch.Tensor,
 ) -> tuple[torch.Tensor, int]:
-    if isinstance(fitnesses, torch.Tensor):
-        fitness_tensor = fitnesses
-    else:
-        fitness_tensor = torch.tensor(fitnesses, dtype=torch.float32)
+    fitness_tensor = (
+        fitnesses
+        if isinstance(fitnesses, torch.Tensor)
+        else torch.tensor(fitnesses, dtype=torch.float32)
+    )
     if fitness_tensor.ndim != 1:
         raise ValueError("fitnesses must be one-dimensional")
 

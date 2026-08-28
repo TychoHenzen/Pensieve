@@ -15,7 +15,6 @@ from codecs_module.encoder import SlotEncoder
 from codecs_module.narration import NarrationDecoder
 from workspace.concept_slots import Workspace
 
-
 SLOT_WIDTH = 896
 ABLATION_SLOT_COUNTS = (1, 4, 8, 16, 32, 64)
 

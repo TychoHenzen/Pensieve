@@ -33,7 +33,6 @@ from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.standalone_checkpoint import configure_deterministic_runtime
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
-
 DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 LOG_EVERY = 50
@@ -117,7 +116,6 @@ def _run_baseline(
     selection = prepared.selection
     results_path = args.results_dir / "token_cot.json"
     if results_path.exists():
-        from eval.gate import result_cache
 
         result = read_token_result(
             results_path,

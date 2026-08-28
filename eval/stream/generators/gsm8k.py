@@ -17,6 +17,8 @@ from __future__ import annotations
 import re
 from collections.abc import Iterator
 
+from datasets import load_dataset
+
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
 from eval.stream.generator import derive
@@ -40,8 +42,6 @@ def _load_split(split: str) -> list[dict[str, str]]:
     cached = _dataset_cache.get(split)
     if cached is not None:
         return cached
-
-    from datasets import load_dataset
 
     hf_dataset = load_dataset("openai/gsm8k", "main", split=split)
     items = [{"question": row["question"], "answer": row["answer"]} for row in hf_dataset]

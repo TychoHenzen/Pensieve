@@ -6,6 +6,14 @@ from pathlib import Path
 import pytest
 
 from train import run_stage0_trainability
+from train.stage0_trainability import (
+    ImplementationIdentity,
+    OverfitProbeResult,
+    TrainabilityAssetIdentity,
+    TrainabilityConfiguration,
+    TrainabilityProgressRecord,
+    TrainabilityReport,
+)
 
 
 def test_command_rejects_missing_stability_report(tmp_path: Path) -> None:
@@ -155,7 +163,6 @@ def test_progress_writer_exclusive_create(tmp_path: Path) -> None:
     """Progress writer creates JSONL with exclusive-create semantics."""
     progress_path = tmp_path / "progress.jsonl"
     with run_stage0_trainability.TrainabilityProgressWriter(progress_path) as writer:
-        from train.stage0_trainability import TrainabilityProgressRecord
         record = TrainabilityProgressRecord(
             schema_version=1,
             sequence_number=0,
@@ -178,7 +185,6 @@ def test_progress_writer_exclusive_create(tmp_path: Path) -> None:
 def test_progress_writer_append_and_flush(tmp_path: Path) -> None:
     """Progress writer appends records and flushes each write."""
     progress_path = tmp_path / "progress.jsonl"
-    from train.stage0_trainability import TrainabilityProgressRecord
     with run_stage0_trainability.TrainabilityProgressWriter(progress_path) as writer:
         for i in range(3):
             record = TrainabilityProgressRecord(
@@ -220,14 +226,6 @@ def test_exit_code_non_viable_outcomes(status: str) -> None:
 
 def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     """Final report is written with exclusive-create semantics and temp file cleanup."""
-    from train.stage0_trainability import (
-        TrainabilityReport,
-        TrainabilityConfiguration,
-        TrainabilityAssetIdentity,
-        ImplementationIdentity,
-        OverfitProbeResult,
-    )
-
     output_path = tmp_path / "report.json"
     report = TrainabilityReport(
         schema_version=1,
@@ -298,8 +296,6 @@ def test_pre_existing_output_rejected_before_model_loading(
 
 def test_progress_record_schema_required_fields() -> None:
     """Progress records have all required schema fields."""
-    from train.stage0_trainability import TrainabilityProgressRecord
-
     record = TrainabilityProgressRecord(
         schema_version=1,
         sequence_number=0,
@@ -323,8 +319,6 @@ def test_progress_record_schema_required_fields() -> None:
 
 def test_progress_record_eta_field_validation() -> None:
     """Progress records validate ETA fields (must be non-negative or None)."""
-    from train.stage0_trainability import TrainabilityProgressRecord
-
     with pytest.raises(ValueError, match="eta_seconds must be finite"):
         TrainabilityProgressRecord(
             schema_version=1,
@@ -340,14 +334,6 @@ def test_progress_record_eta_field_validation() -> None:
 
 def test_final_report_schema_required_fields() -> None:
     """Final reports have all required schema fields."""
-    from train.stage0_trainability import (
-        TrainabilityReport,
-        TrainabilityConfiguration,
-        TrainabilityAssetIdentity,
-        ImplementationIdentity,
-        OverfitProbeResult,
-    )
-
     report = TrainabilityReport(
         schema_version=1,
         configuration=TrainabilityConfiguration(
@@ -405,15 +391,6 @@ def test_command_output_structure_on_fixture(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Command produces correct JSON and JSONL output structure on fixture."""
-    from train.stage0_trainability import (
-        TrainabilityReport,
-        TrainabilityConfiguration,
-        TrainabilityAssetIdentity,
-        ImplementationIdentity,
-        OverfitProbeResult,
-        TrainabilityProgressRecord,
-    )
-
     report = tmp_path / "stability.json"
     report_data = {"status": "failed"}
     report.write_text(json.dumps(report_data), encoding="utf-8")

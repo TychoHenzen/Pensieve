@@ -14,6 +14,7 @@ from typing import Protocol
 import torch
 from torch import nn
 
+from codecs_module.decoder import SlotDecoder
 from eval.gate.answer_scoring import score_numerical_answer
 from eval.stream.generators.asdiv_a import AsdivRecord
 from train.answer_objective import (
@@ -125,7 +126,7 @@ def evaluate_unperturbed(
                 correct += int(score_numerical_answer(decoder(workspace), problem.answer))
     finally:
         workspace.restore(workspace_state)  # type: ignore[attr-defined]
-        for module, was_training in zip(modules, previous_modes):
+        for module, was_training in zip(modules, previous_modes, strict=True):
             module.train(was_training)
 
     total = len(problems)
@@ -148,6 +149,4 @@ def _evaluation_modules(*candidates: object) -> list[nn.Module]:
 
 def _slot_decoder(language_model: object, tokenizer: object) -> Callable[[object], str]:
     """Build the real decoder only when generated answers are required."""
-    from codecs_module.decoder import SlotDecoder
-
     return SlotDecoder(language_model, tokenizer).decode

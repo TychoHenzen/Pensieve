@@ -1,24 +1,20 @@
 from __future__ import annotations
 
 import gc
-import sys
-from types import ModuleType, SimpleNamespace
 import weakref
+from types import SimpleNamespace
 
 import pytest
 import torch
 from torch import nn
 
-sentence_transformers = ModuleType("sentence_transformers")
-sentence_transformers.SentenceTransformer = object
-sys.modules.setdefault("sentence_transformers", sentence_transformers)
-
-from train.eggroll_trainer import EggrollTrainer
+from eval.stream.generators.asdiv_a import AsdivRecord
+from train import eggroll_trainer as trainer_module
 from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
+from train.eggroll_trainer import EggrollTrainer
 from train.stage0_data import FitnessBatch
 from train.training_results import ExperimentPosition, StepResult
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
-from eval.stream.generators.asdiv_a import AsdivRecord
 
 
 def test_fitness_uses_canonical_post_loop_slot_variance(
@@ -58,8 +54,6 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         )
     )
     factorized_calls: list[tuple[object, ...]] = []
-    from train import eggroll_trainer as trainer_module
-
     original_factorized_linear = trainer_module.factorized_linear
 
     def observe_factorized(*args, **kwargs):
@@ -295,8 +289,6 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
 def test_fitness_batch_reuses_one_population_and_reports_aggregate_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from eval.stream.generators.asdiv_a import AsdivRecord
-
     trainer = EggrollTrainer.__new__(EggrollTrainer)
     trainer.device = "cpu"
     trainer.use_amp = False

@@ -18,6 +18,7 @@ from tests.test_eggroll_step_equivalence import (
     _deterministic_fitness_batch,
     _make_trainer,
 )
+from tests.test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 from train import eggroll_trainer as trainer_module
 from train import run_alternating, run_eggroll
 from train.alternating_checkpoint import (
@@ -28,12 +29,11 @@ from train.alternating_checkpoint import (
 )
 from train.eggroll_trainer import EggrollTrainer
 from train.stage0_checkpoint import ALLOWED_MODEL_PARAMETER_PATHS
-from tests.test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 
 
 # covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Resume stays deterministic
 def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     random.seed(911)
     np.random.seed(912)
     torch.manual_seed(913)

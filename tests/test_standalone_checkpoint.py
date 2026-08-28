@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 import torch
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata, _plain
 from torch import nn
 
 from train import standalone_checkpoint
-from train.stage0_checkpoint import CheckpointContainerError, EGGROLL_MODEL_PARAMETER_PATHS
-from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata, _plain
+from train.stage0_checkpoint import EGGROLL_MODEL_PARAMETER_PATHS, CheckpointContainerError
 
 
 def _state(mode: str):
@@ -61,7 +61,7 @@ def test_standalone_checkpoint_round_trips_complete_v2_state(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
     parameters, optimizer, fixture = _state(mode)
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     checkpoint = standalone_checkpoint.build_checkpoint(
         mode=mode,
         identity=fixture["identity"],
@@ -94,7 +94,7 @@ def test_compatible_standalone_resume_restores_model_and_optimizer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
     parameters, optimizer, fixture = _state(mode)
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     checkpoint = standalone_checkpoint.build_checkpoint(
         mode=mode,
         identity=fixture["identity"],
@@ -160,7 +160,7 @@ def test_incompatible_standalone_identity_rejects_before_mutation(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parameters, optimizer, fixture = _state("gradient")
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     checkpoint = standalone_checkpoint.build_checkpoint(
         mode="gradient",
         identity=fixture["identity"],
@@ -189,7 +189,7 @@ def test_standalone_mode_mismatch_rejects_before_restore(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     parameters, optimizer, fixture = _state("gradient")
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     checkpoint = standalone_checkpoint.build_checkpoint(
         mode="gradient",
         identity=fixture["identity"],
@@ -209,7 +209,7 @@ def test_changed_standalone_learning_rate_names_canonical_manifest_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parameters, optimizer, fixture = _state("gradient")
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     checkpoint = standalone_checkpoint.build_checkpoint(
         mode="gradient",
         identity=fixture["identity"],
@@ -250,6 +250,6 @@ def _same_state(left: object, right: object) -> bool:
         )
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(
-            _same_state(a, b) for a, b in zip(left, right)
+            _same_state(a, b) for a, b in zip(left, right, strict=True)
         )
     return left == right

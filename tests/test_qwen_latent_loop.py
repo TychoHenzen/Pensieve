@@ -15,7 +15,6 @@ from core.latent_loop import LatentLoop
 from core.qwen_tap import PreparedQwenPrefix, QwenTapAdapter
 from workspace.concept_slots import Workspace
 
-
 WIDTH = 896
 CONTEXT_LENGTH = 3
 SLOT_COUNT = 4

@@ -168,7 +168,7 @@ When advancing past the corpus length, `next_span` MUST wrap the read position t
 
 ### Requirement: load_corpus rejects a wordless snapshot
 
-`load_corpus` SHOULD raise `ValueError` when the file contains no words, so a valid-JSON-but-empty snapshot fails loudly. No test exercises this path. [OBSERVED]
+`load_corpus` MUST raise `ValueError` when the file contains no words, so a valid-JSON-but-empty snapshot fails loudly. No test exercises this path. [OBSERVED]
 
 #### Scenario: snapshot with no words
 

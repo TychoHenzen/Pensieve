@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from eval.stream.config import StreamConfig
+from eval.stream.events import Observe, Probe
 from eval.stream.hashing import canonical_json, stream_hash
-from eval.stream.serialize import items_to_canonical_json, items_to_plain
+from eval.stream.serialize import items_to_plain
+from eval.stream.truth import ProbeTruth, StreamItem
 
 
 def _config(**params) -> StreamConfig:
@@ -325,9 +327,6 @@ def test_canonical_json_key_order_does_not_affect_output():
 
 # covers: eval/serialize::items_to_plain output shape is not externally pinned::plain shape is self-consistent
 def test_items_to_plain_round_trip_stability():
-    from eval.stream.events import Observe, Probe
-    from eval.stream.truth import ProbeTruth, StreamItem
-
     items = [
         StreamItem(
             event=Observe(position=0, payload={"key": "value"}),

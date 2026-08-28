@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import copy
 import hashlib
-from io import StringIO
 import json
-from pathlib import Path
 import random
+from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 from torch import nn
 
 from train import run_alternating
-from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
 from train.alternating_checkpoint import (
     CheckpointSchedule,
     build_alternating_checkpoint,
@@ -24,23 +24,25 @@ from train.alternating_config import (
     DEFAULT_VARIANCE_LOWER_THRESHOLD,
     DEFAULT_VARIANCE_UPPER_THRESHOLD,
 )
+from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
 from train.alternating_scheduler import EvaluationRecord
+from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
-    DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
     DEFAULT_RANK,
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
 )
-from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
-from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
+from train.eggroll_trainer import (
+    DEFAULT_LR as DEFAULT_EGGROLL_LR,
+)
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
+from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
-from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 
 
 def _position() -> ExperimentPosition:
@@ -187,7 +189,7 @@ def test_invalid_eggroll_values_fail_during_argument_parsing() -> None:
     ]
     observed_messages: list[str] = []
 
-    for option, value, expected_message in invalid_values:
+    for option, value, _expected_message in invalid_values:
         with pytest.raises(ValueError) as error:
             run_alternating._parse_args([option, value])
         observed_messages.append(str(error.value))
@@ -685,6 +687,111 @@ def test_alternating_fixture_separates_batch_observation_log_and_epoch_boundarie
         "batch_size": 1,
         "optimizer_call_count": 1,
     }
+
+
+# covers: train/alternating-cycle :: Throttled progress output :: Epoch boundary progress records
+def test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record(
+    tmp_path: Path,
+) -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+    output = StringIO()
+
+    def save(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del evaluation_record
+        names: list[Path] = []
+        if phase_boundary:
+            names.append(tmp_path / f"phase-{schedule.global_step}.pt")
+        if epoch_boundary:
+            names.append(tmp_path / f"epoch-{schedule.epoch}.pt")
+        for path in names:
+            path.write_text("{}", encoding="utf-8")
+        return tuple(names)
+
+    run_alternating._run_schedule(
+        examples=["a", "b"],
+        epochs=2,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=10,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=save,
+        output=output,
+    )
+
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    evaluation_records = [
+        record for record in records if record["record_type"] == "evaluation"
+    ]
+    checkpoint_records = [
+        record for record in records if record["record_type"] == "checkpoint"
+    ]
+
+    # Epoch 1 ends at global_step 2 with an incomplete observation window, so
+    # it is a pure epoch-only boundary: exactly one evaluation record carrying
+    # the epoch and global step, and one checkpoint record naming the saved file.
+    assert [record["global_step"] for record in evaluation_records] == [2, 4]
+    assert evaluation_records[0]["boundaries"] == ["epoch"]
+    assert evaluation_records[0]["epoch"] == 1
+    assert evaluation_records[0]["global_step"] == 2
+    assert evaluation_records[1]["boundaries"] == ["epoch", "partial_phase"]
+
+    assert checkpoint_records == [
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-1.pt")],
+        },
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-2.pt")],
+        },
+    ]
+    assert all(record["paths"] for record in checkpoint_records)
+
+
+# covers: train/alternating-cycle :: Throttled progress output :: Non-progress output remains independent
+def test_progress_filter_leaves_non_structured_output_untouched() -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+    output = StringIO()
+    log_output = StringIO()
+
+    run_alternating._run_schedule(
+        examples=["a", "b", "c", "d", "e"],
+        epochs=1,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=2,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=_save_nothing,
+        output=output,
+        log_output=log_output,
+    )
+
+    structured = output.getvalue().splitlines()
+    assert structured, "the structured stream should carry at least one progress record"
+    for line in structured:
+        record = json.loads(line)
+        assert record["record_type"] in {"training", "evaluation", "checkpoint"}
+
+    human = log_output.getvalue().splitlines()
+    assert human, "the human-readable stream should carry at least one line"
+    for line in human:
+        with pytest.raises(ValueError):
+            json.loads(line)
+    assert any("epoch 1/1 done" in line for line in human)
 
 
 def test_main_builds_shared_production_run_and_executes_schedule(

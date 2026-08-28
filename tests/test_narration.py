@@ -3,12 +3,12 @@ from __future__ import annotations
 import torch
 from transformers import AutoTokenizer
 
+from codecs_module.decoder import SlotDecoder
 from codecs_module.narration import NarrationDecoder
 from core.latent_loop import LatentLoop
 from eval.stream.events import Observe
 from eval.subjects.latent_core import LatentCoreSubject
 from workspace.concept_slots import Workspace
-from codecs_module.decoder import SlotDecoder
 
 TOKENIZER_NAME = "EleutherAI/pythia-160m"
 SLOT_COUNT = 4

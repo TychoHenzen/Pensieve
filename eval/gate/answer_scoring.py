@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fractions import Fraction
 import re
-
+from fractions import Fraction
 
 _NUMBER_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.,])[+-]?(?:(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)/(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)|(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:[.][0-9]+)?)(?![A-Za-z0-9_.,/%])"

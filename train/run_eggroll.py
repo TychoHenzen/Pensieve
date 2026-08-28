@@ -44,7 +44,6 @@ from train.eggroll_trainer import (
     validate_eggroll_config,
 )
 from train.stage0_data import load_stage0_dataset, training_examples
-from train.training_state import EGGROLL_PARAMETER_PATHS
 from train.standalone_checkpoint import (
     build_checkpoint,
     checkpoint_epoch,
@@ -57,6 +56,7 @@ from train.standalone_checkpoint import (
     selection_metadata,
     validate_compatibility,
 )
+from train.training_state import EGGROLL_PARAMETER_PATHS
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
@@ -439,18 +439,26 @@ def main() -> None:
         recent_losses: list[float] = []
         recent_vars: list[float] = []
 
-        def _on_step(step: int, total: int, result: StepResult) -> None:
+        def _on_step(
+            step: int,
+            total: int,
+            result: StepResult,
+            _recent_losses: list[float] = recent_losses,
+            _recent_vars: list[float] = recent_vars,
+            _epoch_start: float = epoch_start,
+            _epoch: int = epoch,
+        ) -> None:
             progress = _training_progress_record(result)
-            recent_losses.append(result.total_objective)
-            recent_vars.append(result.shared_variance)
+            _recent_losses.append(result.total_objective)
+            _recent_vars.append(result.shared_variance)
             if (step + 1) % args.log_every == 0 or step + 1 == total:
-                elapsed = time.monotonic() - epoch_start
+                elapsed = time.monotonic() - _epoch_start
                 per_example = elapsed / (step + 1)
                 remaining = per_example * (total - step - 1)
-                avg_loss = sum(recent_losses) / len(recent_losses)
-                avg_var = sum(recent_vars) / len(recent_vars)
+                avg_loss = sum(_recent_losses) / len(_recent_losses)
+                avg_var = sum(_recent_vars) / len(_recent_vars)
                 _log(
-                    f"  epoch {epoch}/{args.epochs} "
+                    f"  epoch {_epoch}/{args.epochs} "
                     f"[{step + 1}/{total}] "
                     f"loss={result.total_objective:.4f} avg={avg_loss:.4f} "
                     f"var={result.shared_variance:.6f} avg_var={avg_var:.6f} "

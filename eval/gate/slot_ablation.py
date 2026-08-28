@@ -19,7 +19,6 @@ from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.alternating_checkpoint import load_checkpoint
 from train.standalone_checkpoint import configure_deterministic_runtime
 
-
 DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/slot_ablation.json")
 DEFAULT_TOKEN_RESULT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 SLOT_COUNTS = [1, 4, 8, 16, 32, 64]
@@ -62,7 +61,7 @@ def _validate_checkpoint_slot_count(
     checkpoint = checkpoint_loader(path)
     tensors = getattr(checkpoint, "tensors", None)
     if not isinstance(tensors, Mapping):
-        raise ValueError(f"{path} does not contain a checkpoint tensor mapping")
+        raise TypeError(f"{path} does not contain a checkpoint tensor mapping")
     slot_queries = tensors.get("model.encoder.slot_queries")
     if not isinstance(slot_queries, torch.Tensor) or slot_queries.ndim != 2:
         raise ValueError(f"{path} must contain two-dimensional model.encoder.slot_queries")
@@ -93,7 +92,7 @@ def _validated_runs(
         raise ValueError("latent result seed order is inconsistent")
     identity = result.get("identity")
     if not isinstance(identity, Mapping):
-        raise ValueError("latent result identity must be an object")
+        raise TypeError("latent result identity must be an object")
     expected_identity = copy.deepcopy(dict(expected_token_identity))
     expected_identity.update(
         {
@@ -193,7 +192,7 @@ def run_ablation(
     )
     selection = prepared.identity.get("selection")
     if not isinstance(selection, Mapping):
-        raise ValueError("prepared token identity selection must be an object")
+        raise TypeError("prepared token identity selection must be an object")
     expected_total = selection.get("problem_count")
     if (
         isinstance(expected_total, bool)

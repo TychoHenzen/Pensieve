@@ -67,9 +67,7 @@ def _drive(baseline: Subject, items) -> list[str]:
         event = item.event
         if isinstance(event, Probe):
             answers.append(baseline.answer(event))
-        elif isinstance(event, Observe):
-            baseline.observe(event)
-        elif isinstance(event, Boundary):
+        elif isinstance(event, (Observe, Boundary)):
             baseline.observe(event)
     return answers
 

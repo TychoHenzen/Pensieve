@@ -20,12 +20,12 @@ def _assoc_stream():
         events.append(Observe(position=pos, payload={"key": key, "value": value}))
         pos += 1
     probes = []
-    for key, value in pairs:
+    for key, _value in pairs:
         probes.append(
             Probe(position=pos, probe_id=f"p-{key}", task_id="assoc", query=key)
         )
         pos += 1
-    return events, probes, {k: v for k, v in pairs}
+    return events, probes, dict(pairs)
 
 
 # covers: eval/subject::PerfectMemoryOracle recalls all observations::recalls everything

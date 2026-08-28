@@ -2,26 +2,49 @@
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 from pathlib import Path
 
 import pytest
 
-from eval.stage0_identity import training_identity
-from train.eggroll_stability import ImplementationIdentity, StabilityMetrics
+from train.eggroll_stability import ImplementationIdentity, ParameterRms, StabilityMetrics, StabilityReport
+from train.stage0_data import load_stage0_dataset
 from train.stage0_trainability import (
+    OVERFIT_CHECKPOINTS,
+    OVERFIT_LEARNING_RATES,
     ArmCheckpoint,
+    ArmEvaluation,
     ArmResult,
+    ArmSafetyCheck,
+    CausalProbeEvaluation,
     CausalProbeResult,
+    FreshStateManifest,
+    MethodArm,
+    NoUpdateControl,
     OverfitAttempt,
     OverfitProbeResult,
     TrainabilityAssetIdentity,
     TrainabilityConfiguration,
     TrainabilityReport,
-    TrainabilityReportValidationError,
+    UpdateDirection,
+    UpdatePrediction,
+    _compute_metrics_drift,
     build_trainability_record_selections,
     canonical_trainability_implementation_identity,
+    check_arm_evaluation_safety,
+    classify_causal_result,
+    classify_method_status,
+    classify_overall_trainability,
+    classify_overfit_probe,
+    compute_first_order_prediction,
+    compute_recalibration_eligibility,
+    run_eggroll_only_arm,
+    run_gradient_only_arm,
+    run_no_update_arm,
+    run_overfit_attempt,
+    validate_causal_safety_checks,
 )
 
 
@@ -30,7 +53,7 @@ def sample_metrics() -> StabilityMetrics:
     """Create a sample StabilityMetrics instance for testing."""
     return StabilityMetrics(
         problem_count=64,
-        parameter_rms=tuple(),
+        parameter_rms=(),
         language_model_loss=1.5,
         exact_accuracy=0.5,
         first_token_accuracy=0.75,
@@ -564,8 +587,6 @@ class TestRecordSelections:
 
     def test_record_selections_with_real_dataset(self) -> None:
         """Test building record selections from real dataset."""
-        from train.stage0_data import load_stage0_dataset
-        from train.stage0_trainability import build_trainability_record_selections
 
         dataset = load_stage0_dataset()
         overfit_ids, training_32_ids, held_out_64_ids = (
@@ -591,8 +612,6 @@ class TestRecordSelections:
 
     def test_record_selections_determinism(self) -> None:
         """Test that record selections are deterministic."""
-        from train.stage0_data import load_stage0_dataset
-        from train.stage0_trainability import build_trainability_record_selections
 
         dataset = load_stage0_dataset()
         overfit_ids_1, training_32_ids_1, held_out_64_ids_1 = (
@@ -608,17 +627,14 @@ class TestRecordSelections:
 
     def test_record_selections_no_overlap(self) -> None:
         """Test that overfit and training selections don't overlap record IDs."""
-        from train.stage0_data import load_stage0_dataset
-        from train.stage0_trainability import build_trainability_record_selections
 
         dataset = load_stage0_dataset()
-        overfit_ids, training_32_ids, held_out_64_ids = (
+        overfit_ids, training_32_ids, _held_out_64_ids = (
             build_trainability_record_selections(dataset)
         )
 
         overfit_record_ids = {rid for rid, _ in overfit_ids}
         training_record_ids = {rid for rid, _ in training_32_ids}
-        held_out_record_ids = {rid for rid, _ in held_out_64_ids}
 
         assert overfit_record_ids.issubset(training_record_ids)
 
@@ -628,11 +644,10 @@ class TestOverfitProbeClassification:
 
     def test_classify_passed_probe(self, sample_metrics: StabilityMetrics) -> None:
         """Test classification when an attempt passes all criteria."""
-        from train.stage0_trainability import classify_overfit_probe
 
         passing_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.3,
             exact_accuracy=1.0,
             first_token_accuracy=1.0,
@@ -647,7 +662,7 @@ class TestOverfitProbeClassification:
         )
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -676,7 +691,6 @@ class TestOverfitProbeClassification:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test classification when no attempt passes."""
-        from train.stage0_trainability import classify_overfit_probe
 
         failed_attempt = OverfitAttempt(
             learning_rate=0.001,
@@ -693,7 +707,6 @@ class TestOverfitProbeClassification:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test that classification preserves all completed attempts."""
-        from train.stage0_trainability import classify_overfit_probe
 
         attempt1 = OverfitAttempt(
             learning_rate=0.0001,
@@ -724,11 +737,10 @@ class TestOverfitProbeClassification:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test that classification requires exact_accuracy = 1.0."""
-        from train.stage0_trainability import classify_overfit_probe
 
         almost_passing_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.3,
             exact_accuracy=0.99,
             first_token_accuracy=1.0,
@@ -743,7 +755,7 @@ class TestOverfitProbeClassification:
         )
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -773,7 +785,6 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_learning_rates_are_diagnostic_only(self) -> None:
         """Test that diagnostic learning rates are never recommended as production."""
-        from train.stage0_trainability import OVERFIT_LEARNING_RATES
 
         for lr in OVERFIT_LEARNING_RATES:
             assert isinstance(lr, float), f"learning rate {lr} must be float"
@@ -784,7 +795,6 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_checkpoint_structure_deterministic(self) -> None:
         """Test that checkpoint structure is deterministically defined."""
-        from train.stage0_trainability import OVERFIT_CHECKPOINTS
 
         assert isinstance(OVERFIT_CHECKPOINTS, tuple), "checkpoints must be tuple"
         assert len(OVERFIT_CHECKPOINTS) > 0, "must have at least one checkpoint"
@@ -813,8 +823,7 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_attempt_no_recommendation_fields(self) -> None:
         """Test that function signature excludes recommendation-emission capabilities."""
-        from train.stage0_trainability import run_overfit_attempt
-        import inspect
+
 
         sig = inspect.signature(run_overfit_attempt)
         params = list(sig.parameters.keys())
@@ -828,8 +837,7 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_attempt_accepts_required_parameters(self) -> None:
         """Test that function requires canonical parameters, no optional recommendation."""
-        from train.stage0_trainability import run_overfit_attempt
-        import inspect
+
 
         sig = inspect.signature(run_overfit_attempt)
         param_names = set(sig.parameters.keys())
@@ -842,7 +850,6 @@ class TestOverfitAttemptDeterminism:
 
     def test_overfit_attempt_documentation_excludes_recommendations(self) -> None:
         """Test that function documentation doesn't mention production recommendations."""
-        from train.stage0_trainability import run_overfit_attempt
 
         doc = run_overfit_attempt.__doc__ or ""
         lower_doc = doc.lower()
@@ -863,7 +870,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_direction_requires_finite_baseline(self) -> None:
         """Test that update direction requires finite baseline objective."""
-        from train.stage0_trainability import UpdateDirection
 
         with pytest.raises(ValueError, match="finite"):
             UpdateDirection(
@@ -874,7 +880,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_direction_requires_positive_baseline(self) -> None:
         """Test that baseline objective must be positive."""
-        from train.stage0_trainability import UpdateDirection
 
         with pytest.raises(ValueError, match="positive"):
             UpdateDirection(
@@ -885,7 +890,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_direction_requires_finite_delta(self) -> None:
         """Test that predicted delta must be finite."""
-        from train.stage0_trainability import UpdateDirection
 
         with pytest.raises(ValueError, match="finite"):
             UpdateDirection(
@@ -896,7 +900,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_direction_valid(self) -> None:
         """Test creating valid update direction."""
-        from train.stage0_trainability import UpdateDirection
 
         direction = UpdateDirection(
             method="gradient",
@@ -909,7 +912,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_direction_to_dict(self) -> None:
         """Test update direction serialization."""
-        from train.stage0_trainability import UpdateDirection
 
         direction = UpdateDirection(
             method="eggroll",
@@ -923,7 +925,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_prediction_requires_valid_objectives(self) -> None:
         """Test that update prediction requires consistent objectives."""
-        from train.stage0_trainability import UpdatePrediction
 
         with pytest.raises(ValueError, match="inconsistent"):
             UpdatePrediction(
@@ -935,7 +936,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_prediction_consistent_objectives(self) -> None:
         """Test creating valid update prediction."""
-        from train.stage0_trainability import UpdatePrediction
 
         prediction = UpdatePrediction(
             method="gradient",
@@ -947,7 +947,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_update_prediction_to_dict(self) -> None:
         """Test update prediction serialization."""
-        from train.stage0_trainability import UpdatePrediction
 
         prediction = UpdatePrediction(
             method="eggroll",
@@ -961,7 +960,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_first_order_prediction_computation(self) -> None:
         """Test first-order objective change computation."""
-        from train.stage0_trainability import compute_first_order_prediction
 
         predicted_delta = compute_first_order_prediction(
             baseline_objective=1.0,
@@ -976,7 +974,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_first_order_prediction_requires_positive_baseline(self) -> None:
         """Test that prediction requires positive baseline."""
-        from train.stage0_trainability import compute_first_order_prediction
 
         with pytest.raises(ValueError, match="positive"):
             compute_first_order_prediction(
@@ -987,7 +984,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_first_order_prediction_requires_non_negative_gradient(self) -> None:
         """Test that gradient norm must be non-negative."""
-        from train.stage0_trainability import compute_first_order_prediction
 
         with pytest.raises(ValueError, match="non-negative"):
             compute_first_order_prediction(
@@ -998,7 +994,6 @@ class TestUpdateDirectionAndPrediction:
 
     def test_first_order_prediction_requires_positive_step(self) -> None:
         """Test that step size must be positive."""
-        from train.stage0_trainability import compute_first_order_prediction
 
         with pytest.raises(ValueError, match="positive"):
             compute_first_order_prediction(
@@ -1013,7 +1008,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_passed_both_improve(self) -> None:
         """Test passed classification when both predicted and observed improve."""
-        from train.stage0_trainability import classify_causal_result
 
         status, conditions = classify_causal_result(
             predicted_delta=-0.1,
@@ -1027,7 +1021,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_direction_mismatch(self) -> None:
         """Test direction_mismatch when predicted improves but observed worsens."""
-        from train.stage0_trainability import classify_causal_result
 
         status, conditions = classify_causal_result(
             predicted_delta=-0.1,
@@ -1041,7 +1034,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_predicted_not_improvement(self) -> None:
         """Test classification when prediction is not improvement."""
-        from train.stage0_trainability import classify_causal_result
 
         status, conditions = classify_causal_result(
             predicted_delta=0.1,
@@ -1055,7 +1047,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_non_finite_predicted(self) -> None:
         """Test classification when predicted delta is non-finite."""
-        from train.stage0_trainability import classify_causal_result
 
         status, conditions = classify_causal_result(
             predicted_delta=float("nan"),
@@ -1069,7 +1060,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_non_finite_observed(self) -> None:
         """Test classification when observed delta is non-finite."""
-        from train.stage0_trainability import classify_causal_result
 
         status, conditions = classify_causal_result(
             predicted_delta=-0.1,
@@ -1083,7 +1073,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_requires_positive_baseline(self) -> None:
         """Test that classification requires positive baseline objective."""
-        from train.stage0_trainability import classify_causal_result
 
         with pytest.raises(ValueError, match="positive"):
             classify_causal_result(
@@ -1095,7 +1084,6 @@ class TestCausalResultClassification:
 
     def test_classify_causal_requires_finite_post(self) -> None:
         """Test that post-update objective must be finite."""
-        from train.stage0_trainability import classify_causal_result
 
         with pytest.raises(ValueError, match="finite"):
             classify_causal_result(
@@ -1111,7 +1099,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_passed(self) -> None:
         """Test safety checks when all pass."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1124,7 +1111,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_separation_below_floor(self) -> None:
         """Test detection of separation retention below 0.95 floor."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1137,7 +1123,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_rms_above_ceiling(self) -> None:
         """Test detection of relative matrix RMS above 0.01 ceiling."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1150,7 +1135,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_both_violations(self) -> None:
         """Test detection of multiple safety violations."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1163,7 +1147,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_non_finite_separation(self) -> None:
         """Test detection of non-finite separation."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1176,7 +1159,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_non_finite_rms(self) -> None:
         """Test detection of non-finite RMS."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1189,7 +1171,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_requires_valid_baseline(self) -> None:
         """Test that baseline separation must be valid."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         with pytest.raises(ValueError, match="baseline separation"):
             validate_causal_safety_checks(
@@ -1200,7 +1181,6 @@ class TestCausalSafetyChecks:
 
     def test_safety_checks_requires_positive_baseline_for_ratio(self) -> None:
         """Test that baseline must be positive for ratio calculation."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         with pytest.raises(ValueError, match="positive"):
             validate_causal_safety_checks(
@@ -1215,7 +1195,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_aligned_update_gradient(self) -> None:
         """Test gradient method with aligned prediction and observation."""
-        from train.stage0_trainability import classify_causal_result, validate_causal_safety_checks
 
         predicted_delta = -0.1
         observed_delta = -0.12
@@ -1229,7 +1208,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_aligned_update_eggroll(self) -> None:
         """Test EGGROLL method with aligned prediction and observation."""
-        from train.stage0_trainability import classify_causal_result
 
         status, _ = classify_causal_result(
             predicted_delta=-0.15,
@@ -1241,9 +1219,8 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_reversed_direction_gradient(self) -> None:
         """Test gradient method with reversed prediction vs observation."""
-        from train.stage0_trainability import classify_causal_result
 
-        status, conditions = classify_causal_result(
+        status, _ = classify_causal_result(
             predicted_delta=-0.1,
             observed_delta=0.05,
             baseline_objective=1.0,
@@ -1253,7 +1230,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_reversed_direction_eggroll(self) -> None:
         """Test EGGROLL method with reversed direction."""
-        from train.stage0_trainability import classify_causal_result
 
         status, _ = classify_causal_result(
             predicted_delta=-0.2,
@@ -1265,7 +1241,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_oversized_rms_change(self) -> None:
         """Test detection of RMS change exceeding 0.01 ceiling."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1277,7 +1252,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_non_finite_gradient(self) -> None:
         """Test non-finite value detection in gradient probe."""
-        from train.stage0_trainability import classify_causal_result
 
         status, _ = classify_causal_result(
             predicted_delta=float("nan"),
@@ -1289,7 +1263,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_non_finite_eggroll(self) -> None:
         """Test non-finite value detection in EGGROLL probe."""
-        from train.stage0_trainability import classify_causal_result
 
         status, _ = classify_causal_result(
             predicted_delta=-0.1,
@@ -1301,7 +1274,6 @@ class TestFocusedCausalProbes:
 
     def test_causal_probe_safety_with_aligned_update(self) -> None:
         """Test safety checks pass with aligned update."""
-        from train.stage0_trainability import validate_causal_safety_checks
 
         status, conditions = validate_causal_safety_checks(
             baseline_separation=0.8,
@@ -1319,7 +1291,6 @@ class TestCausalProbeEvaluation:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test that causal probe evaluation requires exactly 8 records."""
-        from train.stage0_trainability import CausalProbeEvaluation
 
         valid_records = tuple(
             (f"Q{i}", f"A{i}") for i in range(8)
@@ -1334,7 +1305,6 @@ class TestCausalProbeEvaluation:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test that causal probe evaluation rejects wrong record count."""
-        from train.stage0_trainability import CausalProbeEvaluation
 
         too_few = tuple((f"Q{i}", f"A{i}") for i in range(4))
         with pytest.raises(ValueError, match="exactly 8"):
@@ -1345,7 +1315,6 @@ class TestCausalProbeEvaluation:
 
     def test_causal_probe_evaluation_requires_pre_update(self) -> None:
         """Test that pre-update metrics are required."""
-        from train.stage0_trainability import CausalProbeEvaluation
 
         records = tuple((f"Q{i}", f"A{i}") for i in range(8))
         with pytest.raises(ValueError, match="pre-update"):
@@ -1358,7 +1327,6 @@ class TestCausalProbeEvaluation:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test that post-update metrics are optional."""
-        from train.stage0_trainability import CausalProbeEvaluation
 
         records = tuple((f"Q{i}", f"A{i}") for i in range(8))
         eval_result = CausalProbeEvaluation(
@@ -1372,7 +1340,6 @@ class TestCausalProbeEvaluation:
         self, sample_metrics: StabilityMetrics
     ) -> None:
         """Test causal probe evaluation serialization."""
-        from train.stage0_trainability import CausalProbeEvaluation
 
         records = tuple((f"Q{i}", f"A{i}") for i in range(8))
         eval_result = CausalProbeEvaluation(
@@ -1393,7 +1360,6 @@ class TestOverfitProbeFixtures:
 
     def test_overfit_probe_runs_with_simple_question(self) -> None:
         """Test that one-record probe runs successfully with simple fixture."""
-        from train.stage0_trainability import run_overfit_attempt
 
         simple_question = "What is 1+1?"
         simple_answer = "2"
@@ -1411,7 +1377,6 @@ class TestOverfitProbeFixtures:
 
     def test_overfit_probe_fixture_returns_consistent_structure(self) -> None:
         """Test that probe results have consistent structure across different fixtures."""
-        from train.stage0_trainability import run_overfit_attempt
 
         fixtures = [
             ("What is 2+2?", "4"),
@@ -1433,24 +1398,22 @@ class TestOverfitProbeFixtures:
 
     def test_overfit_probe_result_validity(self) -> None:
         """Test that probe results are well-formed and valid."""
-        from train.stage0_trainability import run_overfit_attempt
-        import math
+
 
         result = run_overfit_attempt(
             "What is 3+3?", "6", learning_rate=0.001, checkpoint_steps=(1, 4)
         )
 
-        if result["status"] != "non_finite":
-            if "baseline_loss" in result and result["baseline_loss"] is not None:
-                assert isinstance(result["baseline_loss"], float), (
-                    "baseline_loss must be float"
-                )
-                assert math.isfinite(result["baseline_loss"]), (
-                    "baseline_loss must be finite"
-                )
-                assert result["baseline_loss"] >= 0, (
-                    "baseline_loss must be non-negative"
-                )
+        if result["status"] != "non_finite" and "baseline_loss" in result and result["baseline_loss"] is not None:
+            assert isinstance(result["baseline_loss"], float), (
+                "baseline_loss must be float"
+            )
+            assert math.isfinite(result["baseline_loss"]), (
+                "baseline_loss must be finite"
+            )
+            assert result["baseline_loss"] >= 0, (
+                "baseline_loss must be non-negative"
+            )
 
         if result["status"] == "passed":
             assert "checkpoints" in result, "passed result must have checkpoints"
@@ -1460,7 +1423,6 @@ class TestOverfitProbeFixtures:
 
     def test_overfit_probe_independently_runnable(self) -> None:
         """Test that probe is independently runnable without external state."""
-        from train.stage0_trainability import run_overfit_attempt
 
         questions = ["What is 7+1?", "What is 9-4?"]
         results = []
@@ -1489,14 +1451,12 @@ class TestMethodArms:
 
     def test_fresh_state_manifest_requires_records(self) -> None:
         """Test that FreshStateManifest requires training records."""
-        from train.stage0_trainability import FreshStateManifest
 
         with pytest.raises(ValueError):
             FreshStateManifest(training_records=())
 
     def test_fresh_state_manifest_requires_32_records(self) -> None:
         """Test that FreshStateManifest requires at least 32 records."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"Question {i}", f"Answer {i}") for i in range(16)
@@ -1506,7 +1466,6 @@ class TestMethodArms:
 
     def test_fresh_state_manifest_accepts_32_records(self) -> None:
         """Test that FreshStateManifest accepts exactly 32 records."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1517,7 +1476,6 @@ class TestMethodArms:
 
     def test_fresh_state_manifest_requires_sorted_checkpoints(self) -> None:
         """Test that checkpoint counts must be sorted."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1530,7 +1488,6 @@ class TestMethodArms:
 
     def test_fresh_state_manifest_to_dict(self) -> None:
         """Test FreshStateManifest serialization."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1543,12 +1500,10 @@ class TestMethodArms:
 
     def test_arm_evaluation_requires_non_negative_counts(self) -> None:
         """Test that ArmEvaluation validates counts."""
-        from train.stage0_trainability import ArmEvaluation
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1570,12 +1525,10 @@ class TestMethodArms:
 
     def test_arm_evaluation_to_dict(self) -> None:
         """Test ArmEvaluation serialization."""
-        from train.stage0_trainability import ArmEvaluation
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1604,7 +1557,6 @@ class TestMethodArms:
 
     def test_method_arm_requires_training_records(self) -> None:
         """Test that MethodArm requires training records."""
-        from train.stage0_trainability import MethodArm
 
         with pytest.raises(ValueError):
             MethodArm(
@@ -1614,7 +1566,6 @@ class TestMethodArms:
 
     def test_method_arm_requires_32_records(self) -> None:
         """Test that MethodArm requires at least 32 records."""
-        from train.stage0_trainability import MethodArm
 
         records = tuple(
             (f"Question {i}", f"Answer {i}") for i in range(16)
@@ -1627,7 +1578,6 @@ class TestMethodArms:
 
     def test_method_arm_accepts_32_records(self) -> None:
         """Test that MethodArm accepts exactly 32 records."""
-        from train.stage0_trainability import MethodArm
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1642,7 +1592,6 @@ class TestMethodArms:
 
     def test_method_arm_to_dict(self) -> None:
         """Test MethodArm serialization."""
-        from train.stage0_trainability import MethodArm
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1662,12 +1611,10 @@ class TestMethodArms:
 
     def test_consistent_example_counting_across_checkpoints(self) -> None:
         """Test that example consumption is consistent across checkpoints."""
-        from train.stage0_trainability import ArmEvaluation, MethodArm
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1712,7 +1659,6 @@ class TestMethodArms:
 
     def test_evaluations_at_checkpoint_boundaries(self) -> None:
         """Test that evaluations are emitted at exactly 0, 8, 32 checkpoints."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1725,7 +1671,6 @@ class TestMethodArms:
 
     def test_no_update_arm_consistent_counting(self) -> None:
         """Test that no-update arm counts examples consistently."""
-        from train.stage0_trainability import FreshStateManifest, run_no_update_arm
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1746,7 +1691,6 @@ class TestMethodArms:
 
     def test_gradient_arm_consistent_counting(self) -> None:
         """Test that gradient arm counts examples consistently."""
-        from train.stage0_trainability import FreshStateManifest, run_gradient_only_arm
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1765,7 +1709,6 @@ class TestMethodArms:
 
     def test_eggroll_arm_consistent_counting(self) -> None:
         """Test that EGGROLL arm counts examples consistently."""
-        from train.stage0_trainability import FreshStateManifest, run_eggroll_only_arm
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -1788,12 +1731,10 @@ class TestNoUpdateControl:
 
     def test_no_update_control_requires_drift_data(self) -> None:
         """Test that NoUpdateControl requires metrics drift."""
-        from train.stage0_trainability import NoUpdateControl
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1816,12 +1757,10 @@ class TestNoUpdateControl:
 
     def test_no_update_control_accepts_drift_data(self) -> None:
         """Test that NoUpdateControl accepts valid drift data."""
-        from train.stage0_trainability import NoUpdateControl
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1844,12 +1783,10 @@ class TestNoUpdateControl:
 
     def test_no_update_control_to_dict(self) -> None:
         """Test NoUpdateControl serialization."""
-        from train.stage0_trainability import NoUpdateControl
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1880,12 +1817,10 @@ class TestNoUpdateControl:
 
     def test_compute_metrics_drift(self) -> None:
         """Test metrics drift computation."""
-        from train.stage0_trainability import _compute_metrics_drift
-        from train.eggroll_stability import StabilityMetrics
 
         baseline = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1901,7 +1836,7 @@ class TestNoUpdateControl:
 
         final = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.0,
             first_token_accuracy=0.0,
@@ -1930,12 +1865,10 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_passes_valid_metrics(self) -> None:
         """Test that safety check passes for valid metrics."""
-        from train.stage0_trainability import check_arm_evaluation_safety
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.8,
             first_token_accuracy=0.9,
@@ -1958,12 +1891,10 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_stops_separation_violation(self) -> None:
         """Test that safety check stops on separation floor violation."""
-        from train.stage0_trainability import check_arm_evaluation_safety
-        from train.eggroll_stability import StabilityMetrics
 
         metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.5,
             exact_accuracy=0.8,
             first_token_accuracy=0.9,
@@ -1985,8 +1916,6 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_stops_rms_ceiling_violation(self) -> None:
         """Test that safety check stops on RMS ceiling violation."""
-        from train.stage0_trainability import check_arm_evaluation_safety
-        from train.eggroll_stability import StabilityMetrics, ParameterRms
 
         metrics = StabilityMetrics(
             problem_count=64,
@@ -2015,7 +1944,6 @@ class TestArmSafetyChecks:
 
     def test_arm_safety_check_to_dict(self) -> None:
         """Test ArmSafetyCheck serialization."""
-        from train.stage0_trainability import ArmSafetyCheck
 
         check = ArmSafetyCheck(
             status="stopped",
@@ -2035,7 +1963,6 @@ class TestArmIntegration:
 
     def test_identical_record_exposure_across_arms(self) -> None:
         """Test that all arms see the same records in the same order."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -2049,7 +1976,6 @@ class TestArmIntegration:
 
     def test_checkpoint_boundary_at_8_and_32(self) -> None:
         """Test that checkpoints are exactly at 8 and 32 records."""
-        from train.stage0_trainability import FreshStateManifest
 
         records = tuple(
             (f"Question {i}", f"Answer {i}") for i in range(32)
@@ -2063,12 +1989,6 @@ class TestArmIntegration:
 
     def test_arm_isolation_independent_state(self) -> None:
         """Test that arm state doesn't leak between arms."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-        )
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -2096,11 +2016,6 @@ class TestArmIntegration:
 
     def test_consistent_example_counting_across_arms(self) -> None:
         """Test that all arms count examples identically."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-        )
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -2122,12 +2037,6 @@ class TestArmIntegration:
 
     def test_arm_independent_completion_status(self) -> None:
         """Test that arms complete independently."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-        )
 
         records = tuple(
             (f"Question {i}", f"Answer {i}") for i in range(32)
@@ -2144,7 +2053,6 @@ class TestArmIntegration:
 
     def test_identical_record_order_validation(self) -> None:
         """Test that record order is canonical and deterministic."""
-        from train.stage0_trainability import FreshStateManifest
 
         records1 = tuple(
             (f"Q{i}", f"A{i}") for i in range(32)
@@ -2164,10 +2072,6 @@ class TestArmIntegration:
 
     def test_arm_evaluation_counts_preserve_order(self) -> None:
         """Test that arm evaluations maintain checkpoint order."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-        )
 
         records = tuple(
             (f"Q{i}", f"A{i}") for i in range(32)
@@ -2206,7 +2110,6 @@ class TestTableDrivenClassification:
         self, overfit_status, method_statuses, expected_overall
     ) -> None:
         """Test overall classification precedence with all status combinations."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, _ = classify_overall_trainability(overfit_status, method_statuses)
         assert overall == expected_overall
@@ -2226,7 +2129,6 @@ class TestTableDrivenClassification:
         self, overfit, method_status, causal, expected_eligible
     ) -> None:
         """Test recalibration eligibility with all prerequisite combinations."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, _ = compute_recalibration_eligibility(
             "gradient", overfit, method_status, causal_status=causal
@@ -2235,15 +2137,10 @@ class TestTableDrivenClassification:
 
     def test_method_status_all_viable_conditions(self) -> None:
         """Test that viable status requires all conditions: loss, exact, first-token, separation, RMS."""
-        from train.stage0_trainability import (
-            ArmCheckpoint,
-            classify_method_status,
-        )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.5,
             first_token_accuracy=0.6,
@@ -2259,7 +2156,7 @@ class TestTableDrivenClassification:
 
         final_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.8,
             exact_accuracy=0.7,
             first_token_accuracy=0.8,
@@ -2294,16 +2191,12 @@ class TestTrainabilityDistinctness:
 
     def test_trainability_report_not_stability_report(self) -> None:
         """Test that trainability report is different type from stability."""
-        from train.stage0_trainability import TrainabilityReport
-        from train.eggroll_stability import StabilityReport
 
         assert TrainabilityReport is not StabilityReport
 
     def test_trainability_field_coverage_distinct(self) -> None:
         """Test that trainability and stability have distinct fields."""
-        from train.stage0_trainability import TrainabilityReport
-        from train.eggroll_stability import StabilityReport
-        import inspect
+
 
         trainability_fields = set(inspect.signature(TrainabilityReport).parameters.keys())
         stability_fields = set(inspect.signature(StabilityReport).parameters.keys())
@@ -2311,10 +2204,15 @@ class TestTrainabilityDistinctness:
         assert trainability_fields != stability_fields
 
     def test_trainability_cannot_authorize_full_gradient(self) -> None:
-        """Test that trainability alone cannot authorize full gradient training."""
-        from train.stage0_trainability import compute_recalibration_eligibility
+        """A trainability report never authorizes a full gradient training run.
 
-        eligible, _ = compute_recalibration_eligibility(
+        ``compute_recalibration_eligibility`` returns only a bounded
+        per-method eligibility flag plus its missing prerequisites, and the
+        trainability report schema carries no field that authorizes full
+        gradient training.
+        """
+
+        eligible, missing = compute_recalibration_eligibility(
             "gradient",
             "passed",
             "viable",
@@ -2322,15 +2220,22 @@ class TestTrainabilityDistinctness:
         )
 
         assert eligible is True
+        assert missing == []
 
-        if eligible:
-            assert "trainability_alone_insufficient" or "stability_required"
+        report_fields = set(inspect.signature(TrainabilityReport).parameters)
+        arm_fields = set(inspect.signature(ArmResult).parameters)
+        assert "authorize_full_gradient" not in report_fields
+        assert "authorize_full_gradient" not in arm_fields
 
     def test_trainability_cannot_authorize_full_eggroll(self) -> None:
-        """Test that trainability alone cannot authorize full EGGROLL training."""
-        from train.stage0_trainability import compute_recalibration_eligibility
+        """A trainability report never authorizes a full EGGROLL training run.
 
-        eligible, _ = compute_recalibration_eligibility(
+        Even a method that meets every bounded prerequisite is only marked
+        ``recalibration_eligible``; no report field authorizes a full EGGROLL
+        training run.
+        """
+
+        eligible, missing = compute_recalibration_eligibility(
             "eggroll",
             "passed",
             "viable",
@@ -2338,25 +2243,35 @@ class TestTrainabilityDistinctness:
         )
 
         assert eligible is True
+        assert missing == []
 
-        if eligible:
-            assert "trainability_alone_insufficient" or "stability_required"
+        report_fields = set(inspect.signature(TrainabilityReport).parameters)
+        arm_fields = set(inspect.signature(ArmResult).parameters)
+        assert "authorize_full_eggroll" not in report_fields
+        assert "authorize_full_eggroll" not in arm_fields
 
     def test_trainability_recalibration_eligibility_not_full_training(self) -> None:
-        """Test that recalibration eligibility is not authorization for full training."""
-        from train.stage0_trainability import compute_recalibration_eligibility
+        """Recalibration eligibility is not full-training acceptance.
 
-        eligible, _ = compute_recalibration_eligibility(
+        An eligible method is marked ``recalibration_eligible`` while no
+        field on the report marks full training as accepted.
+        """
+
+        eligible, missing = compute_recalibration_eligibility(
             "gradient",
             "passed",
             "viable",
             causal_status="passed",
         )
 
-        if eligible:
-            pass
+        assert eligible is True
+        assert missing == []
 
-        assert True
+        report_fields = set(inspect.signature(TrainabilityReport).parameters)
+        arm_fields = set(inspect.signature(ArmResult).parameters)
+        assert "full_training_authorized" not in report_fields
+        assert "full_training_authorized" not in arm_fields
+        assert "recalibration_eligible" in arm_fields
 
 
 class TestRecalibrationEligibility:
@@ -2364,7 +2279,6 @@ class TestRecalibrationEligibility:
 
     def test_eligible_viable_with_causal_passed(self) -> None:
         """Test eligible when all prerequisites met."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, missing = compute_recalibration_eligibility(
             "gradient",
@@ -2378,7 +2292,6 @@ class TestRecalibrationEligibility:
 
     def test_eligible_direction_mismatch_with_causal(self) -> None:
         """Test eligible when method is direction_mismatch (can retry)."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, missing = compute_recalibration_eligibility(
             "eggroll",
@@ -2392,7 +2305,6 @@ class TestRecalibrationEligibility:
 
     def test_ineligible_objective_untrainable(self) -> None:
         """Test ineligible when objective failed."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, missing = compute_recalibration_eligibility(
             "gradient",
@@ -2406,7 +2318,6 @@ class TestRecalibrationEligibility:
 
     def test_ineligible_causal_unsupported(self) -> None:
         """Test ineligible when causal probe not passed."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, missing = compute_recalibration_eligibility(
             "gradient",
@@ -2420,7 +2331,6 @@ class TestRecalibrationEligibility:
 
     def test_ineligible_method_not_viable(self) -> None:
         """Test ineligible when method status not viable."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, missing = compute_recalibration_eligibility(
             "eggroll",
@@ -2434,7 +2344,6 @@ class TestRecalibrationEligibility:
 
     def test_ineligible_multiple_missing(self) -> None:
         """Test ineligible with multiple missing prerequisites."""
-        from train.stage0_trainability import compute_recalibration_eligibility
 
         eligible, missing = compute_recalibration_eligibility(
             "gradient",
@@ -2455,7 +2364,6 @@ class TestOverallClassification:
 
     def test_overall_objective_untrainable(self) -> None:
         """Test objective_untrainable overrides everything."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, conditions = classify_overall_trainability(
             "objective_untrainable",
@@ -2467,7 +2375,6 @@ class TestOverallClassification:
 
     def test_overall_bounded_trainability_gradient_viable(self) -> None:
         """Test bounded_trainability when at least one method is viable."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, conditions = classify_overall_trainability(
             "passed",
@@ -2479,7 +2386,6 @@ class TestOverallClassification:
 
     def test_overall_bounded_trainability_both_viable(self) -> None:
         """Test bounded_trainability when both methods viable."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, conditions = classify_overall_trainability(
             "passed",
@@ -2491,7 +2397,6 @@ class TestOverallClassification:
 
     def test_overall_shared_conflict(self) -> None:
         """Test shared_conflict when both methods show same failure."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, conditions = classify_overall_trainability(
             "passed",
@@ -2503,7 +2408,6 @@ class TestOverallClassification:
 
     def test_overall_method_specific_failure(self) -> None:
         """Test method_specific_failure when methods conflict."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, conditions = classify_overall_trainability(
             "passed",
@@ -2515,7 +2419,6 @@ class TestOverallClassification:
 
     def test_overall_inconclusive_no_methods(self) -> None:
         """Test inconclusive when no method status provided."""
-        from train.stage0_trainability import classify_overall_trainability
 
         overall, conditions = classify_overall_trainability(
             "passed",
@@ -2531,15 +2434,10 @@ class TestMethodStatusClassification:
 
     def test_classify_viable_status_with_improvement(self) -> None:
         """Test viable status when all conditions are met."""
-        from train.stage0_trainability import (
-            ArmCheckpoint,
-            classify_method_status,
-        )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.5,
             first_token_accuracy=0.6,
@@ -2555,7 +2453,7 @@ class TestMethodStatusClassification:
 
         final_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.8,
             exact_accuracy=0.7,
             first_token_accuracy=0.8,
@@ -2590,15 +2488,10 @@ class TestMethodStatusClassification:
 
     def test_classify_no_improvement_status(self) -> None:
         """Test no_improvement status when loss doesn't improve."""
-        from train.stage0_trainability import (
-            ArmCheckpoint,
-            classify_method_status,
-        )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.5,
             first_token_accuracy=0.6,
@@ -2614,7 +2507,7 @@ class TestMethodStatusClassification:
 
         final_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.1,
             exact_accuracy=0.5,
             first_token_accuracy=0.6,
@@ -2649,15 +2542,10 @@ class TestMethodStatusClassification:
 
     def test_classify_loss_behavior_conflict(self) -> None:
         """Test loss_behavior_conflict when loss improves but metrics don't."""
-        from train.stage0_trainability import (
-            ArmCheckpoint,
-            classify_method_status,
-        )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.8,
             first_token_accuracy=0.8,
@@ -2673,7 +2561,7 @@ class TestMethodStatusClassification:
 
         final_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.8,
             exact_accuracy=0.7,
             first_token_accuracy=0.8,
@@ -2708,15 +2596,10 @@ class TestMethodStatusClassification:
 
     def test_classify_direction_mismatch_status(self) -> None:
         """Test direction_mismatch when causal result contradicts."""
-        from train.stage0_trainability import (
-            ArmCheckpoint,
-            classify_method_status,
-        )
-        from train.eggroll_stability import StabilityMetrics
 
         baseline_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=1.0,
             exact_accuracy=0.5,
             first_token_accuracy=0.6,
@@ -2732,7 +2615,7 @@ class TestMethodStatusClassification:
 
         final_metrics = StabilityMetrics(
             problem_count=64,
-            parameter_rms=tuple(),
+            parameter_rms=(),
             language_model_loss=0.8,
             exact_accuracy=0.7,
             first_token_accuracy=0.8,
@@ -2771,12 +2654,6 @@ class TestArmFixtures:
 
     def test_arms_with_simple_math_questions(self) -> None:
         """Test all three arms with simple math question fixtures."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-        )
 
         records = tuple(
             (f"What is {i}+{i}?", str(i*2)) for i in range(32)
@@ -2798,12 +2675,6 @@ class TestArmFixtures:
 
     def test_arms_have_independent_results(self) -> None:
         """Test that arms produce independent result objects."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-        )
 
         records = tuple(
             (f"Question {i}", f"Answer {i}") for i in range(32)
@@ -2820,45 +2691,23 @@ class TestArmFixtures:
 
     def test_all_arms_runnable_without_exceptions(self) -> None:
         """Test that all three arms complete without exceptions."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-        )
 
         records = tuple(
             (f"Q{i}", f"A{i}") for i in range(32)
         )
         manifest = FreshStateManifest(training_records=records)
 
-        try:
-            no_update_arm = run_no_update_arm(manifest)
-            assert no_update_arm is not None
-        except Exception:
-            pytest.fail("no-update arm raised exception")
+        no_update_arm = run_no_update_arm(manifest)
+        assert no_update_arm is not None
 
-        try:
-            gradient_arm = run_gradient_only_arm(manifest)
-            assert gradient_arm is not None
-        except Exception:
-            pytest.fail("gradient arm raised exception")
+        gradient_arm = run_gradient_only_arm(manifest)
+        assert gradient_arm is not None
 
-        try:
-            eggroll_arm = run_eggroll_only_arm(manifest)
-            assert eggroll_arm is not None
-        except Exception:
-            pytest.fail("EGGROLL arm raised exception")
+        eggroll_arm = run_eggroll_only_arm(manifest)
+        assert eggroll_arm is not None
 
     def test_arms_produce_valid_arm_objects(self) -> None:
         """Test that all arms produce valid MethodArm objects."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-            MethodArm,
-        )
 
         records = tuple(
             (f"Math{i}", f"{i*2}") for i in range(32)
@@ -2879,11 +2728,6 @@ class TestArmFixtures:
 
     def test_arms_with_diverse_fixtures(self) -> None:
         """Test arms with diverse question/answer pairs."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-        )
 
         records = tuple([
             ("What is 2+2?", "4"),
@@ -2908,12 +2752,6 @@ class TestArmFixtures:
 
     def test_arms_independently_runnable(self) -> None:
         """Test that each arm can run independently in sequence."""
-        from train.stage0_trainability import (
-            FreshStateManifest,
-            run_no_update_arm,
-            run_gradient_only_arm,
-            run_eggroll_only_arm,
-        )
 
         records = tuple(
             (f"Independent{i}", f"Test{i}") for i in range(32)

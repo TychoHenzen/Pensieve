@@ -13,14 +13,20 @@ from eval.gate import gate_report, latent_eval, result_cache, run_gate, token_co
 from tests.gate.test_stage0_result_cache import (
     CHECKPOINT_DIGEST,
     SEEDS,
+)
+from tests.gate.test_stage0_result_cache import (
     _latent_result as _cached_latent_result,
+)
+from tests.gate.test_stage0_result_cache import (
     _records as _cache_records,
+)
+from tests.gate.test_stage0_result_cache import (
     _token_result as _cached_token_result,
 )
 from tests.gate.test_stage0_token_baseline import (
+    _backbone_loader,
     _FakeModel,
     _FakeTokenizer,
-    _backbone_loader,
     _records,
 )
 
@@ -49,7 +55,7 @@ def _prepared() -> tuple[Any, _FakeModel]:
 
 
 def test_default_gate_paths_are_asdiv_a_qwen_scoped() -> None:
-    assert run_gate.DEFAULT_RESULTS_DIR == Path("gate_results/asdiv_a_qwen")
+    assert Path("gate_results/asdiv_a_qwen") == run_gate.DEFAULT_RESULTS_DIR
     assert token_cot_baseline.DEFAULT_OUTPUT == (
         run_gate.DEFAULT_RESULTS_DIR / "token_cot.json"
     )

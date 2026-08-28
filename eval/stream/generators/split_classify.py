@@ -69,7 +69,7 @@ class _MnistData:
     """
 
     def __init__(self, data_dir: str, dataset_name: str = "mnist") -> None:
-        from torchvision.datasets import FashionMNIST, MNIST
+        from torchvision.datasets import MNIST, FashionMNIST
 
         dataset_cls = {"mnist": MNIST, "fashion-mnist": FashionMNIST}[dataset_name]
         self.train = dataset_cls(root=data_dir, train=True, download=True)
