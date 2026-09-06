@@ -8,6 +8,7 @@ mean and standard deviation.
 
 Joint training (retrain on everything each boundary) is the ceiling.
 """
+
 from __future__ import annotations
 
 import math
@@ -38,7 +39,11 @@ METHOD_ORDER = ["naive", "ewc", "replay", "joint"]
 
 TASK_LABELS: dict[str, dict[int, str]] = {
     "mnist": {
-        0: "0,1", 1: "2,3", 2: "4,5", 3: "6,7", 4: "8,9",
+        0: "0,1",
+        1: "2,3",
+        2: "4,5",
+        3: "6,7",
+        4: "8,9",
     },
     "fashion-mnist": {
         0: "top,trouser",
@@ -61,11 +66,11 @@ class ExperimentConfig:
 
 def _cycling_configs(dataset: str) -> list[ExperimentConfig]:
     return [
-        ExperimentConfig("seq",       2000, 1,   2000, dataset),
-        ExperimentConfig("2-cycle",   1000, 2,   1000, dataset),
-        ExperimentConfig("10-cycle",  200,  10,  200,  dataset),
-        ExperimentConfig("50-cycle",  40,   50,  50,   dataset),
-        ExperimentConfig("200-cycle", 10,   200, 50,   dataset),
+        ExperimentConfig("seq", 2000, 1, 2000, dataset),
+        ExperimentConfig("2-cycle", 1000, 2, 1000, dataset),
+        ExperimentConfig("10-cycle", 200, 10, 200, dataset),
+        ExperimentConfig("50-cycle", 40, 50, 50, dataset),
+        ExperimentConfig("200-cycle", 10, 200, 50, dataset),
     ]
 
 
@@ -89,23 +94,44 @@ def _stream_config(examples_per_task: int, dataset: str) -> StreamConfig:
 def _build_subjects(device: str, train_iterations: int) -> dict[str, Subject]:
     return {
         "naive": NaiveBaseline(
-            INPUT_DIM, OUTPUT_DIM, 2, 400, 0.001,
-            train_iterations=train_iterations, device=device,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            2,
+            400,
+            0.001,
+            train_iterations=train_iterations,
+            device=device,
         ),
         "ewc": EWCBaseline(
-            INPUT_DIM, OUTPUT_DIM, 2, 400, 0.001,
-            ewc_lambda=1e7, fisher_samples=1000,
-            train_iterations=train_iterations, device=device,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            2,
+            400,
+            0.001,
+            ewc_lambda=1e7,
+            fisher_samples=1000,
+            train_iterations=train_iterations,
+            device=device,
         ),
         "replay": ReplayBaseline(
-            INPUT_DIM, OUTPUT_DIM, 2, 400, 0.001,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            2,
+            400,
+            0.001,
             latent_dim=100,
-            train_iterations=train_iterations, device=device,
+            train_iterations=train_iterations,
+            device=device,
             pixel_mode=True,
         ),
         "joint": JointBaseline(
-            INPUT_DIM, OUTPUT_DIM, 2, 400, 0.001,
-            train_iterations=train_iterations, device=device,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            2,
+            400,
+            0.001,
+            train_iterations=train_iterations,
+            device=device,
         ),
     }
 
@@ -165,10 +191,7 @@ def _compute_results(
             task_total[t] += 1
             if answer == truth_answer:
                 task_correct[t] += 1
-        results[name] = {
-            t: task_correct[t] / task_total[t] * 100
-            for t in task_total
-        }
+        results[name] = {t: task_correct[t] / task_total[t] * 100 for t in task_total}
     return results
 
 
@@ -207,9 +230,7 @@ def _run_cycle(
 ) -> dict[str, float]:
     """Run one cycle. Returns per-method final avg accuracy."""
     phase = 0
-    phase_probes: dict[str, list[tuple[str, str, str]]] = {
-        m: [] for m in subjects
-    }
+    phase_probes: dict[str, list[tuple[str, str, str]]] = {m: [] for m in subjects}
     last_results: dict[str, dict[int, float]] = {}
     cycle_t0 = time.monotonic()
     tag = f"[{cfg.name} s{seed_idx + 1}] cycle {cycle + 1}/{cfg.num_cycles}"
@@ -301,22 +322,27 @@ def _run_config_seed(
         if show_full and cfg.num_cycles > 10:
             _log(f"  --- checkpoint cycle {cycle + 1}/{cfg.num_cycles} ---")
 
-        stream = list(generator.generate(
-            stream_config, seed=random.getrandbits(32),
-        ))
+        stream = list(
+            generator.generate(
+                stream_config,
+                seed=random.getrandbits(32),
+            )
+        )
         avgs = _run_cycle(
-            subjects, stream, cycle, cfg, show_full,
-            seed_idx=seed_idx, seed_start=seed_start,
+            subjects,
+            stream,
+            cycle,
+            cfg,
+            show_full,
+            seed_idx=seed_idx,
+            seed_start=seed_start,
         )
         cycle_avgs.append(avgs)
 
         if is_checkpoint and not show_full:
             elapsed = time.monotonic() - seed_start
-            parts = " ".join(
-                f"{n}={avgs[n]:.1f}%" for n in METHOD_ORDER if n in avgs
-            )
-            _log(f"  CHECKPOINT {cycle + 1}/{cfg.num_cycles}"
-                 f" ({_format_duration(elapsed)}): {parts}")
+            parts = " ".join(f"{n}={avgs[n]:.1f}%" for n in METHOD_ORDER if n in avgs)
+            _log(f"  CHECKPOINT {cycle + 1}/{cfg.num_cycles} ({_format_duration(elapsed)}): {parts}")
 
     return cycle_avgs
 
@@ -387,9 +413,7 @@ def _run_dataset(dataset: str, device: str) -> None:
     _log(f"  {len(configs)} configs: {', '.join(c.name for c in configs)}")
     _log(f"{'=' * 60}")
 
-    all_results: dict[str, dict[str, list[float]]] = {
-        c.name: {m: [] for m in METHOD_ORDER} for c in configs
-    }
+    all_results: dict[str, dict[str, list[float]]] = {c.name: {m: [] for m in METHOD_ORDER} for c in configs}
 
     total_runs = len(configs) * NUM_SEEDS
     run_count = 0
@@ -404,30 +428,30 @@ def _run_dataset(dataset: str, device: str) -> None:
             elapsed = time.monotonic() - dataset_start
             per_run = elapsed / run_count
             runs_left = total_runs - run_count
-            _log(f"  dataset progress: {run_count}/{total_runs} seeds done,"
-                 f" ETA {_format_duration(per_run * runs_left)}")
+            _log(
+                f"  dataset progress: {run_count}/{total_runs} seeds done, ETA {_format_duration(per_run * runs_left)}"
+            )
         _log(f"{'#' * 60}")
 
         for seed_idx in range(NUM_SEEDS):
             run_count += 1
-            _log(f"  --- seed {seed_idx + 1}/{NUM_SEEDS}"
-                 f" (run {run_count}/{total_runs}) ---")
+            _log(f"  --- seed {seed_idx + 1}/{NUM_SEEDS} (run {run_count}/{total_runs}) ---")
 
             verbose = (seed_idx == 0) and (cfg.num_cycles <= 10)
             cycle_avgs = _run_config_seed(cfg, device, seed_idx, verbose)
 
             if cfg.num_cycles > 1:
                 _print_cycle_comparison(
-                    cfg, cycle_avgs, METHOD_ORDER,
+                    cfg,
+                    cycle_avgs,
+                    METHOD_ORDER,
                 )
 
             final = cycle_avgs[-1]
             for method in METHOD_ORDER:
                 all_results[cfg.name][method].append(final[method])
 
-            _log(f"  seed {seed_idx + 1} done"
-                 f" ({_format_duration(time.monotonic() - dataset_start)}"
-                 f" into {dataset})")
+            _log(f"  seed {seed_idx + 1} done ({_format_duration(time.monotonic() - dataset_start)} into {dataset})")
 
     _print_grand_summary(all_results, configs, dataset)
 

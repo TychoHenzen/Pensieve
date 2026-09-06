@@ -42,8 +42,9 @@ class _CachedPartialReferenceBackward(torch.autograd.Function):
     @staticmethod
     def backward(
         ctx: Any,
-        output_gradient: torch.Tensor,
+        *grad_outputs: torch.Tensor,
     ) -> tuple[None, None, torch.Tensor, None]:
+        output_gradient = grad_outputs[0]
         context_embeddings, slot_embeddings = ctx.saved_tensors
         with torch.enable_grad():
             differentiable_slots = slot_embeddings.detach().requires_grad_(True)
@@ -113,14 +114,10 @@ class QwenTapAdapter:
         output_cache = getattr(outputs, "past_key_values", None)
         if not isinstance(output_cache, DynamicCache):
             raise TypeError(
-                "expected a DynamicCache from context-prefix preparation, actual "
-                f"{type(output_cache).__name__}"
+                f"expected a DynamicCache from context-prefix preparation, actual {type(output_cache).__name__}"
             )
         if len(output_cache.layers) < LATENT_TAP_LAYER:
-            raise ValueError(
-                f"expected cache for {LATENT_TAP_LAYER} layers, actual "
-                f"{len(output_cache.layers)}"
-            )
+            raise ValueError(f"expected cache for {LATENT_TAP_LAYER} layers, actual {len(output_cache.layers)}")
 
         layer_key_values = tuple(
             self._clone_prefix_layer(
@@ -174,12 +171,16 @@ class QwenTapAdapter:
             dtype=torch.long,
             device=device,
         )
-        position_ids = torch.arange(
-            prefix.context_length,
-            prefix.context_length + slot_count,
-            dtype=torch.long,
-            device=device,
-        ).unsqueeze(0).expand(candidate_batch_size, -1)
+        position_ids = (
+            torch.arange(
+                prefix.context_length,
+                prefix.context_length + slot_count,
+                dtype=torch.long,
+                device=device,
+            )
+            .unsqueeze(0)
+            .expand(candidate_batch_size, -1)
+        )
         return attention_mask, position_ids
 
     def cached_partial(
@@ -208,10 +209,7 @@ class QwenTapAdapter:
             "full_attention": create_causal_mask,
             "sliding_attention": create_sliding_window_causal_mask,
         }
-        causal_masks = {
-            layer_type: mask_builders[layer_type](**mask_arguments)
-            for layer_type in set(layer_types)
-        }
+        causal_masks = {layer_type: mask_builders[layer_type](**mask_arguments) for layer_type in set(layer_types)}
         position_embeddings = body.rotary_emb(batched_slots, position_ids)
 
         hidden_states = batched_slots
@@ -227,15 +225,10 @@ class QwenTapAdapter:
 
         if tuple(hidden_states.shape) != tuple(batched_slots.shape):
             raise ValueError(
-                f"expected partial hidden state shape {tuple(batched_slots.shape)}, "
-                f"actual {tuple(hidden_states.shape)}"
+                f"expected partial hidden state shape {tuple(batched_slots.shape)}, actual {tuple(hidden_states.shape)}"
             )
         selected = hidden_states.squeeze(0) if remove_batch else hidden_states
-        if (
-            torch.is_grad_enabled()
-            and slot_embeddings.requires_grad
-            and prefix.context_embeddings is not None
-        ):
+        if torch.is_grad_enabled() and slot_embeddings.requires_grad and prefix.context_embeddings is not None:
             selected = _CachedPartialReferenceBackward.apply(
                 self,
                 prefix.context_embeddings,
@@ -263,11 +256,15 @@ class QwenTapAdapter:
             dtype=torch.long,
             device=combined.device,
         )
-        position_ids = torch.arange(
-            sequence_length,
-            dtype=torch.long,
-            device=combined.device,
-        ).unsqueeze(0).expand(batch_size, -1)
+        position_ids = (
+            torch.arange(
+                sequence_length,
+                dtype=torch.long,
+                device=combined.device,
+            )
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
         mask_arguments = {
             "config": body.config,
             "inputs_embeds": combined,
@@ -279,10 +276,7 @@ class QwenTapAdapter:
             "full_attention": create_causal_mask,
             "sliding_attention": create_sliding_window_causal_mask,
         }
-        causal_masks = {
-            layer_type: mask_builders[layer_type](**mask_arguments)
-            for layer_type in set(layer_types)
-        }
+        causal_masks = {layer_type: mask_builders[layer_type](**mask_arguments) for layer_type in set(layer_types)}
         position_embeddings = body.rotary_emb(combined, position_ids)
 
         hidden_states = combined
@@ -318,11 +312,15 @@ class QwenTapAdapter:
             dtype=torch.long,
             device=combined.device,
         )
-        position_ids = torch.arange(
-            sequence_length,
-            dtype=torch.long,
-            device=combined.device,
-        ).unsqueeze(0).expand(batch_size, -1)
+        position_ids = (
+            torch.arange(
+                sequence_length,
+                dtype=torch.long,
+                device=combined.device,
+            )
+            .unsqueeze(0)
+            .expand(batch_size, -1)
+        )
 
         outputs = self.model(
             inputs_embeds=combined,
@@ -333,13 +331,11 @@ class QwenTapAdapter:
         hidden_states = getattr(outputs, "hidden_states", None)
         if hidden_states is None:
             raise ValueError(
-                "expected hidden-state tuple with index "
-                f"{LATENT_TAP_LAYER}, actual output has no hidden states"
+                f"expected hidden-state tuple with index {LATENT_TAP_LAYER}, actual output has no hidden states"
             )
         if len(hidden_states) <= LATENT_TAP_LAYER:
             raise ValueError(
-                "expected hidden-state tuple with index "
-                f"{LATENT_TAP_LAYER}, actual length {len(hidden_states)}"
+                f"expected hidden-state tuple with index {LATENT_TAP_LAYER}, actual length {len(hidden_states)}"
             )
 
         tapped_hidden = hidden_states[LATENT_TAP_LAYER]
@@ -349,10 +345,7 @@ class QwenTapAdapter:
             WORKSPACE_DIMENSION,
         )
         if tuple(tapped_hidden.shape) != expected_shape:
-            raise ValueError(
-                f"expected hidden state shape {expected_shape}, actual "
-                f"{tuple(tapped_hidden.shape)}"
-            )
+            raise ValueError(f"expected hidden state shape {expected_shape}, actual {tuple(tapped_hidden.shape)}")
 
         selected = tapped_hidden[:, -slot_count:, :]
         return selected.squeeze(0) if remove_batch else selected
@@ -364,15 +357,12 @@ class QwenTapAdapter:
         elif context_embeddings.ndim == 3 and context_embeddings.shape[0] == 1:
             batched_context = context_embeddings
         else:
-            raise ValueError(
-                "context embeddings must be unbatched or have batch size one"
-            )
+            raise ValueError("context embeddings must be unbatched or have batch size one")
         if batched_context.shape[1] < 1:
             raise ValueError("context embeddings must contain at least one token")
         if batched_context.shape[-1] != WORKSPACE_DIMENSION:
             raise ValueError(
-                f"expected context embedding width {WORKSPACE_DIMENSION}, actual "
-                f"{batched_context.shape[-1]}"
+                f"expected context embedding width {WORKSPACE_DIMENSION}, actual {batched_context.shape[-1]}"
             )
         return batched_context
 
@@ -383,8 +373,7 @@ class QwenTapAdapter:
     ) -> tuple[torch.Tensor, bool]:
         if len(prefix.layer_key_values) != LATENT_TAP_LAYER:
             raise ValueError(
-                f"expected prepared prefix for {LATENT_TAP_LAYER} layers, actual "
-                f"{len(prefix.layer_key_values)}"
+                f"expected prepared prefix for {LATENT_TAP_LAYER} layers, actual {len(prefix.layer_key_values)}"
             )
         if slot_embeddings.ndim == 2:
             batched_slots = slot_embeddings.unsqueeze(0)
@@ -397,10 +386,7 @@ class QwenTapAdapter:
         if batched_slots.shape[0] < 1 or batched_slots.shape[1] < 1:
             raise ValueError("slot embeddings must contain a candidate and a slot")
         if batched_slots.shape[-1] != WORKSPACE_DIMENSION:
-            raise ValueError(
-                f"expected slot embedding width {WORKSPACE_DIMENSION}, actual "
-                f"{batched_slots.shape[-1]}"
-            )
+            raise ValueError(f"expected slot embedding width {WORKSPACE_DIMENSION}, actual {batched_slots.shape[-1]}")
         prefix_key = prefix.layer_key_values[0][0]
         if batched_slots.device != prefix_key.device:
             raise ValueError("prefix and slot embeddings must use the same device")
@@ -416,25 +402,18 @@ class QwenTapAdapter:
         layer_types = getattr(config, "layer_types", None)
         actual_layer_count = len(layers) if layers is not None else None
         if actual_layer_count is None or actual_layer_count < LATENT_TAP_LAYER:
-            raise ValueError(
-                f"expected model body with {LATENT_TAP_LAYER} decoder layers, "
-                f"actual {actual_layer_count}"
-            )
+            raise ValueError(f"expected model body with {LATENT_TAP_LAYER} decoder layers, actual {actual_layer_count}")
         if not callable(rotary_emb):
             raise TypeError("expected model body with callable rotary embeddings")
         if layer_types is None or len(layer_types) < LATENT_TAP_LAYER:
             actual_type_count = len(layer_types) if layer_types is not None else None
-            raise ValueError(
-                f"expected layer types for {LATENT_TAP_LAYER} decoder layers, "
-                f"actual {actual_type_count}"
-            )
+            raise ValueError(f"expected layer types for {LATENT_TAP_LAYER} decoder layers, actual {actual_type_count}")
         selected_types = tuple(layer_types[:LATENT_TAP_LAYER])
         supported_types = {"full_attention", "sliding_attention"}
         unsupported_types = set(selected_types) - supported_types
         if unsupported_types:
             raise ValueError(
-                "expected full or sliding attention through tap layer, actual "
-                f"{sorted(unsupported_types)}"
+                f"expected full or sliding attention through tap layer, actual {sorted(unsupported_types)}"
             )
         return body, layers, selected_types
 
@@ -460,9 +439,7 @@ class QwenTapAdapter:
             or key.shape != value.shape
         ):
             key_shape = tuple(key.shape) if isinstance(key, torch.Tensor) else None
-            value_shape = (
-                tuple(value.shape) if isinstance(value, torch.Tensor) else None
-            )
+            value_shape = tuple(value.shape) if isinstance(value, torch.Tensor) else None
             raise ValueError(
                 f"expected layer {layer_index} cache shapes "
                 f"(1, heads, {context_length}, head_dim), actual key "
@@ -477,9 +454,7 @@ class QwenTapAdapter:
     ) -> tuple[torch.Tensor, torch.Tensor, bool]:
         if slot_embeddings.ndim == 2:
             if context_embeddings.ndim != 2:
-                raise ValueError(
-                    "unbatched slots require unbatched context embeddings"
-                )
+                raise ValueError("unbatched slots require unbatched context embeddings")
             batched_slots = slot_embeddings.unsqueeze(0)
             batched_context = context_embeddings.unsqueeze(0)
             remove_batch = True
@@ -487,28 +462,19 @@ class QwenTapAdapter:
             batched_slots = slot_embeddings
             remove_batch = False
             if context_embeddings.ndim == 2:
-                batched_context = context_embeddings.unsqueeze(0).expand(
-                    slot_embeddings.shape[0], -1, -1
-                )
+                batched_context = context_embeddings.unsqueeze(0).expand(slot_embeddings.shape[0], -1, -1)
             elif context_embeddings.ndim == 3:
                 if context_embeddings.shape[0] != slot_embeddings.shape[0]:
-                    raise ValueError(
-                        "context candidate count does not match slot candidate count"
-                    )
+                    raise ValueError("context candidate count does not match slot candidate count")
                 batched_context = context_embeddings
             else:
-                raise ValueError(
-                    "candidate slots require shared or candidate-batched context"
-                )
+                raise ValueError("candidate slots require shared or candidate-batched context")
         else:
             raise ValueError("slot embeddings must be unbatched or candidate-batched")
 
         if batched_slots.shape[1] < 1:
             raise ValueError("slot embeddings must contain at least one slot")
-        if (
-            batched_context.shape[-1] != WORKSPACE_DIMENSION
-            or batched_slots.shape[-1] != WORKSPACE_DIMENSION
-        ):
+        if batched_context.shape[-1] != WORKSPACE_DIMENSION or batched_slots.shape[-1] != WORKSPACE_DIMENSION:
             raise ValueError(
                 f"expected embedding width {WORKSPACE_DIMENSION}, actual context "
                 f"width {batched_context.shape[-1]} and slot width "

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+from typing import Any
 
 import torch
 from sentence_transformers import SentenceTransformer
@@ -21,7 +22,7 @@ def _load_sentence_transformer(
     revision: str,
     trust_remote_code: bool,
     use_safetensors: bool,
-) -> object:
+) -> Any:
     return SentenceTransformer(
         repository,
         revision=revision,
@@ -45,11 +46,8 @@ class SlotEncoder(nn.Module):
         self,
         slot_count: int = 16,
         device: str = "cpu",
-        sentence_model: object | None = None,
-        manifest_verifier: Callable[
-            [str, str, Mapping[str, Mapping[str, str]]], None
-        ]
-        | None = None,
+        sentence_model: Any | None = None,
+        manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None] | None = None,
     ) -> None:
         super().__init__()
         self.slot_count = slot_count
@@ -78,17 +76,12 @@ class SlotEncoder(nn.Module):
         """Frozen token-level embeddings for `text`, shape (1, tokens, 384)."""
         transformer = self._sentence_model[0]
         tokenizer = transformer.tokenizer
-        features = tokenizer(
-            [text], return_tensors="pt", padding=False, truncation=False
-        )
+        features = tokenizer([text], return_tensors="pt", padding=False, truncation=False)
         input_ids = features.get("input_ids")
         if not isinstance(input_ids, torch.Tensor) or input_ids.ndim != 2:
             raise ValueError("MiniLM tokenizer must return input_ids with shape (1, tokens)")
         if input_ids.shape[1] > MINILM_TOKEN_LIMIT:
-            raise ValueError(
-                "MiniLM input exceeds the 256-token Stage 0 limit: "
-                f"actual {input_ids.shape[1]}"
-            )
+            raise ValueError(f"MiniLM input exceeds the 256-token Stage 0 limit: actual {input_ids.shape[1]}")
         features = {key: value.to(self.device) for key, value in features.items()}
         with torch.no_grad():
             output = transformer.auto_model(**features)

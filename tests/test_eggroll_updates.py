@@ -118,9 +118,7 @@ def test_factorized_gradients_and_adam_update_match_materialized_reference() -> 
         **settings,
     )
 
-    for actual, expected in zip(
-        factorized_parameters, reference_parameters, strict=True
-    ):
+    for actual, expected in zip(factorized_parameters, reference_parameters, strict=True):
         torch.testing.assert_close(actual, expected, rtol=1e-4, atol=1e-4)
     _assert_nested_close(
         factorized_optimizer.state_dict(),

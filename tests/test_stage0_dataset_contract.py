@@ -43,9 +43,7 @@ def test_training_modes_replay_the_complete_seed_zero_train_order_each_epoch() -
         validation_records=_records("validation", VALIDATION_COUNT),
     )
 
-    expected = select_asdiv_a_records(
-        {"train": train_records}, split="train", seed=0, problem_count=None
-    )
+    expected = select_asdiv_a_records({"train": train_records}, split="train", seed=0, problem_count=None)
 
     assert stage0_data.train_selection == expected
     for mode in ("gradient", "eggroll", "alternating"):
@@ -96,9 +94,7 @@ def test_eggroll_fitness_batch_preserves_order_and_averages_candidate_fitnesses(
         records_until_logging_boundary=10,
     )
 
-    assert batch.ordered_item_ids == stage0_data.training_item_ids(
-        mode="eggroll", epoch=1
-    )[11:19]
+    assert batch.ordered_item_ids == stage0_data.training_item_ids(mode="eggroll", epoch=1)[11:19]
     assert batch.start_position == 11
     assert batch.next_position == 19
     assert batch.consumed_record_count == 8

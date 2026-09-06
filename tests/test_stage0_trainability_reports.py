@@ -84,9 +84,7 @@ def sample_asset_identity() -> TrainabilityAssetIdentity:
             ("test_001", "id_001"),
             ("test_002", "id_002"),
         ),
-        training_record_identifiers_overfit=(
-            ("train_001", "id_001"),
-        ),
+        training_record_identifiers_overfit=(("train_001", "id_001"),),
         training_record_identifiers_32=(
             ("train_001", "id_001"),
             ("train_002", "id_002"),
@@ -103,9 +101,7 @@ class TestTrainabilityAssetIdentity:
             TrainabilityAssetIdentity(
                 stability_report_digest="invalid",
                 held_out_record_identifiers=sample_asset_identity.held_out_record_identifiers,
-                training_record_identifiers_overfit=(
-                    sample_asset_identity.training_record_identifiers_overfit
-                ),
+                training_record_identifiers_overfit=(sample_asset_identity.training_record_identifiers_overfit),
                 training_record_identifiers_32=sample_asset_identity.training_record_identifiers_32,
             )
 
@@ -236,9 +232,7 @@ class TestOverfitProbeResult:
         )
         assert probe.status == "passed"
 
-    def test_passed_probe_without_passing_attempt(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_passed_probe_without_passing_attempt(self, sample_metrics: StabilityMetrics) -> None:
         """Test that passed probe requires a passing attempt."""
         attempt = OverfitAttempt(
             learning_rate=0.001,
@@ -565,9 +559,11 @@ class TestTrainabilityReport:
         parsed = json.loads(json_str)
         assert parsed["schema_version"] == 1
         assert "overall_status" in parsed
-        assert all(math.isfinite(v) if isinstance(v, float) else True
-                   for v in parsed.values()
-                   if not isinstance(v, (dict, list)))
+        assert all(
+            math.isfinite(v) if isinstance(v, float) else True
+            for v in parsed.values()
+            if not isinstance(v, (dict, list))
+        )
 
 
 class TestCanonicalImplementationIdentity:
@@ -589,9 +585,7 @@ class TestRecordSelections:
         """Test building record selections from real dataset."""
 
         dataset = load_stage0_dataset()
-        overfit_ids, training_32_ids, held_out_64_ids = (
-            build_trainability_record_selections(dataset)
-        )
+        overfit_ids, training_32_ids, held_out_64_ids = build_trainability_record_selections(dataset)
 
         assert len(overfit_ids) == 1
         assert len(training_32_ids) == 32
@@ -614,12 +608,8 @@ class TestRecordSelections:
         """Test that record selections are deterministic."""
 
         dataset = load_stage0_dataset()
-        overfit_ids_1, training_32_ids_1, held_out_64_ids_1 = (
-            build_trainability_record_selections(dataset)
-        )
-        overfit_ids_2, training_32_ids_2, held_out_64_ids_2 = (
-            build_trainability_record_selections(dataset)
-        )
+        overfit_ids_1, training_32_ids_1, held_out_64_ids_1 = build_trainability_record_selections(dataset)
+        overfit_ids_2, training_32_ids_2, held_out_64_ids_2 = build_trainability_record_selections(dataset)
 
         assert overfit_ids_1 == overfit_ids_2
         assert training_32_ids_1 == training_32_ids_2
@@ -629,9 +619,7 @@ class TestRecordSelections:
         """Test that overfit and training selections don't overlap record IDs."""
 
         dataset = load_stage0_dataset()
-        overfit_ids, training_32_ids, _held_out_64_ids = (
-            build_trainability_record_selections(dataset)
-        )
+        overfit_ids, training_32_ids, _held_out_64_ids = build_trainability_record_selections(dataset)
 
         overfit_record_ids = {rid for rid, _ in overfit_ids}
         training_record_ids = {rid for rid, _ in training_32_ids}
@@ -687,9 +675,7 @@ class TestOverfitProbeClassification:
         assert result.status == "passed"
         assert len(result.attempts) == 1
 
-    def test_classify_failed_probe_no_passing_attempts(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_classify_failed_probe_no_passing_attempts(self, sample_metrics: StabilityMetrics) -> None:
         """Test classification when no attempt passes."""
 
         failed_attempt = OverfitAttempt(
@@ -703,9 +689,7 @@ class TestOverfitProbeClassification:
         assert result.status == "objective_untrainable"
         assert len(result.attempts) == 1
 
-    def test_classify_preserves_all_attempts(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_classify_preserves_all_attempts(self, sample_metrics: StabilityMetrics) -> None:
         """Test that classification preserves all completed attempts."""
 
         attempt1 = OverfitAttempt(
@@ -733,9 +717,7 @@ class TestOverfitProbeClassification:
         assert result.attempts[1].learning_rate == 0.001
         assert result.attempts[2].learning_rate == 0.01
 
-    def test_classify_requires_exact_accuracy_1_0(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_classify_requires_exact_accuracy_1_0(self, sample_metrics: StabilityMetrics) -> None:
         """Test that classification requires exact_accuracy = 1.0."""
 
         almost_passing_metrics = StabilityMetrics(
@@ -789,9 +771,7 @@ class TestOverfitAttemptDeterminism:
         for lr in OVERFIT_LEARNING_RATES:
             assert isinstance(lr, float), f"learning rate {lr} must be float"
             assert lr > 0, f"learning rate {lr} must be positive"
-            assert lr in (0.0001, 0.001, 0.01), (
-                f"learning rate {lr} must be diagnostic value, not production"
-            )
+            assert lr in (0.0001, 0.001, 0.01), f"learning rate {lr} must be diagnostic value, not production"
 
     def test_overfit_checkpoint_structure_deterministic(self) -> None:
         """Test that checkpoint structure is deterministically defined."""
@@ -802,9 +782,7 @@ class TestOverfitAttemptDeterminism:
         assert OVERFIT_CHECKPOINTS[-1] == 64, "final checkpoint must be 64"
 
         for i in range(len(OVERFIT_CHECKPOINTS) - 1):
-            assert OVERFIT_CHECKPOINTS[i] < OVERFIT_CHECKPOINTS[i + 1], (
-                "checkpoints must be strictly increasing"
-            )
+            assert OVERFIT_CHECKPOINTS[i] < OVERFIT_CHECKPOINTS[i + 1], "checkpoints must be strictly increasing"
 
     def test_overfit_attempt_result_keys_documented(self) -> None:
         """Test that overfit attempt results have consistent documented keys."""
@@ -815,15 +793,12 @@ class TestOverfitAttemptDeterminism:
         }
 
         for status, expected in expected_keys_by_status.items():
-            assert isinstance(expected, set), (
-                f"expected keys for {status} must be set"
-            )
+            assert isinstance(expected, set), f"expected keys for {status} must be set"
             for key in expected:
                 assert isinstance(key, str), f"key {key} must be string"
 
     def test_overfit_attempt_no_recommendation_fields(self) -> None:
         """Test that function signature excludes recommendation-emission capabilities."""
-
 
         sig = inspect.signature(run_overfit_attempt)
         params = list(sig.parameters.keys())
@@ -831,22 +806,17 @@ class TestOverfitAttemptDeterminism:
         forbidden_params = ["recommend", "recommendation", "production_lr"]
         for forbidden in forbidden_params:
             for param in params:
-                assert forbidden not in param.lower(), (
-                    f"parameter {param} looks like a recommendation parameter"
-                )
+                assert forbidden not in param.lower(), f"parameter {param} looks like a recommendation parameter"
 
     def test_overfit_attempt_accepts_required_parameters(self) -> None:
         """Test that function requires canonical parameters, no optional recommendation."""
-
 
         sig = inspect.signature(run_overfit_attempt)
         param_names = set(sig.parameters.keys())
 
         required_params = {"question", "answer", "learning_rate"}
         for required in required_params:
-            assert required in param_names, (
-                f"function must accept {required} parameter"
-            )
+            assert required in param_names, f"function must accept {required} parameter"
 
     def test_overfit_attempt_documentation_excludes_recommendations(self) -> None:
         """Test that function documentation doesn't mention production recommendations."""
@@ -856,9 +826,7 @@ class TestOverfitAttemptDeterminism:
 
         forbidden_phrases = ["production recommendation", "recommend", "default learning rate"]
         for forbidden in forbidden_phrases:
-            assert forbidden not in lower_doc, (
-                f"documentation must not mention '{forbidden}' as it's diagnostic-only"
-            )
+            assert forbidden not in lower_doc, f"documentation must not mention '{forbidden}' as it's diagnostic-only"
 
         assert "overfit" in lower_doc or "memorization" in lower_doc, (
             "documentation should describe the overfit/memorization purpose"
@@ -968,9 +936,7 @@ class TestUpdateDirectionAndPrediction:
         )
 
         assert predicted_delta < 0, "prediction should indicate improvement"
-        assert abs(predicted_delta - (-0.05)) < 1e-6, (
-            "delta should be -step_size * gradient_norm"
-        )
+        assert abs(predicted_delta - (-0.05)) < 1e-6, "delta should be -step_size * gradient_norm"
 
     def test_first_order_prediction_requires_positive_baseline(self) -> None:
         """Test that prediction requires positive baseline."""
@@ -1287,23 +1253,17 @@ class TestFocusedCausalProbes:
 class TestCausalProbeEvaluation:
     """Test complete-objective evaluation for causal probes."""
 
-    def test_causal_probe_evaluation_requires_8_records(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_causal_probe_evaluation_requires_8_records(self, sample_metrics: StabilityMetrics) -> None:
         """Test that causal probe evaluation requires exactly 8 records."""
 
-        valid_records = tuple(
-            (f"Q{i}", f"A{i}") for i in range(8)
-        )
+        valid_records = tuple((f"Q{i}", f"A{i}") for i in range(8))
         eval_result = CausalProbeEvaluation(
             training_records=valid_records,
             pre_update_metrics=sample_metrics,
         )
         assert len(eval_result.training_records) == 8
 
-    def test_causal_probe_evaluation_rejects_wrong_count(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_causal_probe_evaluation_rejects_wrong_count(self, sample_metrics: StabilityMetrics) -> None:
         """Test that causal probe evaluation rejects wrong record count."""
 
         too_few = tuple((f"Q{i}", f"A{i}") for i in range(4))
@@ -1323,9 +1283,7 @@ class TestCausalProbeEvaluation:
                 pre_update_metrics=None,
             )
 
-    def test_causal_probe_evaluation_optional_post_update(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_causal_probe_evaluation_optional_post_update(self, sample_metrics: StabilityMetrics) -> None:
         """Test that post-update metrics are optional."""
 
         records = tuple((f"Q{i}", f"A{i}") for i in range(8))
@@ -1336,9 +1294,7 @@ class TestCausalProbeEvaluation:
         )
         assert eval_result.post_update_metrics is None
 
-    def test_causal_probe_evaluation_to_dict(
-        self, sample_metrics: StabilityMetrics
-    ) -> None:
+    def test_causal_probe_evaluation_to_dict(self, sample_metrics: StabilityMetrics) -> None:
         """Test causal probe evaluation serialization."""
 
         records = tuple((f"Q{i}", f"A{i}") for i in range(8))
@@ -1385,41 +1341,26 @@ class TestOverfitProbeFixtures:
         ]
 
         for question, answer in fixtures:
-            result = run_overfit_attempt(
-                question, answer, learning_rate=0.001, checkpoint_steps=(1,)
-            )
+            result = run_overfit_attempt(question, answer, learning_rate=0.001, checkpoint_steps=(1,))
 
             assert isinstance(result, dict), f"Result for {question} must be dict"
             assert "status" in result, f"Result for {question} must have status"
             assert "learning_rate" in result, f"Result for {question} must have learning_rate"
-            assert result["learning_rate"] == 0.001, (
-                f"Result for {question} must preserve learning_rate"
-            )
+            assert result["learning_rate"] == 0.001, f"Result for {question} must preserve learning_rate"
 
     def test_overfit_probe_result_validity(self) -> None:
         """Test that probe results are well-formed and valid."""
 
-
-        result = run_overfit_attempt(
-            "What is 3+3?", "6", learning_rate=0.001, checkpoint_steps=(1, 4)
-        )
+        result = run_overfit_attempt("What is 3+3?", "6", learning_rate=0.001, checkpoint_steps=(1, 4))
 
         if result["status"] != "non_finite" and "baseline_loss" in result and result["baseline_loss"] is not None:
-            assert isinstance(result["baseline_loss"], float), (
-                "baseline_loss must be float"
-            )
-            assert math.isfinite(result["baseline_loss"]), (
-                "baseline_loss must be finite"
-            )
-            assert result["baseline_loss"] >= 0, (
-                "baseline_loss must be non-negative"
-            )
+            assert isinstance(result["baseline_loss"], float), "baseline_loss must be float"
+            assert math.isfinite(result["baseline_loss"]), "baseline_loss must be finite"
+            assert result["baseline_loss"] >= 0, "baseline_loss must be non-negative"
 
         if result["status"] == "passed":
             assert "checkpoints" in result, "passed result must have checkpoints"
-            assert isinstance(result["checkpoints"], (list, tuple)), (
-                "checkpoints must be sequence"
-            )
+            assert isinstance(result["checkpoints"], (list, tuple)), "checkpoints must be sequence"
 
     def test_overfit_probe_independently_runnable(self) -> None:
         """Test that probe is independently runnable without external state."""
@@ -1429,21 +1370,15 @@ class TestOverfitProbeFixtures:
 
         for question in questions:
             result = run_overfit_attempt(
-                question, "8" if "7" in question else "5",
-                learning_rate=0.001,
-                checkpoint_steps=(1,)
+                question, "8" if "7" in question else "5", learning_rate=0.001, checkpoint_steps=(1,)
             )
             results.append(result)
 
         assert len(results) == len(questions), "probe must run for each question"
 
         for i, result in enumerate(results):
-            assert result["status"] in ("passed", "failed", "non_finite"), (
-                f"probe {i} returned invalid status"
-            )
-            assert result["learning_rate"] == 0.001, (
-                f"probe {i} did not preserve learning_rate"
-            )
+            assert result["status"] in ("passed", "failed", "non_finite"), f"probe {i} returned invalid status"
+            assert result["learning_rate"] == 0.001, f"probe {i} did not preserve learning_rate"
 
 
 class TestMethodArms:
@@ -1458,18 +1393,14 @@ class TestMethodArms:
     def test_fresh_state_manifest_requires_32_records(self) -> None:
         """Test that FreshStateManifest requires at least 32 records."""
 
-        records = tuple(
-            (f"Question {i}", f"Answer {i}") for i in range(16)
-        )
+        records = tuple((f"Question {i}", f"Answer {i}") for i in range(16))
         with pytest.raises(ValueError):
             FreshStateManifest(training_records=records)
 
     def test_fresh_state_manifest_accepts_32_records(self) -> None:
         """Test that FreshStateManifest accepts exactly 32 records."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
         assert len(manifest.training_records) == 32
         assert manifest.checkpoint_example_counts == (0, 8, 32)
@@ -1477,21 +1408,14 @@ class TestMethodArms:
     def test_fresh_state_manifest_requires_sorted_checkpoints(self) -> None:
         """Test that checkpoint counts must be sorted."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         with pytest.raises(ValueError):
-            FreshStateManifest(
-                training_records=records,
-                checkpoint_example_counts=(32, 8, 0)
-            )
+            FreshStateManifest(training_records=records, checkpoint_example_counts=(32, 8, 0))
 
     def test_fresh_state_manifest_to_dict(self) -> None:
         """Test FreshStateManifest serialization."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
         manifest_dict = manifest.to_dict()
 
@@ -1567,9 +1491,7 @@ class TestMethodArms:
     def test_method_arm_requires_32_records(self) -> None:
         """Test that MethodArm requires at least 32 records."""
 
-        records = tuple(
-            (f"Question {i}", f"Answer {i}") for i in range(16)
-        )
+        records = tuple((f"Question {i}", f"Answer {i}") for i in range(16))
         with pytest.raises(ValueError):
             MethodArm(
                 arm_kind="gradient_only",
@@ -1579,9 +1501,7 @@ class TestMethodArms:
     def test_method_arm_accepts_32_records(self) -> None:
         """Test that MethodArm accepts exactly 32 records."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         arm = MethodArm(
             arm_kind="eggroll_only",
             training_records=records,
@@ -1593,9 +1513,7 @@ class TestMethodArms:
     def test_method_arm_to_dict(self) -> None:
         """Test MethodArm serialization."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         arm = MethodArm(
             arm_kind="gradient_only",
             training_records=records,
@@ -1628,15 +1546,11 @@ class TestMethodArms:
             separation_retention=0.95,
         )
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
 
         eval0 = ArmEvaluation(example_count=0, metrics=metrics, examples_consumed=0)
         eval8 = ArmEvaluation(example_count=8, metrics=metrics, examples_consumed=8)
-        eval32 = ArmEvaluation(
-            example_count=32, metrics=metrics, examples_consumed=32
-        )
+        eval32 = ArmEvaluation(example_count=32, metrics=metrics, examples_consumed=32)
 
         arm = MethodArm(
             arm_kind="gradient_only",
@@ -1648,21 +1562,13 @@ class TestMethodArms:
         assert arm.evaluations[0].examples_consumed == 0
         assert arm.evaluations[1].examples_consumed == 8
         assert arm.evaluations[2].examples_consumed == 32
-        assert (
-            arm.evaluations[1].examples_consumed
-            > arm.evaluations[0].examples_consumed
-        )
-        assert (
-            arm.evaluations[2].examples_consumed
-            > arm.evaluations[1].examples_consumed
-        )
+        assert arm.evaluations[1].examples_consumed > arm.evaluations[0].examples_consumed
+        assert arm.evaluations[2].examples_consumed > arm.evaluations[1].examples_consumed
 
     def test_evaluations_at_checkpoint_boundaries(self) -> None:
         """Test that evaluations are emitted at exactly 0, 8, 32 checkpoints."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         assert manifest.checkpoint_example_counts == (0, 8, 32)
@@ -1672,9 +1578,7 @@ class TestMethodArms:
     def test_no_update_arm_consistent_counting(self) -> None:
         """Test that no-update arm counts examples consistently."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         arm = run_no_update_arm(manifest)
@@ -1692,9 +1596,7 @@ class TestMethodArms:
     def test_gradient_arm_consistent_counting(self) -> None:
         """Test that gradient arm counts examples consistently."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         arm = run_gradient_only_arm(manifest)
@@ -1710,9 +1612,7 @@ class TestMethodArms:
     def test_eggroll_arm_consistent_counting(self) -> None:
         """Test that EGGROLL arm counts examples consistently."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         arm = run_eggroll_only_arm(manifest)
@@ -1964,22 +1864,18 @@ class TestArmIntegration:
     def test_identical_record_exposure_across_arms(self) -> None:
         """Test that all arms see the same records in the same order."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         assert len(manifest.training_records) == 32
         for i, (question, answer) in enumerate(manifest.training_records):
             assert question == f"What is {i}+{i}?"
-            assert answer == str(i*2)
+            assert answer == str(i * 2)
 
     def test_checkpoint_boundary_at_8_and_32(self) -> None:
         """Test that checkpoints are exactly at 8 and 32 records."""
 
-        records = tuple(
-            (f"Question {i}", f"Answer {i}") for i in range(32)
-        )
+        records = tuple((f"Question {i}", f"Answer {i}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         assert 0 in manifest.checkpoint_example_counts
@@ -1990,9 +1886,7 @@ class TestArmIntegration:
     def test_arm_isolation_independent_state(self) -> None:
         """Test that arm state doesn't leak between arms."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         no_update_arm = run_no_update_arm(manifest)
@@ -2007,19 +1901,13 @@ class TestArmIntegration:
         assert len(gradient_arm.training_records) == 32
         assert len(eggroll_arm.training_records) == 32
 
-        assert (
-            no_update_arm.training_records == gradient_arm.training_records
-        )
-        assert (
-            gradient_arm.training_records == eggroll_arm.training_records
-        )
+        assert no_update_arm.training_records == gradient_arm.training_records
+        assert gradient_arm.training_records == eggroll_arm.training_records
 
     def test_consistent_example_counting_across_arms(self) -> None:
         """Test that all arms count examples identically."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         no_update_arm = run_no_update_arm(manifest)
@@ -2038,9 +1926,7 @@ class TestArmIntegration:
     def test_arm_independent_completion_status(self) -> None:
         """Test that arms complete independently."""
 
-        records = tuple(
-            (f"Question {i}", f"Answer {i}") for i in range(32)
-        )
+        records = tuple((f"Question {i}", f"Answer {i}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         no_update_arm = run_no_update_arm(manifest)
@@ -2054,42 +1940,27 @@ class TestArmIntegration:
     def test_identical_record_order_validation(self) -> None:
         """Test that record order is canonical and deterministic."""
 
-        records1 = tuple(
-            (f"Q{i}", f"A{i}") for i in range(32)
-        )
-        records2 = tuple(
-            (f"Q{i}", f"A{i}") for i in range(32)
-        )
+        records1 = tuple((f"Q{i}", f"A{i}") for i in range(32))
+        records2 = tuple((f"Q{i}", f"A{i}") for i in range(32))
 
         manifest1 = FreshStateManifest(training_records=records1)
         manifest2 = FreshStateManifest(training_records=records2)
 
         for i in range(32):
-            assert (
-                manifest1.training_records[i]
-                == manifest2.training_records[i]
-            )
+            assert manifest1.training_records[i] == manifest2.training_records[i]
 
     def test_arm_evaluation_counts_preserve_order(self) -> None:
         """Test that arm evaluations maintain checkpoint order."""
 
-        records = tuple(
-            (f"Q{i}", f"A{i}") for i in range(32)
-        )
+        records = tuple((f"Q{i}", f"A{i}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         arm = run_no_update_arm(manifest)
 
         if len(arm.evaluations) >= 2:
-            assert (
-                arm.evaluations[0].example_count
-                <= arm.evaluations[1].example_count
-            )
+            assert arm.evaluations[0].example_count <= arm.evaluations[1].example_count
         if len(arm.evaluations) >= 3:
-            assert (
-                arm.evaluations[1].example_count
-                <= arm.evaluations[2].example_count
-            )
+            assert arm.evaluations[1].example_count <= arm.evaluations[2].example_count
 
 
 class TestTableDrivenClassification:
@@ -2102,13 +1973,15 @@ class TestTableDrivenClassification:
             ("passed", {"gradient": "viable"}, "bounded_trainability_observed"),
             ("passed", {"gradient": "viable", "eggroll": "viable"}, "bounded_trainability_observed"),
             ("passed", {"gradient": "no_improvement", "eggroll": "unsafe_update"}, "method_specific_failure"),
-            ("passed", {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"}, "shared_loss_behavior_conflict"),
+            (
+                "passed",
+                {"gradient": "direction_mismatch", "eggroll": "direction_mismatch"},
+                "shared_loss_behavior_conflict",
+            ),
             ("passed", {}, "inconclusive"),
         ],
     )
-    def test_overall_classification_table(
-        self, overfit_status, method_statuses, expected_overall
-    ) -> None:
+    def test_overall_classification_table(self, overfit_status, method_statuses, expected_overall) -> None:
         """Test overall classification precedence with all status combinations."""
 
         overall, _ = classify_overall_trainability(overfit_status, method_statuses)
@@ -2125,14 +1998,10 @@ class TestTableDrivenClassification:
             ("objective_untrainable", "no_improvement", "unsafe_update", False),
         ],
     )
-    def test_eligibility_table(
-        self, overfit, method_status, causal, expected_eligible
-    ) -> None:
+    def test_eligibility_table(self, overfit, method_status, causal, expected_eligible) -> None:
         """Test recalibration eligibility with all prerequisite combinations."""
 
-        eligible, _ = compute_recalibration_eligibility(
-            "gradient", overfit, method_status, causal_status=causal
-        )
+        eligible, _ = compute_recalibration_eligibility("gradient", overfit, method_status, causal_status=causal)
         assert eligible is expected_eligible
 
     def test_method_status_all_viable_conditions(self) -> None:
@@ -2196,7 +2065,6 @@ class TestTrainabilityDistinctness:
 
     def test_trainability_field_coverage_distinct(self) -> None:
         """Test that trainability and stability have distinct fields."""
-
 
         trainability_fields = set(inspect.signature(TrainabilityReport).parameters.keys())
         stability_fields = set(inspect.signature(StabilityReport).parameters.keys())
@@ -2478,9 +2346,7 @@ class TestMethodStatusClassification:
             metrics=final_metrics,
         )
 
-        status, conditions, eligible = classify_method_status(
-            baseline_cp, final_cp, "gradient", causal_status="passed"
-        )
+        status, conditions, eligible = classify_method_status(baseline_cp, final_cp, "gradient", causal_status="passed")
 
         assert status == "viable"
         assert len(conditions) == 0
@@ -2532,9 +2398,7 @@ class TestMethodStatusClassification:
             metrics=final_metrics,
         )
 
-        status, conditions, eligible = classify_method_status(
-            baseline_cp, final_cp, "gradient"
-        )
+        status, conditions, eligible = classify_method_status(baseline_cp, final_cp, "gradient")
 
         assert status == "no_improvement"
         assert "loss_not_improved" in conditions
@@ -2586,9 +2450,7 @@ class TestMethodStatusClassification:
             metrics=final_metrics,
         )
 
-        status, conditions, eligible = classify_method_status(
-            baseline_cp, final_cp, "eggroll"
-        )
+        status, conditions, eligible = classify_method_status(baseline_cp, final_cp, "eggroll")
 
         assert status == "loss_behavior_conflict"
         assert "no_decoded_improvement" in conditions
@@ -2655,9 +2517,7 @@ class TestArmFixtures:
     def test_arms_with_simple_math_questions(self) -> None:
         """Test all three arms with simple math question fixtures."""
 
-        records = tuple(
-            (f"What is {i}+{i}?", str(i*2)) for i in range(32)
-        )
+        records = tuple((f"What is {i}+{i}?", str(i * 2)) for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         no_update_arm = run_no_update_arm(manifest)
@@ -2676,9 +2536,7 @@ class TestArmFixtures:
     def test_arms_have_independent_results(self) -> None:
         """Test that arms produce independent result objects."""
 
-        records = tuple(
-            (f"Question {i}", f"Answer {i}") for i in range(32)
-        )
+        records = tuple((f"Question {i}", f"Answer {i}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         no_update_result = run_no_update_arm(manifest)
@@ -2692,9 +2550,7 @@ class TestArmFixtures:
     def test_all_arms_runnable_without_exceptions(self) -> None:
         """Test that all three arms complete without exceptions."""
 
-        records = tuple(
-            (f"Q{i}", f"A{i}") for i in range(32)
-        )
+        records = tuple((f"Q{i}", f"A{i}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         no_update_arm = run_no_update_arm(manifest)
@@ -2709,9 +2565,7 @@ class TestArmFixtures:
     def test_arms_produce_valid_arm_objects(self) -> None:
         """Test that all arms produce valid MethodArm objects."""
 
-        records = tuple(
-            (f"Math{i}", f"{i*2}") for i in range(32)
-        )
+        records = tuple((f"Math{i}", f"{i * 2}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         arms = [
@@ -2729,15 +2583,16 @@ class TestArmFixtures:
     def test_arms_with_diverse_fixtures(self) -> None:
         """Test arms with diverse question/answer pairs."""
 
-        records = tuple([
-            ("What is 2+2?", "4"),
-            ("What is 5+3?", "8"),
-            ("What is 10-5?", "5"),
-            ("What is 3*3?", "9"),
-            ("What is 12/3?", "4"),
-        ] + [
-            (f"Math {i}", f"Result {i}") for i in range(27)
-        ])
+        records = tuple(
+            [
+                ("What is 2+2?", "4"),
+                ("What is 5+3?", "8"),
+                ("What is 10-5?", "5"),
+                ("What is 3*3?", "9"),
+                ("What is 12/3?", "4"),
+            ]
+            + [(f"Math {i}", f"Result {i}") for i in range(27)]
+        )
         manifest = FreshStateManifest(training_records=records)
 
         no_update_arm = run_no_update_arm(manifest)
@@ -2753,9 +2608,7 @@ class TestArmFixtures:
     def test_arms_independently_runnable(self) -> None:
         """Test that each arm can run independently in sequence."""
 
-        records = tuple(
-            (f"Independent{i}", f"Test{i}") for i in range(32)
-        )
+        records = tuple((f"Independent{i}", f"Test{i}") for i in range(32))
         manifest = FreshStateManifest(training_records=records)
 
         arms_results = []

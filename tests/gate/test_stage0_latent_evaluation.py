@@ -61,10 +61,7 @@ def _input_ids(item_id: str) -> list[int]:
 
 
 def _rendered_digest(item_ids: Sequence[str]) -> str:
-    rendered = [
-        {"item_id": item_id, "input_ids": _input_ids(item_id)}
-        for item_id in item_ids
-    ]
+    rendered = [{"item_id": item_id, "input_ids": _input_ids(item_id)} for item_id in item_ids]
     return hashlib.sha256(canonical_json_bytes(rendered)).hexdigest()
 
 
@@ -171,10 +168,7 @@ def test_full_latent_eval_reuses_every_persisted_token_identifier_and_schema() -
         assert run["seed"] == seed
         assert run["total"] == FULL_TEST_COUNT
         assert tuple(item["item_id"] for item in run["items"]) == ordered
-        assert all(
-            set(item) == {"item_id", "prediction", "target", "correct"}
-            for item in run["items"]
-        )
+        assert all(set(item) == {"item_id", "prediction", "target", "correct"} for item in run["items"])
 
 
 # covers: eval/stage0-gate::Comparable test selection::Limited evaluation identity
@@ -189,20 +183,13 @@ def test_limited_latent_eval_uses_persisted_prefix_and_subset_rendered_digest() 
         development_limit=7,
     )
 
-    assert result["identity"]["selection"]["ordered_item_ids"] == list(
-        expected_subset
-    )
+    assert result["identity"]["selection"]["ordered_item_ids"] == list(expected_subset)
     assert result["identity"]["selection"]["problem_count"] == 7
-    assert result["identity"]["rendered_inputs_sha256"] == _rendered_digest(
-        expected_subset
-    )
+    assert result["identity"]["rendered_inputs_sha256"] == _rendered_digest(expected_subset)
     assert result["identity"]["rendered_inputs_sha256"] != _rendered_digest(ordered)
     assert result["identity"]["development_only"] is True
     assert calls_by_subject == [list(expected_subset) for _ in DEFAULT_SEEDS]
-    assert all(
-        tuple(item["item_id"] for item in run["items"]) == expected_subset
-        for run in result["runs"]
-    )
+    assert all(tuple(item["item_id"] for item in run["items"]) == expected_subset for run in result["runs"])
     assert "pass" not in result
     assert "gate_decision" not in result
 

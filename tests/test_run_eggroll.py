@@ -228,9 +228,7 @@ def test_standalone_resume_rejects_changed_fitness_batch_before_trainer_construc
             "selections": {},
             "run_config": saved_config,
             "schedule": {"epoch": 1},
-            "optimizer_manifests": [
-                {"parameter_groups": [{"scalars": {"lr": 0.1}}]}
-            ],
+            "optimizer_manifests": [{"parameter_groups": [{"scalars": {"lr": 0.1}}]}],
         }
     )
     constructions: list[object] = []
@@ -297,10 +295,7 @@ def test_public_command_writes_inspects_and_resumes_real_sgd_checkpoint(
             trainers.append(self)
 
         def trainable_param_count(self) -> int:
-            return sum(
-                parameter.numel()
-                for parameter in self.state.trainable_params.values()
-            )
+            return sum(parameter.numel() for parameter in self.state.trainable_params.values())
 
         def train_epoch(self, dataset, on_step) -> SimpleNamespace:
             visits.append((self.run_index, tuple(record.id for record in dataset)))
@@ -373,15 +368,9 @@ def test_public_command_writes_inspects_and_resumes_real_sgd_checkpoint(
     first = load_checkpoint(first_path, expected_mode="eggroll")
 
     assert first.metadata["optimizer_manifests"][0]["optimizer_type"] == "SGD"
-    assert first.metadata["optimizer_manifests"][0]["parameter_groups"][0][
-        "scalars"
-    ]["momentum"] == 0.0
-    assert list(first.metadata["optimizer_manifests"][0]["parameter_names"]) == list(
-        EGGROLL_MODEL_PARAMETER_PATHS
-    )
-    assert first.metadata["run_config"]["eggroll_population"][
-        "fitness_batch_size"
-    ] == 8
+    assert first.metadata["optimizer_manifests"][0]["parameter_groups"][0]["scalars"]["momentum"] == 0.0
+    assert list(first.metadata["optimizer_manifests"][0]["parameter_names"]) == list(EGGROLL_MODEL_PARAMETER_PATHS)
+    assert first.metadata["run_config"]["eggroll_population"]["fitness_batch_size"] == 8
     assert first.metadata["run_config"]["stability_report_identity"] == "e" * 64
     assert first.metadata["schedule"]["consumed_examples"] == 3
     assert first.metadata["schedule"]["eggroll_optimizer_calls"] == 1

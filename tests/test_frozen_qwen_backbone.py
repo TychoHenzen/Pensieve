@@ -41,9 +41,7 @@ class _FakeQwen(nn.Module):
 
     def forward(self, *, inputs_embeds: torch.Tensor, **_: Any) -> Any:
         hidden = self.projection(inputs_embeds)
-        return SimpleNamespace(
-            hidden_states=tuple(hidden for _ in range(self.config.num_hidden_layers + 1))
-        )
+        return SimpleNamespace(hidden_states=tuple(hidden for _ in range(self.config.num_hidden_layers + 1)))
 
 
 class _RecordingEmbedding(nn.Module):
@@ -136,9 +134,7 @@ def test_loader_pins_and_verifies_every_qwen_asset_before_loading(monkeypatch) -
     ],
 )
 # covers: core/latent-loop::Latent loop feeds hidden state back as input::selected tap layer unavailable
-def test_latent_loop_rejects_an_incompatible_qwen_shape(
-    model: _FakeQwen, expected: str
-) -> None:
+def test_latent_loop_rejects_an_incompatible_qwen_shape(model: _FakeQwen, expected: str) -> None:
     with pytest.raises(ValueError, match=expected):
         LatentLoop(backbone=_backbone(model), num_steps=1, device="cpu")
 
@@ -150,9 +146,7 @@ def test_latent_loop_rejects_an_incompatible_qwen_shape(
         (_FakeQwen(hidden_layers=11), r"expected.*12.*actual.*11"),
     ],
 )
-def test_qwen_tap_adapter_rejects_an_incompatible_model_shape(
-    model: _FakeQwen, expected: str
-) -> None:
+def test_qwen_tap_adapter_rejects_an_incompatible_model_shape(model: _FakeQwen, expected: str) -> None:
     with pytest.raises(ValueError, match=expected):
         QwenTapAdapter(model)
 
@@ -207,10 +201,7 @@ def test_shared_state_keeps_qwen_parameters_frozen_and_out_of_optimizers() -> No
 
     assert all(
         parameter not in optimizer.state
-        and all(
-            all(candidate is not parameter for candidate in group["params"])
-            for group in optimizer.param_groups
-        )
+        and all(all(candidate is not parameter for candidate in group["params"]) for group in optimizer.param_groups)
         for optimizer in (gradient.optimizer, eggroll.optimizer)
         for parameter in backbone.model.parameters()
     )

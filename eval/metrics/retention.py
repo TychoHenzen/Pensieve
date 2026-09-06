@@ -5,9 +5,7 @@ from collections import defaultdict
 from eval.metrics import ProbeLogEntry
 
 
-def retention_matrix(
-    phases: list[list[ProbeLogEntry]], task_order: list[str]
-) -> list[list[float | None]]:
+def retention_matrix(phases: list[list[ProbeLogEntry]], task_order: list[str]) -> list[list[float | None]]:
     """Build the retention matrix R[i][j] from pre-split measurement phases.
 
     Each inner list in *phases* holds the probe entries measured after
@@ -18,9 +16,7 @@ def retention_matrix(
     num_tasks = len(task_order)
     task_index = {tid: idx for idx, tid in enumerate(task_order)}
 
-    matrix: list[list[float | None]] = [
-        [None] * num_tasks for _ in range(num_tasks)
-    ]
+    matrix: list[list[float | None]] = [[None] * num_tasks for _ in range(num_tasks)]
 
     for phase_j, phase_entries in enumerate(phases):
         if phase_j >= num_tasks:

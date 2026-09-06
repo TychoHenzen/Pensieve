@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 from torch import nn
 from transformers import AutoModelForCausalLM
@@ -32,7 +34,7 @@ class LatentLoop(nn.Module):
         device: str = "cpu",
         residual_weight: float = DEFAULT_RESIDUAL_WEIGHT,
         tap_layer: int | None = None,
-        backbone: object | None = None,
+        backbone: Any | None = None,
     ) -> None:
         super().__init__()
         self.model_name = model_name
@@ -40,11 +42,9 @@ class LatentLoop(nn.Module):
         self.device = device
         self.residual_weight = residual_weight
         self.backbone = backbone
-        self.tap_layer = (
-            LATENT_TAP_LAYER if backbone is not None else tap_layer or DEFAULT_TAP_LAYER
-        )
+        self.tap_layer = LATENT_TAP_LAYER if backbone is not None else tap_layer or DEFAULT_TAP_LAYER
 
-        self.model = (
+        self.model: Any = (
             backbone.model
             if backbone is not None
             else AutoModelForCausalLM.from_pretrained(model_name, dtype=torch.float32)
@@ -56,16 +56,14 @@ class LatentLoop(nn.Module):
 
         self.hidden_dim = self.model.config.hidden_size
         if self.hidden_dim != SLOT_DIM:
-            raise ValueError(
-                f"expected workspace width {SLOT_DIM}, actual model hidden width {self.hidden_dim}"
-            )
+            raise ValueError(f"expected workspace width {SLOT_DIM}, actual model hidden width {self.hidden_dim}")
         if backbone is not None:
             self._validate_qwen_shape()
-        self.tap_adapter = QwenTapAdapter(self.model) if backbone is not None else None
+        self.tap_adapter: Any = QwenTapAdapter(self.model) if backbone is not None else None
         self.projection = nn.Linear(self.hidden_dim, SLOT_DIM)
         self.projection.to(device)
 
-        gamma_init = 0.7 / (SLOT_DIM ** 0.5)
+        gamma_init = 0.7 / (SLOT_DIM**0.5)
         self.proj_norm = nn.LayerNorm(SLOT_DIM, eps=1e-5)
         self.layer_norm = nn.LayerNorm(SLOT_DIM, eps=1e-5)
         with torch.no_grad():
@@ -85,15 +83,11 @@ class LatentLoop(nn.Module):
     def _validate_qwen_shape(self) -> None:
         actual_width = getattr(self.model.config, "hidden_size", None)
         if actual_width != WORKSPACE_DIMENSION:
-            raise ValueError(
-                "expected Qwen hidden width "
-                f"{WORKSPACE_DIMENSION}, actual hidden width {actual_width}"
-            )
+            raise ValueError(f"expected Qwen hidden width {WORKSPACE_DIMENSION}, actual hidden width {actual_width}")
         actual_layers = getattr(self.model.config, "num_hidden_layers", None)
         if not isinstance(actual_layers, int) or actual_layers < LATENT_TAP_LAYER:
             raise ValueError(
-                "expected Qwen tap layer "
-                f"{LATENT_TAP_LAYER}, actual model exposes {actual_layers} hidden layers"
+                f"expected Qwen tap layer {LATENT_TAP_LAYER}, actual model exposes {actual_layers} hidden layers"
             )
 
     def step(
@@ -111,9 +105,7 @@ class LatentLoop(nn.Module):
         """
         slots = workspace.read_slots().to(self.device)
         context = (
-            context_embeds.to(self.device)
-            if context_embeds is not None
-            else slots.new_empty((0, self.hidden_dim))
+            context_embeds.to(self.device) if context_embeds is not None else slots.new_empty((0, self.hidden_dim))
         )
         sequence_length = context.shape[0] + slots.shape[0]
         if self.tap_adapter is None:
@@ -126,10 +118,7 @@ class LatentLoop(nn.Module):
         else:
             slot_hidden = self.tap_adapter.full_reference(context, slots)
         if tuple(slot_hidden.shape) != tuple(slots.shape):
-            raise ValueError(
-                f"expected slot hidden shape {tuple(slots.shape)}, actual "
-                f"{tuple(slot_hidden.shape)}"
-            )
+            raise ValueError(f"expected slot hidden shape {tuple(slots.shape)}, actual {tuple(slot_hidden.shape)}")
 
         projected = self.proj_norm(self.projection(slot_hidden))
         updated = self.layer_norm(projected + self.residual_weight * slots)
@@ -140,9 +129,7 @@ class LatentLoop(nn.Module):
 
         return updated
 
-    def run(
-        self, workspace: Workspace, context_embeds: torch.Tensor | None = None
-    ) -> torch.Tensor:
+    def run(self, workspace: Workspace, context_embeds: torch.Tensor | None = None) -> torch.Tensor:
         """Run num_steps latent steps in sequence, mutating the workspace in place.
 
         When context_embeds is provided, each step prepends those vectors
@@ -172,27 +159,19 @@ class LatentLoop(nn.Module):
         sequence_length = input_embeds.shape[1]
         outputs = self.model(
             inputs_embeds=input_embeds,
-            attention_mask=torch.ones(
-                (1, sequence_length), dtype=torch.long, device=self.device
-            ),
-            position_ids=torch.arange(
-                sequence_length, dtype=torch.long, device=self.device
-            ).unsqueeze(0),
+            attention_mask=torch.ones((1, sequence_length), dtype=torch.long, device=self.device),
+            position_ids=torch.arange(sequence_length, dtype=torch.long, device=self.device).unsqueeze(0),
             output_hidden_states=True,
         )
         hidden_states = outputs.hidden_states
         if len(hidden_states) <= self.tap_layer:
             raise ValueError(
-                "expected hidden-state tuple with index "
-                f"{self.tap_layer}, actual length {len(hidden_states)}"
+                f"expected hidden-state tuple with index {self.tap_layer}, actual length {len(hidden_states)}"
             )
         tapped_hidden = hidden_states[self.tap_layer]
         expected_shape = (1, sequence_length, self.hidden_dim)
         if tuple(tapped_hidden.shape) != expected_shape:
-            raise ValueError(
-                f"expected hidden state shape {expected_shape}, actual "
-                f"{tuple(tapped_hidden.shape)}"
-            )
+            raise ValueError(f"expected hidden state shape {expected_shape}, actual {tuple(tapped_hidden.shape)}")
         return tapped_hidden[0, -slots.shape[0] :, :]
 
     def flops_per_step(self, slot_count: int) -> int:

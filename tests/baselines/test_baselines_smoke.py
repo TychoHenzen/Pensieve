@@ -43,14 +43,10 @@ _STREAM_CONFIG = StreamConfig(
 
 BASELINE_FACTORIES: dict[str, Callable[[], Subject]] = {
     "naive": lambda: NaiveBaseline(input_dim=INPUT_DIM, output_dim=OUTPUT_DIM),
-    "joint": lambda: JointBaseline(
-        input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, train_iterations=TRAIN_ITERATIONS
-    ),
+    "joint": lambda: JointBaseline(input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, train_iterations=TRAIN_ITERATIONS),
     "frozen": lambda: FrozenBaseline(input_dim=INPUT_DIM, output_dim=OUTPUT_DIM),
     "ewc": lambda: EWCBaseline(input_dim=INPUT_DIM, output_dim=OUTPUT_DIM),
-    "replay": lambda: ReplayBaseline(
-        input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, train_iterations=TRAIN_ITERATIONS
-    ),
+    "replay": lambda: ReplayBaseline(input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, train_iterations=TRAIN_ITERATIONS),
 }
 
 BASELINE_NAMES = sorted(BASELINE_FACTORIES)

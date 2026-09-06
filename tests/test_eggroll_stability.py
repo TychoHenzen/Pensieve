@@ -45,8 +45,7 @@ class FakeWorkspace:
 class FakeState:
     def __init__(self) -> None:
         self.trainable_params = {
-            path: nn.Parameter(torch.full((2, 2), 1.0 + index))
-            for index, path in enumerate(EGGROLL_PARAMETER_PATHS)
+            path: nn.Parameter(torch.full((2, 2), 1.0 + index)) for index, path in enumerate(EGGROLL_PARAMETER_PATHS)
         }
         self.workspace = FakeWorkspace()
 
@@ -57,9 +56,7 @@ class FakeState:
 class FakeTrainer:
     def __init__(self) -> None:
         self.state = FakeState()
-        self.optimizer = torch.optim.SGD(
-            self.state.eggroll_parameters(), lr=0.1, momentum=0.0
-        )
+        self.optimizer = torch.optim.SGD(self.state.eggroll_parameters(), lr=0.1, momentum=0.0)
         self.fitness_batch_size = 8
         self.pop_size = 128
         self.sigma = 0.001
@@ -81,9 +78,7 @@ class FakeTrainer:
         with torch.no_grad():
             for parameter in self.state.eggroll_parameters():
                 parameter.add_(0.001)
-        return SimpleNamespace(
-            consumed_record_count=fitness_batch.consumed_record_count
-        )
+        return SimpleNamespace(consumed_record_count=fitness_batch.consumed_record_count)
 
 
 def _records(split: str, count: int) -> tuple[AsdivRecord, ...]:
@@ -158,11 +153,7 @@ def _numpy_equal(
     left: tuple[str, np.ndarray, int, int, float],
     right: tuple[str, np.ndarray, int, int, float],
 ) -> bool:
-    return (
-        left[0] == right[0]
-        and np.array_equal(left[1], right[1])
-        and left[2:] == right[2:]
-    )
+    return left[0] == right[0] and np.array_equal(left[1], right[1]) and left[2:] == right[2:]
 
 
 # covers: train/eggroll-stability-gate :: Stability gate measures a fresh absolute baseline :: Record the untrained baseline
@@ -200,13 +191,10 @@ def test_records_one_immutable_zero_example_baseline_before_updates() -> None:
         "teacher_cross_problem_cosine": 0.0,
         "separation_retention": 0.0,
     }
-    assert seen_problems == [
-        (record.question, record.target) for record in held_out
-    ]
+    assert seen_problems == [(record.question, record.target) for record in held_out]
     assert encoded["current"]["problem_count"] == BASELINE_PROBLEM_COUNT
     assert encoded["current"]["parameter_rms"] == [
-        {"path": path, "rms": float(index + 1)}
-        for index, path in enumerate(EGGROLL_PARAMETER_PATHS)
+        {"path": path, "rms": float(index + 1)} for index, path in enumerate(EGGROLL_PARAMETER_PATHS)
     ]
     with pytest.raises(FrozenInstanceError):
         checkpoint.consumed_examples = 1  # type: ignore[misc]
@@ -219,10 +207,7 @@ def test_baseline_evaluation_restores_model_optimizer_workspace_cursor_and_rng()
     torch.manual_seed(93)
     trainer = FakeTrainer()
     progress = StabilityProgress()
-    parameters_before = tuple(
-        parameter.detach().clone()
-        for parameter in trainer.state.trainable_params.values()
-    )
+    parameters_before = tuple(parameter.detach().clone() for parameter in trainer.state.trainable_params.values())
     optimizer_before = _optimizer_copy(trainer)
     workspace_before = trainer.state.workspace.snapshot()
     python_before = copy.deepcopy(random.getstate())
@@ -254,9 +239,7 @@ def test_baseline_evaluation_restores_model_optimizer_workspace_cursor_and_rng()
     assert checkpoint.consumed_examples == 0
     assert all(
         torch.equal(actual, expected)
-        for actual, expected in zip(
-            trainer.state.trainable_params.values(), parameters_before, strict=True
-        )
+        for actual, expected in zip(trainer.state.trainable_params.values(), parameters_before, strict=True)
     )
     assert trainer.optimizer.state_dict() == optimizer_before
     assert torch.equal(trainer.state.workspace.snapshot(), workspace_before)
@@ -301,15 +284,18 @@ def test_healthy_development_emits_zero_eight_thirty_two_and_256() -> None:
     assert report.outcome_code == 1
     assert [record.consumed_examples for record in records] == [0, 8, 32, 256]
     assert [record.optimizer_call_count for record in records] == [0, 1, 4, 32]
-    assert tuple(trainer.seen_ids) == tuple(
-        f"train-{index:03d}" for index in range(256)
-    )
+    assert tuple(trainer.seen_ids) == tuple(f"train-{index:03d}" for index in range(256))
     assert all(record.baseline is records[0].baseline for record in records)
     assert records[1].max_update_relative_matrix_rms > 0.0
     assert records[2].max_update_relative_matrix_rms >= records[1].max_update_relative_matrix_rms
     assert records[1].eta_seconds == pytest.approx(62.0)
     assert records[-1].eta_seconds == 0.0
-    assert [json.loads(event.canonical_json_line())["checkpoint"]["consumed_examples"] for event in emitted] == [0, 8, 32, 256]
+    assert [json.loads(event.canonical_json_line())["checkpoint"]["consumed_examples"] for event in emitted] == [
+        0,
+        8,
+        32,
+        256,
+    ]
     assert all(event.canonical_json_line().endswith("\n") for event in emitted)
 
 
@@ -422,7 +408,9 @@ def test_final_checkpoint_passes_only_when_every_health_condition_holds() -> Non
     assert report.checkpoints[-1].current.language_model_loss < report.checkpoints[0].current.language_model_loss
     assert report.checkpoints[-1].current.exact_accuracy > report.checkpoints[0].current.exact_accuracy
     assert report.checkpoints[-1].current.first_token_accuracy > report.checkpoints[0].current.first_token_accuracy
-    assert report.checkpoints[-1].current.separation_retention >= 0.95 * report.checkpoints[0].current.separation_retention
+    assert (
+        report.checkpoints[-1].current.separation_retention >= 0.95 * report.checkpoints[0].current.separation_retention
+    )
     assert report.checkpoints[-1].max_update_relative_matrix_rms <= 0.01
 
 
@@ -454,7 +442,9 @@ def test_final_checkpoint_lists_every_missing_task_improvement() -> None:
     assert failed_metrics == ["exact_accuracy", "first_token_accuracy"]
     assert report.checkpoints[-1].failed_thresholds == report.failed_thresholds
     assert report.checkpoints[-1].current.language_model_loss < report.checkpoints[0].current.language_model_loss
-    assert report.checkpoints[-1].current.separation_retention >= 0.95 * report.checkpoints[0].current.separation_retention
+    assert (
+        report.checkpoints[-1].current.separation_retention >= 0.95 * report.checkpoints[0].current.separation_retention
+    )
 
 
 def _passing_report(trainer: FakeTrainer):
@@ -560,9 +550,7 @@ def test_report_validator_recomputes_passing_health_conditions(tmp_path) -> None
     trainer = FakeTrainer()
     report = _passing_report(trainer)
     payload = report.to_dict()
-    payload["checkpoints"][-1]["current"]["exact_accuracy"] = payload[
-        "checkpoints"
-    ][-1]["baseline"]["exact_accuracy"]
+    payload["checkpoints"][-1]["current"]["exact_accuracy"] = payload["checkpoints"][-1]["baseline"]["exact_accuracy"]
     report_path = tmp_path / "false-pass.json"
     report_path.write_text(json.dumps(payload), encoding="utf-8")
 
@@ -584,8 +572,6 @@ def test_report_with_empty_device_topology_round_trips_as_array(tmp_path) -> Non
 
     validated = load_compatible_stability_report(report_path, expected)
 
-    topology = validated.report.configuration.to_dict()["asset_identity"]["runtime"][
-        "device_topology"
-    ]
+    topology = validated.report.configuration.to_dict()["asset_identity"]["runtime"]["device_topology"]
     assert topology == []
     assert isinstance(topology, list)

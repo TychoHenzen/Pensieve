@@ -34,9 +34,7 @@ class FakeEngine:
         self.calls.append((example, position))
         variance = self.variances.pop(0) if self.variances else 0.015
         consumed_record_count = (
-            len(example)
-            if isinstance(example, tuple) and example and isinstance(example[0], tuple)
-            else 1
+            len(example) if isinstance(example, tuple) and example and isinstance(example[0], tuple) else 1
         )
         return FakeResult(
             self.update_method,
@@ -81,9 +79,7 @@ def test_eggroll_switches_to_gradient_when_window_average_reaches_upper_threshol
         scheduler.train_step(example, epoch=1, example_position=example)
 
     assert len(eggroll.calls) == 2
-    assert gradient.calls == [
-        (2, ExperimentPosition("gradient", 2, 3, 1, 2, 1))
-    ]
+    assert gradient.calls == [(2, ExperimentPosition("gradient", 2, 3, 1, 2, 1))]
 
 
 # covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Gradient detects collapse
@@ -155,9 +151,7 @@ def test_eggroll_batch_stops_at_the_observation_window_boundary() -> None:
         epoch=1,
         example_position=0,
     )
-    following = scheduler.train_records(
-        [("d", "4")], epoch=1, example_position=3
-    )
+    following = scheduler.train_records([("d", "4")], epoch=1, example_position=3)
 
     assert eggroll.calls == [
         (

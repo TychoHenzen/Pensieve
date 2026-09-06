@@ -128,10 +128,7 @@ def test_probe_truth_has_non_empty_answer():
 
 # covers: eval/generators/gsm8k::GSM8K generator supports a configurable subset::full dataset default
 def test_default_config_uses_all_available_problems(monkeypatch):
-    problems = [
-        {"question": f"problem {i}?", "answer": f"worked solution #### {i}"}
-        for i in range(1, 8)
-    ]
+    problems = [{"question": f"problem {i}?", "answer": f"worked solution #### {i}"} for i in range(1, 8)]
     monkeypatch.setattr(
         "eval.stream.generators.gsm8k._load_split",
         lambda split: problems,

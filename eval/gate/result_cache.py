@@ -75,11 +75,7 @@ def _check_bounds(value: Any, *, depth: int = 0, path: str = "$") -> None:
     if depth > MAX_DEPTH:
         raise GateResultError(f"JSON nesting depth exceeds {MAX_DEPTH} at {path}")
     if isinstance(value, str):
-        limit = (
-            MAX_PREDICTION_LENGTH
-            if path.endswith((".prediction", ".completion"))
-            else MAX_STRING_LENGTH
-        )
+        limit = MAX_PREDICTION_LENGTH if path.endswith((".prediction", ".completion")) else MAX_STRING_LENGTH
         if len(value) > limit:
             raise GateResultError(f"string length exceeds the {limit} character limit at {path}")
         return
@@ -140,8 +136,7 @@ def _require_exact_fields(value: Any, required: set[str], path: str) -> Mapping[
     unexpected = fields - required
     if missing or unexpected:
         raise GateResultError(
-            f"{path} schema fields mismatch: missing={sorted(missing)!r}, "
-            f"unexpected={sorted(unexpected)!r}"
+            f"{path} schema fields mismatch: missing={sorted(missing)!r}, unexpected={sorted(unexpected)!r}"
         )
     return value
 
@@ -190,10 +185,22 @@ def _validate_manifest(value: Any, path: str) -> None:
 
 def _validate_identity(value: Any, *, latent: bool) -> Mapping[str, Any]:
     fields = {
-        "schema_version", "selection", "model_assets", "tokenizer_assets",
-        "prompt", "rendered_inputs_sha256", "scorer", "token_generation",
-        "latent_generation", "runtime", "dtype", "attention_implementation",
-        "slot_count", "latent_step_count", "tap_tuple_index", "development_only",
+        "schema_version",
+        "selection",
+        "model_assets",
+        "tokenizer_assets",
+        "prompt",
+        "rendered_inputs_sha256",
+        "scorer",
+        "token_generation",
+        "latent_generation",
+        "runtime",
+        "dtype",
+        "attention_implementation",
+        "slot_count",
+        "latent_step_count",
+        "tap_tuple_index",
+        "development_only",
     }
     if latent:
         fields |= {"checkpoint_sha256", "seeds"}
@@ -203,8 +210,17 @@ def _validate_identity(value: Any, *, latent: bool) -> Mapping[str, Any]:
 
     selection = _require_exact_fields(
         identity["selection"],
-        {"schema_version", "dataset", "configuration", "revision", "split", "seed",
-         "problem_count", "ordered_item_ids", "identity_sha256"},
+        {
+            "schema_version",
+            "dataset",
+            "configuration",
+            "revision",
+            "split",
+            "seed",
+            "problem_count",
+            "ordered_item_ids",
+            "identity_sha256",
+        },
         "identity.selection",
     )
     if _integer(selection["schema_version"], "identity.selection.schema_version") != 1:
@@ -289,16 +305,40 @@ def _validate_identity(value: Any, *, latent: bool) -> Mapping[str, Any]:
 
     runtime = _require_exact_fields(
         identity["runtime"],
-        {"initialization_seed", "python_version", "numpy_version", "pytorch_version", "cuda_version",
-         "transformers_version", "datasets_version", "sentence_transformers_version", "device_topology",
-         "dtype", "attention_implementation", "cublas_workspace_config", "deterministic_algorithms",
-         "tf32_enabled", "cudnn_benchmark", "device"},
+        {
+            "initialization_seed",
+            "python_version",
+            "numpy_version",
+            "pytorch_version",
+            "cuda_version",
+            "transformers_version",
+            "datasets_version",
+            "sentence_transformers_version",
+            "device_topology",
+            "dtype",
+            "attention_implementation",
+            "cublas_workspace_config",
+            "deterministic_algorithms",
+            "tf32_enabled",
+            "cudnn_benchmark",
+            "device",
+        },
         "identity.runtime",
     )
     _integer(runtime["initialization_seed"], "identity.runtime.initialization_seed", minimum=0)
-    for name in ("python_version", "numpy_version", "pytorch_version", "cuda_version", "transformers_version",
-                 "datasets_version", "sentence_transformers_version", "dtype", "attention_implementation",
-                 "cublas_workspace_config", "device"):
+    for name in (
+        "python_version",
+        "numpy_version",
+        "pytorch_version",
+        "cuda_version",
+        "transformers_version",
+        "datasets_version",
+        "sentence_transformers_version",
+        "dtype",
+        "attention_implementation",
+        "cublas_workspace_config",
+        "device",
+    ):
         _string(runtime[name], f"identity.runtime.{name}")
     topology = runtime["device_topology"]
     if not isinstance(topology, list):
@@ -329,9 +369,11 @@ def _validate_seeds(value: Any, path: str) -> list[int]:
 
 
 def _validate_root(value: Any, *, latent: bool) -> Mapping[str, Any]:
-    fields = {"schema_version", "identity", "checkpoint_sha256", "seeds", "runs"} if latent else {
-        "schema_version", "identity", "items", "correct", "total"
-    }
+    fields = (
+        {"schema_version", "identity", "checkpoint_sha256", "seeds", "runs"}
+        if latent
+        else {"schema_version", "identity", "items", "correct", "total"}
+    )
     root = _require_exact_fields(value, fields, "gate result root")
     if _integer(root["schema_version"], "schema_version") != 2:
         raise GateResultError("gate result schema_version must be 2")
@@ -347,14 +389,10 @@ def _validate_root(value: Any, *, latent: bool) -> Mapping[str, Any]:
         if not isinstance(runs, list) or len(runs) != len(seeds):
             raise GateResultError("latent run coverage must match seeds")
         for index, (run, seed) in enumerate(zip(runs, seeds, strict=True)):
-            run_map = _require_exact_fields(
-                run, {"seed", "items", "correct", "total"}, f"runs[{index}]"
-            )
+            run_map = _require_exact_fields(run, {"seed", "items", "correct", "total"}, f"runs[{index}]")
             if _integer(run_map["seed"], f"runs[{index}].seed") != seed:
                 raise GateResultError("latent run seed order mismatch")
-            _validate_item_container(
-                run_map, records=None, expected_ids=None, path=f"runs[{index}]"
-            )
+            _validate_item_container(run_map, records=None, expected_ids=None, path=f"runs[{index}]")
     else:
         _validate_item_container(
             root,
@@ -367,14 +405,19 @@ def _validate_root(value: Any, *, latent: bool) -> Mapping[str, Any]:
 
 
 def _validate_item_container(
-    container: Mapping[str, Any], *, records: Sequence[AsdivRecord] | None,
-    expected_ids: Sequence[str] | None, path: str,
+    container: Mapping[str, Any],
+    *,
+    records: Sequence[AsdivRecord] | None,
+    expected_ids: Sequence[str] | None,
+    path: str,
     require_generation_diagnostics: bool = False,
 ) -> None:
     items = container.get("items")
     if not isinstance(items, list):
         raise GateResultError(f"{path} items must be a list")
-    if expected_ids is not None and [item.get("item_id") if isinstance(item, Mapping) else None for item in items] != list(expected_ids):
+    if expected_ids is not None and [
+        item.get("item_id") if isinstance(item, Mapping) else None for item in items
+    ] != list(expected_ids):
         raise GateResultError(f"{path} item coverage or order mismatch")
     targets = {record.id: record.target for record in records} if records is not None else {}
     recomputed = 0
@@ -408,13 +451,9 @@ def _validate_item_container(
                 item["hit_token_limit"],
                 f"{path}.items[{index}].hit_token_limit",
             )
-            extracted = extract_predicted_number(
-                QWEN_ANSWER_PREFILL + completion
-            ) or ""
+            extracted = extract_predicted_number(QWEN_ANSWER_PREFILL + completion) or ""
             if prediction != extracted:
-                raise GateResultError(
-                    f"{path} extracted prediction mismatch for {item_id!r}"
-                )
+                raise GateResultError(f"{path} extracted prediction mismatch for {item_id!r}")
         target = _string(item["target"], f"{path}.items[{index}].target")
         stored = _boolean(item["correct"], f"{path}.items[{index}].correct")
         if records is not None:
@@ -441,9 +480,7 @@ def _plain_equal(actual: Any, expected: Any) -> bool:
     return canonical_json_bytes(actual) == canonical_json_bytes(expected)
 
 
-def _validate_record_selection(
-    identity: Mapping[str, Any], records: Sequence[AsdivRecord]
-) -> list[str]:
+def _validate_record_selection(identity: Mapping[str, Any], records: Sequence[AsdivRecord]) -> list[str]:
     selection = identity["selection"]
     expected_ids = selection["ordered_item_ids"]
     actual_ids = [record.id for record in records]
@@ -481,8 +518,12 @@ def read_token_result(
 
 
 def read_latent_result(
-    path: Path, *, expected_identity: Mapping[str, Any], expected_checkpoint_sha256: str,
-    expected_seeds: Sequence[int], records: Sequence[AsdivRecord],
+    path: Path,
+    *,
+    expected_identity: Mapping[str, Any],
+    expected_checkpoint_sha256: str,
+    expected_seeds: Sequence[int],
+    records: Sequence[AsdivRecord],
 ) -> dict[str, Any]:
     value = _read_json(path)
     root = _validate_root(value, latent=True)
@@ -516,7 +557,9 @@ def write_json_atomic(path: Path, value: Mapping[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary: Path | None = None
     try:
-        with tempfile.NamedTemporaryFile(mode="wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=path.parent, prefix=f".{path.name}.", suffix=".tmp", delete=False
+        ) as stream:
             temporary = Path(stream.name)
             stream.write(payload)
             stream.flush()

@@ -37,22 +37,11 @@ def test_seed_zero_partitions_preserve_the_measured_gate_population() -> None:
 
     records = load_asdiv_records(source)
 
-    assert {split: len(items) for split, items in records.items()} == dict(
-        ASDIV_PARTITION_COUNTS
-    )
-    assert [record.id for record in records["test"]] == [
-        row["id"] for row in expected[:520]
-    ]
-    assert [record.id for record in records["train"]] == [
-        row["id"] for row in expected[520:1_090]
-    ]
-    assert [record.id for record in records["validation"]] == [
-        row["id"] for row in expected[1_090:]
-    ]
-    partition_ids = [
-        {record.id for record in records[split]}
-        for split in ("train", "validation", "test")
-    ]
+    assert {split: len(items) for split, items in records.items()} == dict(ASDIV_PARTITION_COUNTS)
+    assert [record.id for record in records["test"]] == [row["id"] for row in expected[:520]]
+    assert [record.id for record in records["train"]] == [row["id"] for row in expected[520:1_090]]
+    assert [record.id for record in records["validation"]] == [row["id"] for row in expected[1_090:]]
+    partition_ids = [{record.id for record in records[split]} for split in ("train", "validation", "test")]
     assert partition_ids[0].isdisjoint(partition_ids[1])
     assert partition_ids[0].isdisjoint(partition_ids[2])
     assert partition_ids[1].isdisjoint(partition_ids[2])
@@ -84,9 +73,7 @@ class _Tokenizer:
     def __init__(self) -> None:
         self.calls: list[tuple[list[dict[str, str]], dict[str, Any]]] = []
 
-    def apply_chat_template(
-        self, messages: list[dict[str, str]], **kwargs: Any
-    ) -> dict[str, list[list[int]]]:
+    def apply_chat_template(self, messages: list[dict[str, str]], **kwargs: Any) -> dict[str, list[list[int]]]:
         self.calls.append((messages, kwargs))
         return {"input_ids": [[1, 2, 3]]}
 

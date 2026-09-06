@@ -72,10 +72,7 @@ class PreparedBaselineRequest:
 
 
 def _plain_mapping(value: Mapping[str, Any]) -> dict[str, Any]:
-    return {
-        key: _plain_mapping(item) if isinstance(item, Mapping) else item
-        for key, item in value.items()
-    }
+    return {key: _plain_mapping(item) if isinstance(item, Mapping) else item for key, item in value.items()}
 
 
 def _selection_identity(selection: AsdivSelection) -> dict[str, Any]:
@@ -96,10 +93,7 @@ def _rendered_ids(value: Any) -> list[int]:
     rows = value.tolist()
     if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], list):
         raise ValueError("Qwen chat input_ids must have shape (1, tokens)")
-    if any(
-        isinstance(token_id, bool) or not isinstance(token_id, int)
-        for token_id in rows[0]
-    ):
+    if any(isinstance(token_id, bool) or not isinstance(token_id, int) for token_id in rows[0]):
         raise ValueError("Qwen chat input_ids must contain integers")
     return rows[0]
 
@@ -141,9 +135,7 @@ def _result_identity(
             "assistant_prefill": QWEN_ANSWER_PREFILL,
             "context_token_limit": QWEN_PROMPT_TOKEN_LIMIT,
         },
-        "rendered_inputs_sha256": hashlib.sha256(
-            canonical_json_bytes(list(rendered_inputs))
-        ).hexdigest(),
+        "rendered_inputs_sha256": hashlib.sha256(canonical_json_bytes(list(rendered_inputs))).hexdigest(),
         "scorer": {
             "contract_version": NUMERICAL_SCORER_CONTRACT_VERSION,
             "grammar": _NUMBER_PATTERN.pattern,
@@ -164,25 +156,16 @@ def _result_identity(
     }
 
 
-def _select_records(
-    records: Sequence[AsdivRecord], development_limit: int | None
-) -> AsdivSelection:
+def _select_records(records: Sequence[AsdivRecord], development_limit: int | None) -> AsdivSelection:
     if len(records) != FULL_TEST_COUNT:
-        raise ValueError(
-            f"Calc-ASDiv_A test records must contain exactly {FULL_TEST_COUNT} items"
-        )
+        raise ValueError(f"Calc-ASDiv_A test records must contain exactly {FULL_TEST_COUNT} items")
     if any(record.split != "test" for record in records):
         raise ValueError("Calc-ASDiv_A token baseline accepts only test records")
     if development_limit is not None:
         if isinstance(development_limit, bool) or not isinstance(development_limit, int):
-            raise TypeError(
-                "development_limit must be a non-boolean integer "
-                f"from 1 through {FULL_TEST_COUNT}"
-            )
+            raise TypeError(f"development_limit must be a non-boolean integer from 1 through {FULL_TEST_COUNT}")
         if not 1 <= development_limit <= FULL_TEST_COUNT:
-            raise ValueError(
-                f"development_limit must be from 1 through {FULL_TEST_COUNT}"
-            )
+            raise ValueError(f"development_limit must be from 1 through {FULL_TEST_COUNT}")
     return select_asdiv_a_records(
         {"test": tuple(records)},
         split="test",
@@ -219,9 +202,7 @@ def prepare_baseline_request(
     """Build the complete current identity and render prompts without generating."""
     runtime_configurer()
     run_identity = runtime_identity()
-    source_records = (
-        tuple(records) if records is not None else load_asdiv_a_record_split("test")
-    )
+    source_records = tuple(records) if records is not None else load_asdiv_a_record_split("test")
     selection = _select_records(source_records, development_limit)
     backbone = backbone_loader(device=device)
     if getattr(backbone.config, "hidden_size", None) != 896:
@@ -237,10 +218,7 @@ def prepare_baseline_request(
             raise ValueError("Qwen chat template must return input_ids")
         token_ids = _rendered_ids(rendered["input_ids"])
         if len(token_ids) > QWEN_PROMPT_TOKEN_LIMIT:
-            raise ValueError(
-                "Qwen chat prompt exceeds the 512-token Stage 0 limit: "
-                f"actual {len(token_ids)}"
-            )
+            raise ValueError(f"Qwen chat prompt exceeds the 512-token Stage 0 limit: actual {len(token_ids)}")
         rendered_values.append(rendered)
         rendered_inputs.append({"item_id": record.id, "input_ids": token_ids})
     identity = _result_identity(
@@ -286,9 +264,7 @@ def run_baseline(
 
     correct = 0
     items: list[dict[str, Any]] = []
-    for index, (record, rendered) in enumerate(
-        zip(selection.records, prepared.rendered, strict=True)
-    ):
+    for index, (record, rendered) in enumerate(zip(selection.records, prepared.rendered, strict=True)):
         token_ids = _rendered_ids(rendered["input_ids"])
         input_ids = rendered["input_ids"].to(device)
         generation_kwargs: dict[str, Any] = {
@@ -304,15 +280,9 @@ def run_baseline(
         with torch.no_grad():
             output_ids = model.generate(input_ids, **generation_kwargs)
         completion_ids = output_ids[0][len(token_ids) :]
-        generated_ids = (
-            completion_ids.tolist()
-            if hasattr(completion_ids, "tolist")
-            else list(completion_ids)
-        )
+        generated_ids = completion_ids.tolist() if hasattr(completion_ids, "tolist") else list(completion_ids)
         completion = tokenizer.decode(completion_ids, skip_special_tokens=True)
-        prediction = extract_predicted_number(
-            QWEN_ANSWER_PREFILL + completion
-        ) or ""
+        prediction = extract_predicted_number(QWEN_ANSWER_PREFILL + completion) or ""
         is_correct = score_numerical_answer(prediction, record.target)
         correct += int(is_correct)
         items.append(
@@ -343,21 +313,14 @@ def run_baseline(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Stage 0 frozen-Qwen token baseline on Calc-ASDiv_A."
-    )
+    parser = argparse.ArgumentParser(description="Stage 0 frozen-Qwen token baseline on Calc-ASDiv_A.")
     parser.add_argument(
         "--development-limit",
         type=int,
         default=None,
-        help=(
-            "Development-only prefix size from 1 through 520. "
-            "The default evaluates the full gate selection."
-        ),
+        help=("Development-only prefix size from 1 through 520. The default evaluates the full gate selection."),
     )
-    parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
-    )
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
 
@@ -373,10 +336,7 @@ def main() -> None:
     result_cache.write_gate_result(args.output, result)
 
     accuracy = result["correct"] / result["total"] if result["total"] else 0.0
-    print(
-        f"token-CoT baseline accuracy: {accuracy:.4f} "
-        f"({result['correct']}/{result['total']})"
-    )
+    print(f"token-CoT baseline accuracy: {accuracy:.4f} ({result['correct']}/{result['total']})")
     if accuracy < LOW_ACCURACY_WARNING_THRESHOLD:
         print(
             "WARNING: token-CoT baseline accuracy is below "

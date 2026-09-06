@@ -38,7 +38,5 @@ def build(config: StreamConfig, seed: int) -> Iterator[StreamItem]:
     generator_class = REGISTRY.get(config.generator)
     if generator_class is None:
         known = ", ".join(sorted(REGISTRY))
-        raise ValueError(
-            f"unknown generator {config.generator!r}; known generators: {known}"
-        )
+        raise ValueError(f"unknown generator {config.generator!r}; known generators: {known}")
     return generator_class().generate(config=config, seed=seed)

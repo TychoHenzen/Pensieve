@@ -51,9 +51,7 @@ def slot_variance_penalty(
         raise ValueError("slots must have at least a slot and feature dimension")
     per_dimension_variance = slots.var(dim=-2, unbiased=False)
     per_dimension_std = torch.sqrt(per_dimension_variance + 1e-4)
-    return torch.clamp(variance_threshold - per_dimension_std, min=0.0).mean(
-        dim=-1
-    )
+    return torch.clamp(variance_threshold - per_dimension_std, min=0.0).mean(dim=-1)
 
 
 class VICRegLoss(nn.Module):
@@ -96,10 +94,7 @@ class VICRegLoss(nn.Module):
 
     def forward(self, slots: torch.Tensor) -> torch.Tensor:
         """Weighted sum of the variance and covariance collapse penalties."""
-        return (
-            self.variance_weight * self.variance_loss(slots)
-            + self.covariance_weight * self.covariance_loss(slots)
-        )
+        return self.variance_weight * self.variance_loss(slots) + self.covariance_weight * self.covariance_loss(slots)
 
 
 class EMAProjection(nn.Module):
@@ -122,9 +117,7 @@ class EMAProjection(nn.Module):
     @torch.no_grad()
     def update(self) -> None:
         """Update the target weights toward the source weights by `decay`."""
-        for target_param, source_param in zip(
-            self.target.parameters(), self.source.parameters(), strict=True
-        ):
+        for target_param, source_param in zip(self.target.parameters(), self.source.parameters(), strict=True):
             target_param.mul_(self.decay).add_(source_param, alpha=1.0 - self.decay)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:

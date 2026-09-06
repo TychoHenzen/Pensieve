@@ -165,22 +165,15 @@ def test_boundaries_land_between_tasks():
     items = _items(config)
 
     boundaries = [
-        item for item in items
-        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH
+        item for item in items if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH
     ]
     assert len(boundaries) == 3  # one fewer than num_tasks
 
     for boundary_item in boundaries:
         boundary_position = boundary_item.event.position
 
-        before = [
-            item.event for item in items
-            if item.event.position < boundary_position
-        ]
-        after = [
-            item.event for item in items
-            if item.event.position > boundary_position
-        ]
+        before = [item.event for item in items if item.event.position < boundary_position]
+        after = [item.event for item in items if item.event.position > boundary_position]
         assert before
         assert after
         assert isinstance(before[-1], Probe)
@@ -198,8 +191,7 @@ def test_no_boundary_after_the_final_task():
 def test_task_switch_boundaries_land_between_tasks():
     items = _items(_config(num_tasks=3))
     switches = [
-        item.event for item in items
-        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH
+        item.event for item in items if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_SWITCH
     ]
     assert len(switches) == 2  # num_tasks - 1
 
@@ -207,7 +199,8 @@ def test_task_switch_boundaries_land_between_tasks():
 def test_task_trained_boundaries_one_per_task():
     items = _items(_config(num_tasks=3))
     trained = [
-        item.event for item in items
+        item.event
+        for item in items
         if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_TRAINED
     ]
     assert len(trained) == 3  # one per task
@@ -217,8 +210,7 @@ def test_task_trained_sits_between_examples_and_probes():
     config = _config(num_tasks=3, examples_per_task=3, probes_per_task=2)
     items = _items(config)
     trained = [
-        item for item in items
-        if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_TRAINED
+        item for item in items if isinstance(item.event, Boundary) and item.event.kind == BoundaryKind.TASK_TRAINED
     ]
     for trained_item in trained:
         pos = trained_item.event.position
@@ -358,12 +350,8 @@ def test_chance_rate_with_minimal_config():
 # covers: eval/generators::chance_rate equals 1/classes_per_task, computed from that single param alone::chance rate depends only on classes_per_task
 def test_chance_rate_depends_only_on_classes_per_task():
     generator = SplitClassifyGenerator()
-    config_a = StreamConfig(
-        generator="split-classify", params={"classes_per_task": 4, "num_tasks": 2}
-    )
-    config_b = StreamConfig(
-        generator="split-classify", params={"classes_per_task": 4, "num_tasks": 10}
-    )
+    config_a = StreamConfig(generator="split-classify", params={"classes_per_task": 4, "num_tasks": 2})
+    config_b = StreamConfig(generator="split-classify", params={"classes_per_task": 4, "num_tasks": 10})
     assert generator.chance_rate(config_a) == pytest.approx(0.25)
     assert generator.chance_rate(config_b) == pytest.approx(0.25)
 
@@ -409,10 +397,7 @@ def test_cluster_centers_are_separable():
     centers = [_class_center(num_classes, i) for i in range(num_classes)]
     for i in range(num_classes):
         for j in range(i + 1, num_classes):
-            dist = math.sqrt(
-                sum((a - b) ** 2 for a, b in zip(centers[i], centers[j], strict=True))
-            )
+            dist = math.sqrt(sum((a - b) ** 2 for a, b in zip(centers[i], centers[j], strict=True)))
             assert dist > FEATURE_NOISE_STD, (
-                f"centers {i} and {j} are {dist:.2f} apart, "
-                f"less than noise std {FEATURE_NOISE_STD}"
+                f"centers {i} and {j} are {dist:.2f} apart, less than noise std {FEATURE_NOISE_STD}"
             )

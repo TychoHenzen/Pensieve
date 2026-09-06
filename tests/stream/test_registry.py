@@ -155,12 +155,10 @@ def test_same_process_replay_matches():
     config = _assoc_config()
     first = list(build(config, seed=0))
     second = list(build(config, seed=0))
-    assert [dataclasses.asdict(i.event) for i in first] == [
-        dataclasses.asdict(i.event) for i in second
+    assert [dataclasses.asdict(i.event) for i in first] == [dataclasses.asdict(i.event) for i in second]
+    assert [dataclasses.asdict(i.truth) if i.truth else None for i in first] == [
+        dataclasses.asdict(i.truth) if i.truth else None for i in second
     ]
-    assert [
-        dataclasses.asdict(i.truth) if i.truth else None for i in first
-    ] == [dataclasses.asdict(i.truth) if i.truth else None for i in second]
 
 
 # covers: eval/generator::Cross-process and cross-hash-seed replay determinism::subprocess replay matches
@@ -171,16 +169,11 @@ def test_subprocess_replay_matches():
     # Generate the stream in this process.
     items = list(build(config, seed=seed))
     events = [canonical_json(dataclasses.asdict(item.event)) for item in items]
-    truths = [
-        canonical_json(dataclasses.asdict(item.truth)) if item.truth else "null"
-        for item in items
-    ]
+    truths = [canonical_json(dataclasses.asdict(item.truth)) if item.truth else "null" for item in items]
     parent_sequence = json.dumps({"events": events, "truths": truths})
 
     generator_cls = REGISTRY[config.generator]
-    parent_hash = stream_hash(
-        config, seed, generator_cls.version, "1", "corpus_fixture"
-    )
+    parent_hash = stream_hash(config, seed, generator_cls.version, "1", "corpus_fixture")
 
     # Run the same generation in a subprocess with a different PYTHONHASHSEED.
     script = (

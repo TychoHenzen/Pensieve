@@ -95,9 +95,7 @@ def test_scheduler_evaluates_once_when_a_variance_window_completes() -> None:
     for example_position in range(1, 501):
         scheduler.train_step("example", epoch=3, example_position=example_position)
 
-    expected_position = ExperimentPosition(
-        "eggroll", 1, 500, 3, 500, 500, optimizer_call_count=500
-    )
+    expected_position = ExperimentPosition("eggroll", 1, 500, 3, 500, 500, optimizer_call_count=500)
     assert evaluator.positions == [expected_position]
     assert scheduler.evaluation_results == (
         EvaluationRecord(expected_position, expected_position, frozenset({PHASE_BOUNDARY})),
@@ -116,9 +114,7 @@ def test_scheduler_deduplicates_a_window_and_epoch_evaluation_at_the_same_positi
     for example_position in range(1, 501):
         scheduler.train_step("example", epoch=1, example_position=example_position)
 
-    position = ExperimentPosition(
-        "eggroll", 1, 500, 1, 500, 500, optimizer_call_count=500
-    )
+    position = ExperimentPosition("eggroll", 1, 500, 1, 500, 500, optimizer_call_count=500)
     scheduler.evaluate_epoch_boundary(position)
 
     assert evaluator.positions == [position]
@@ -143,9 +139,7 @@ def test_scheduler_evaluates_an_incomplete_final_window_with_a_partial_label() -
     scheduler.evaluate_final_partial_phase(position)
 
     assert evaluator.positions == [position]
-    assert scheduler.evaluation_results == (
-        EvaluationRecord(position, position, frozenset({PARTIAL_PHASE_BOUNDARY})),
-    )
+    assert scheduler.evaluation_results == (EvaluationRecord(position, position, frozenset({PARTIAL_PHASE_BOUNDARY})),)
 
 
 @dataclass
@@ -177,9 +171,7 @@ class FakeTokenizer:
         del kwargs
         return {"input_ids": torch.tensor([[1 if text == "one" else 2]])}
 
-    def apply_chat_template(
-        self, messages: object, **kwargs: object
-    ) -> dict[str, torch.Tensor]:
+    def apply_chat_template(self, messages: object, **kwargs: object) -> dict[str, torch.Tensor]:
         del messages, kwargs
         return {"input_ids": torch.tensor([[1]])}
 

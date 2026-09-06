@@ -20,9 +20,7 @@ def _state(mode: str):
         for index, name in enumerate(standalone_checkpoint.ALLOWED_MODEL_PARAMETER_PATHS)
     }
     owned_parameters = (
-        [parameters[name] for name in EGGROLL_MODEL_PARAMETER_PATHS]
-        if mode == "eggroll"
-        else list(parameters.values())
+        [parameters[name] for name in EGGROLL_MODEL_PARAMETER_PATHS] if mode == "eggroll" else list(parameters.values())
     )
     optimizer = (
         torch.optim.SGD(owned_parameters, lr=0.001, momentum=0.0)
@@ -84,8 +82,7 @@ def test_standalone_checkpoint_round_trips_complete_v2_state(
     assert len(loaded.metadata["optimizer_manifests"]) == 1
     assert loaded.metadata["optimizer_manifests"][0]["method"] == mode
     assert all(
-        torch.equal(loaded.tensors[f"model.{name}"], parameter.detach())
-        for name, parameter in parameters.items()
+        torch.equal(loaded.tensors[f"model.{name}"], parameter.detach()) for name, parameter in parameters.items()
     )
 
 
@@ -119,31 +116,18 @@ def test_compatible_standalone_resume_restores_model_and_optimizer(
         else torch.optim.Adam(parameters.values(), lr=0.9)
     )
 
-    standalone_checkpoint.validate_compatibility(
-        loaded, identity=fixture["identity"], selections=fixture["selections"]
-    )
-    standalone_checkpoint.restore_checkpoint(
-        loaded, model_parameters=parameters, optimizer=restored_optimizer
-    )
+    standalone_checkpoint.validate_compatibility(loaded, identity=fixture["identity"], selections=fixture["selections"])
+    standalone_checkpoint.restore_checkpoint(loaded, model_parameters=parameters, optimizer=restored_optimizer)
 
-    assert all(
-        torch.equal(parameter, loaded.tensors[f"model.{name}"])
-        for name, parameter in parameters.items()
-    )
-    assert restored_optimizer.param_groups[0]["lr"] == (
-        0.001 if mode == "eggroll" else 1e-4
-    )
+    assert all(torch.equal(parameter, loaded.tensors[f"model.{name}"]) for name, parameter in parameters.items())
+    assert restored_optimizer.param_groups[0]["lr"] == (0.001 if mode == "eggroll" else 1e-4)
     if mode == "gradient":
-        assert all(
-            restored_optimizer.state[parameter] for parameter in parameters.values()
-        )
+        assert all(restored_optimizer.state[parameter] for parameter in parameters.values())
     else:
         assert restored_optimizer.state == {}
 
 
-def test_standalone_legacy_rejection_never_calls_torch_load(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_standalone_legacy_rejection_never_calls_torch_load(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "epoch-1.pt"
     path.write_bytes(b"legacy pickle")
     monkeypatch.setattr(
@@ -179,15 +163,11 @@ def test_incompatible_standalone_identity_rejects_before_mutation(
             checkpoint, identity=incompatible, selections=fixture["selections"]
         )
 
-    assert all(
-        torch.equal(parameters[name], value) for name, value in before_parameters.items()
-    )
+    assert all(torch.equal(parameters[name], value) for name, value in before_parameters.items())
     assert _same_state(optimizer.state_dict(), before_optimizer)
 
 
-def test_standalone_mode_mismatch_rejects_before_restore(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_standalone_mode_mismatch_rejects_before_restore(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     parameters, optimizer, fixture = _state("gradient")
     monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     checkpoint = standalone_checkpoint.build_checkpoint(
@@ -245,11 +225,7 @@ def _same_state(left: object, right: object) -> bool:
     if isinstance(left, torch.Tensor) and isinstance(right, torch.Tensor):
         return torch.equal(left, right)
     if isinstance(left, dict) and isinstance(right, dict):
-        return left.keys() == right.keys() and all(
-            _same_state(left[key], right[key]) for key in left
-        )
+        return left.keys() == right.keys() and all(_same_state(left[key], right[key]) for key in left)
     if isinstance(left, list) and isinstance(right, list):
-        return len(left) == len(right) and all(
-            _same_state(a, b) for a, b in zip(left, right, strict=True)
-        )
+        return len(left) == len(right) and all(_same_state(a, b) for a, b in zip(left, right, strict=True))
     return left == right

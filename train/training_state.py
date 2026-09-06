@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any, cast
 
 import torch
 from torch import nn
@@ -40,12 +41,10 @@ class TrainingState:
         slot_count: int = DEFAULT_SLOT_COUNT,
         num_steps: int = 2,
         device: str = "cpu",
-        backbone: object | None = None,
-        sentence_model: object | None = None,
+        backbone: Any | None = None,
+        sentence_model: Any | None = None,
     ) -> None:
-        self.backbone = (
-            load_frozen_qwen_backbone(device=device) if backbone is None else backbone
-        )
+        self.backbone = load_frozen_qwen_backbone(device=device) if backbone is None else backbone
         self.workspace = Workspace(slot_count=slot_count)
         self.encoder = SlotEncoder(
             slot_count=slot_count,
@@ -59,23 +58,20 @@ class TrainingState:
         )
         self.tokenizer = self.backbone.tokenizer
         self.trainable_params: dict[str, nn.Parameter] = {
-            "encoder.projection.weight": self.encoder.projection.weight,
-            "encoder.projection.bias": self.encoder.projection.bias,
-            "encoder.slot_queries": self.encoder.slot_queries,
-            "encoder.attn_log_temp": self.encoder.attn_log_temp,
-            "latent_loop.projection.weight": self.latent_loop.projection.weight,
-            "latent_loop.projection.bias": self.latent_loop.projection.bias,
-            "latent_loop.proj_norm.weight": self.latent_loop.proj_norm.weight,
-            "latent_loop.proj_norm.bias": self.latent_loop.proj_norm.bias,
-            "latent_loop.layer_norm.weight": self.latent_loop.layer_norm.weight,
-            "latent_loop.layer_norm.bias": self.latent_loop.layer_norm.bias,
+            "encoder.projection.weight": cast(nn.Parameter, self.encoder.projection.weight),
+            "encoder.projection.bias": cast(nn.Parameter, self.encoder.projection.bias),
+            "encoder.slot_queries": cast(nn.Parameter, self.encoder.slot_queries),
+            "encoder.attn_log_temp": cast(nn.Parameter, self.encoder.attn_log_temp),
+            "latent_loop.projection.weight": cast(nn.Parameter, self.latent_loop.projection.weight),
+            "latent_loop.projection.bias": cast(nn.Parameter, self.latent_loop.projection.bias),
+            "latent_loop.proj_norm.weight": cast(nn.Parameter, self.latent_loop.proj_norm.weight),
+            "latent_loop.proj_norm.bias": cast(nn.Parameter, self.latent_loop.proj_norm.bias),
+            "latent_loop.layer_norm.weight": cast(nn.Parameter, self.latent_loop.layer_norm.weight),
+            "latent_loop.layer_norm.bias": cast(nn.Parameter, self.latent_loop.layer_norm.bias),
         }
         if tuple(self.trainable_params) != GRADIENT_PARAMETER_PATHS:
             raise ValueError("invalid Stage 0 gradient parameter registry order")
-        if any(
-            self.trainable_params[path].ndim != 2
-            for path in EGGROLL_PARAMETER_PATHS
-        ):
+        if any(self.trainable_params[path].ndim != 2 for path in EGGROLL_PARAMETER_PATHS):
             raise ValueError("invalid Stage 0 EGGROLL matrix parameter registry")
         self._validate_trainable_registry()
 
@@ -93,14 +89,8 @@ class TrainingState:
                 if parameter.requires_grad
             }
         )
-        extras = sorted(
-            name for name, parameter in actual.items() if id(parameter) not in allowed_ids
-        )
-        missing = sorted(
-            name
-            for name, parameter in self.trainable_params.items()
-            if not parameter.requires_grad
-        )
+        extras = sorted(name for name, parameter in actual.items() if id(parameter) not in allowed_ids)
+        missing = sorted(name for name, parameter in self.trainable_params.items() if not parameter.requires_grad)
         if extras or missing:
             details = []
             if extras:

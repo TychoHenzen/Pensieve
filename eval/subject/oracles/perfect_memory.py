@@ -8,7 +8,6 @@ from eval.subject import CostCounters, Subject
 
 
 class PerfectMemoryOracle(Subject):
-
     def __init__(self) -> None:
         self._facts: dict[str, str] = {}
         self._steps: int = 0

@@ -105,12 +105,8 @@ def run(
             elif isinstance(event, Boundary):
                 subject.observe(event)
 
-            checkpoint_due = (
-                position > 0 and position % config.checkpoint_interval_events == 0
-            )
-            time_due = (
-                time.time() - last_checkpoint_time >= config.checkpoint_interval_seconds
-            )
+            checkpoint_due = position > 0 and position % config.checkpoint_interval_events == 0
+            time_due = time.time() - last_checkpoint_time >= config.checkpoint_interval_seconds
             if checkpoint_due or time_due:
                 save_checkpoint(
                     checkpoint_dir,

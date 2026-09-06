@@ -97,11 +97,7 @@ def load_subject(
         if name.startswith("model.")
     }
     subject.encoder.load_state_dict(
-        {
-            name.removeprefix("encoder."): tensor
-            for name, tensor in model_state.items()
-            if name.startswith("encoder.")
-        },
+        {name.removeprefix("encoder."): tensor for name, tensor in model_state.items() if name.startswith("encoder.")},
         strict=False,
     )
     subject.latent_loop.load_state_dict(
@@ -123,10 +119,7 @@ def _rendered_ids(value: Any) -> list[int]:
     if any(isinstance(item, bool) or not isinstance(item, int) for item in ids):
         raise ValueError("Qwen chat input_ids must contain integers")
     if len(ids) > QWEN_PROMPT_TOKEN_LIMIT:
-        raise ValueError(
-            "Qwen chat prompt exceeds the 512-token Stage 0 limit: "
-            f"actual {len(ids)}"
-        )
+        raise ValueError(f"Qwen chat prompt exceeds the 512-token Stage 0 limit: actual {len(ids)}")
     return ids
 
 
@@ -150,9 +143,7 @@ def _validate_development_limit(development_limit: int | None, available: int) -
     if development_limit is None:
         return
     if isinstance(development_limit, bool) or not isinstance(development_limit, int):
-        raise TypeError(
-            f"development_limit must be a non-boolean integer from 1 through {available}"
-        )
+        raise TypeError(f"development_limit must be a non-boolean integer from 1 through {available}")
     if not 1 <= development_limit <= available:
         raise ValueError(f"development_limit must be from 1 through {available}")
 
@@ -160,9 +151,7 @@ def _validate_development_limit(development_limit: int | None, available: int) -
 def _validate_records(records: Sequence[AsdivRecord]) -> tuple[AsdivRecord, ...]:
     source = tuple(records)
     if len(source) != FULL_TEST_COUNT:
-        raise ValueError(
-            f"Calc-ASDiv_A test records must contain exactly {FULL_TEST_COUNT} items"
-        )
+        raise ValueError(f"Calc-ASDiv_A test records must contain exactly {FULL_TEST_COUNT} items")
     if any(record.split != "test" for record in source):
         raise ValueError("latent evaluation accepts only Calc-ASDiv_A test records")
     ids = [record.id for record in source]
@@ -171,9 +160,7 @@ def _validate_records(records: Sequence[AsdivRecord]) -> tuple[AsdivRecord, ...]
     return source
 
 
-def _token_order(
-    token_result: Mapping[str, Any], records: Sequence[AsdivRecord]
-) -> tuple[str, ...]:
+def _token_order(token_result: Mapping[str, Any], records: Sequence[AsdivRecord]) -> tuple[str, ...]:
     if token_result.get("schema_version") != 2:
         raise ValueError("token result schema_version must be 2")
     identity = token_result.get("identity")
@@ -235,9 +222,7 @@ def _selected_records(
     return tuple(records_by_id[item_id] for item_id in ordered_ids[:count])
 
 
-def _selection_identity(
-    token_selection: Mapping[str, Any], records: Sequence[AsdivRecord]
-) -> dict[str, Any]:
+def _selection_identity(token_selection: Mapping[str, Any], records: Sequence[AsdivRecord]) -> dict[str, Any]:
     result = copy.deepcopy(dict(token_selection))
     ids = [record.id for record in records]
     result.update(
@@ -364,9 +349,7 @@ def run_eval(
     identity.update(
         {
             "selection": _selection_identity(token_selection, selection_records),
-            "rendered_inputs_sha256": hashlib.sha256(
-                canonical_json_bytes(canonical_rendered)
-            ).hexdigest(),
+            "rendered_inputs_sha256": hashlib.sha256(canonical_json_bytes(canonical_rendered)).hexdigest(),
             "checkpoint_sha256": checkpoint_sha256,
             "seeds": list(seeds),
             "slot_count": slot_count,
@@ -387,9 +370,7 @@ def run_eval(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Stage 0 latent evaluation on persisted Calc-ASDiv_A/Qwen inputs."
-    )
+    parser = argparse.ArgumentParser(description="Stage 0 latent evaluation on persisted Calc-ASDiv_A/Qwen inputs.")
     parser.add_argument(
         "--checkpoint",
         type=Path,
@@ -415,9 +396,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
-    parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
-    )
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
 

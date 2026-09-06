@@ -21,12 +21,14 @@ def test_command_rejects_missing_stability_report(tmp_path: Path) -> None:
     missing_report = tmp_path / "missing.json"
     output = tmp_path / "output.json"
     with pytest.raises(FileNotFoundError):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(missing_report),
-            "--final-output",
-            str(output),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(missing_report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
 
 def test_command_rejects_non_json_stability_report(tmp_path: Path) -> None:
@@ -35,12 +37,14 @@ def test_command_rejects_non_json_stability_report(tmp_path: Path) -> None:
     malformed_report.write_text("not valid json", encoding="utf-8")
     output = tmp_path / "output.json"
     with pytest.raises(ValueError, match="stability report malformed"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(malformed_report),
-            "--final-output",
-            str(output),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(malformed_report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
 
 def test_command_rejects_non_object_stability_report(tmp_path: Path) -> None:
@@ -48,13 +52,15 @@ def test_command_rejects_non_object_stability_report(tmp_path: Path) -> None:
     report = tmp_path / "report.json"
     report.write_text('["array", "not", "object"]', encoding="utf-8")
     output = tmp_path / "output.json"
-    with pytest.raises(ValueError, match="root must be an object"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(output),
-        ])
+    with pytest.raises(TypeError, match="root must be an object"):
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
 
 def test_command_rejects_passing_stability_report(tmp_path: Path) -> None:
@@ -64,12 +70,14 @@ def test_command_rejects_passing_stability_report(tmp_path: Path) -> None:
     report.write_text(json.dumps(report_data), encoding="utf-8")
     output = tmp_path / "output.json"
     with pytest.raises(ValueError, match="must have status=failed"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(output),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
 
 def test_command_rejects_missing_status_in_stability_report(tmp_path: Path) -> None:
@@ -79,12 +87,14 @@ def test_command_rejects_missing_status_in_stability_report(tmp_path: Path) -> N
     report.write_text(json.dumps(report_data), encoding="utf-8")
     output = tmp_path / "output.json"
     with pytest.raises(ValueError, match="must have status=failed"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(output),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
 
 def test_command_rejects_existing_output_path(tmp_path: Path) -> None:
@@ -95,12 +105,14 @@ def test_command_rejects_existing_output_path(tmp_path: Path) -> None:
     output = tmp_path / "output.json"
     output.write_text("pre-existing", encoding="utf-8")
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(output),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
 
 def test_command_rejects_existing_progress_path(tmp_path: Path) -> None:
@@ -112,14 +124,16 @@ def test_command_rejects_existing_progress_path(tmp_path: Path) -> None:
     progress = tmp_path / "progress.jsonl"
     progress.write_text("pre-existing", encoding="utf-8")
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(output),
-            "--progress-output",
-            str(progress),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(output),
+                "--progress-output",
+                str(progress),
+            ]
+        )
 
 
 def test_command_rejects_same_output_and_progress_path(tmp_path: Path) -> None:
@@ -129,14 +143,16 @@ def test_command_rejects_same_output_and_progress_path(tmp_path: Path) -> None:
     report.write_text(json.dumps(report_data), encoding="utf-8")
     same_path = tmp_path / "output.json"
     with pytest.raises(ValueError, match="must use distinct paths"):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(same_path),
-            "--progress-output",
-            str(same_path),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(same_path),
+                "--progress-output",
+                str(same_path),
+            ]
+        )
 
 
 def test_command_rejects_implementation_mismatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -150,12 +166,14 @@ def test_command_rejects_implementation_mismatch(tmp_path: Path, monkeypatch: py
         "canonical_trainability_implementation_identity",
         lambda _root: (_ for _ in ()).throw(ValueError("test error")),
     )
-    code = run_stage0_trainability.main([
-        "--stability-report",
-        str(report),
-        "--final-output",
-        str(output),
-    ])
+    code = run_stage0_trainability.main(
+        [
+            "--stability-report",
+            str(report),
+            "--final-output",
+            str(output),
+        ]
+    )
     assert code == 1
 
 
@@ -261,9 +279,7 @@ def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     assert data["overall_status"] == "inconclusive"
 
 
-def test_pre_existing_output_rejected_before_model_loading(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_pre_existing_output_rejected_before_model_loading(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Pre-existing output path is rejected BEFORE model loading."""
     report = tmp_path / "report.json"
     report_data = {"status": "failed"}
@@ -284,12 +300,14 @@ def test_pre_existing_output_rejected_before_model_loading(
     )
 
     with pytest.raises(FileExistsError):
-        run_stage0_trainability.main([
-            "--stability-report",
-            str(report),
-            "--final-output",
-            str(output),
-        ])
+        run_stage0_trainability.main(
+            [
+                "--stability-report",
+                str(report),
+                "--final-output",
+                str(output),
+            ]
+        )
 
     assert not model_load_called, "Model loading should not occur when path exists"
 
@@ -387,55 +405,34 @@ def test_final_report_exit_code_mapping() -> None:
             assert code == 1, f"Status {status} should map to exit code 1"
 
 
-def test_command_output_structure_on_fixture(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Command produces correct JSON and JSONL output structure on fixture."""
-    report = tmp_path / "stability.json"
-    report_data = {"status": "failed"}
-    report.write_text(json.dumps(report_data), encoding="utf-8")
+def test_command_routes_investigation_result_through_main(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The command invokes its runner and routes the result to both output files."""
+    stability_report = tmp_path / "stability.json"
+    stability_report.write_text(json.dumps({"status": "failed"}), encoding="utf-8")
 
     output = tmp_path / "output.json"
     progress = tmp_path / "progress.jsonl"
+    investigation_called = False
 
-    final_report = TrainabilityReport(
-        schema_version=1,
-        configuration=TrainabilityConfiguration(
-            asset_identity=TrainabilityAssetIdentity(
-                stability_report_digest="a" * 64,
-                held_out_record_identifiers=(("id1", "hash1"),),
-                training_record_identifiers_overfit=(("id2", "hash2"),),
-                training_record_identifiers_32=(("id3", "hash3"),),
-            ),
-            implementation=ImplementationIdentity(
-                sha256="b" * 64,
-                sources=(("test_source.py", "c" * 64),),
-            ),
-            stability_configuration={},
-        ),
-        asset_identity_digest="d" * 64,
-        initial_state_digest="e" * 64,
-        overall_status="inconclusive",
-        overfit_probe=OverfitProbeResult(
-            status="inconclusive",
-            attempts=(),
-            failed_conditions=("fixture",),
-        ),
-        causal_probes=(),
-        arms=(),
-        elapsed_seconds=0.1,
-    )
-
-    progress_record = TrainabilityProgressRecord(
-        schema_version=1,
-        sequence_number=0,
-        kind="arm_checkpoint",
-        probe_or_arm="fixture_test",
-        consumed_examples=0,
-        optimizer_call_count=0,
-        elapsed_seconds=0.05,
-        eta_seconds=0.1,
-    )
+    def run_fixture_investigation(
+        _args: object,
+        writer: run_stage0_trainability.TrainabilityProgressWriter,
+    ) -> tuple[str, list[str]]:
+        nonlocal investigation_called
+        investigation_called = True
+        writer.write_record(
+            TrainabilityProgressRecord(
+                schema_version=1,
+                sequence_number=0,
+                kind="arm_checkpoint",
+                probe_or_arm="fixture_test",
+                consumed_examples=0,
+                optimizer_call_count=0,
+                elapsed_seconds=0.05,
+                eta_seconds=0.1,
+            )
+        )
+        return "inconclusive", ["fixture_outcome"]
 
     monkeypatch.setattr(
         run_stage0_trainability,
@@ -450,11 +447,25 @@ def test_command_output_structure_on_fixture(
             sources=(("test_source.py", "c" * 64),),
         ),
     )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "_run_investigation",
+        run_fixture_investigation,
+    )
 
-    run_stage0_trainability._write_report_to_file(final_report, output)
-    with run_stage0_trainability.TrainabilityProgressWriter(progress) as writer:
-        writer.write_record(progress_record)
+    code = run_stage0_trainability.main(
+        [
+            "--stability-report",
+            str(stability_report),
+            "--final-output",
+            str(output),
+            "--progress-output",
+            str(progress),
+        ]
+    )
 
+    assert investigation_called is True
+    assert code == 1
     assert output.exists(), "Final JSON report should be created"
     assert progress.exists(), "JSONL progress file should be created"
 
@@ -462,8 +473,11 @@ def test_command_output_structure_on_fixture(
     assert output_data["overall_status"] == "inconclusive"
     assert output_data["schema_version"] == 1
     assert "elapsed_seconds" in output_data
+    assert output_data["failed_conditions"] == ["fixture_outcome"]
 
-    progress_lines = progress.read_text(encoding="utf-8").strip().split("\n")
+    progress_text = progress.read_text(encoding="utf-8")
+    assert progress_text.strip()
+    progress_lines = progress_text.strip().split("\n")
     assert len(progress_lines) == 1
     progress_data = json.loads(progress_lines[0])
     assert progress_data["kind"] == "arm_checkpoint"

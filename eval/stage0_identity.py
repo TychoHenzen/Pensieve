@@ -38,23 +38,16 @@ NUMERICAL_SCORER_CONTRACT_VERSION = 1
 ASDIV_SOURCE_SPLIT = "test"
 ASDIV_SOURCE_COUNT = 1_218
 ASDIV_PARTITION_SEED = 0
-ASDIV_PARTITION_COUNTS = MappingProxyType(
-    {"train": 570, "validation": 128, "test": 520}
-)
+ASDIV_PARTITION_COUNTS = MappingProxyType({"train": 570, "validation": 128, "test": 520})
 
-QWEN_MATH_PROMPT = (
-    "Solve this math word problem. Return only the numerical answer."
-    "\n\nProblem:\n{question}"
-)
+QWEN_MATH_PROMPT = "Solve this math word problem. Return only the numerical answer.\n\nProblem:\n{question}"
 QWEN_ANSWER_PREFILL = "#### "
 
 
 def _immutable_manifest(
     entries: Mapping[str, Mapping[str, str]],
 ) -> MappingProxyType[str, MappingProxyType[str, str]]:
-    return MappingProxyType(
-        {path: MappingProxyType(dict(digest)) for path, digest in entries.items()}
-    )
+    return MappingProxyType({path: MappingProxyType(dict(digest)) for path, digest in entries.items()})
 
 
 STAGE0_IDENTITY = MappingProxyType(
@@ -220,9 +213,7 @@ def apply_qwen_chat_template(tokenizer: Any, question: str) -> Any:
 
 
 def _load_failure(repository: str, revision: str, error: Exception) -> RuntimeError:
-    return RuntimeError(
-        f"Could not load repository {repository} at pinned revision {revision}: {error}"
-    )
+    return RuntimeError(f"Could not load repository {repository} at pinned revision {revision}: {error}")
 
 
 @dataclass(frozen=True)
@@ -235,9 +226,7 @@ class FrozenQwenBackbone:
     generation_config: Any
 
 
-def _require_digest_match(
-    path: str, expected: Mapping[str, str], actual: str
-) -> None:
+def _require_digest_match(path: str, expected: Mapping[str, str], actual: str) -> None:
     if actual != expected["digest"]:
         raise ValueError(f"{path}: expected {expected['digest']}, actual {actual}")
 
@@ -288,8 +277,7 @@ def load_frozen_qwen_backbone(
     tokenizer_loader: Callable[..., Any] | None = None,
     config_loader: Callable[..., Any] | None = None,
     generation_config_loader: Callable[..., Any] | None = None,
-    manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None]
-    | None = None,
+    manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None] | None = None,
 ) -> FrozenQwenBackbone:
     """Load one pinned, verified Qwen model and freeze it for Stage 0."""
     os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
@@ -300,9 +288,7 @@ def load_frozen_qwen_backbone(
         model_loader = model_loader or AutoModelForCausalLM.from_pretrained
         tokenizer_loader = tokenizer_loader or AutoTokenizer.from_pretrained
         config_loader = config_loader or AutoConfig.from_pretrained
-        generation_config_loader = (
-            generation_config_loader or GenerationConfig.from_pretrained
-        )
+        generation_config_loader = generation_config_loader or GenerationConfig.from_pretrained
 
     try:
         manifest_verifier(QWEN_MODEL, QWEN_REVISION, QWEN_MANIFEST)
@@ -390,10 +376,7 @@ def _sentence_transformer_loader(
 
 def load_minilm_model(
     model_loader: Callable[..., Any] | None = None,
-    manifest_verifier: Callable[
-        [str, str, Mapping[str, Mapping[str, str]]], None
-    ]
-    | None = None,
+    manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None] | None = None,
 ) -> Any:
     if model_loader is None:
         model_loader = _sentence_transformer_loader
@@ -413,10 +396,7 @@ def load_minilm_model(
 
 def load_asdiv_source(
     dataset_loader: Callable[..., Any] | None = None,
-    manifest_verifier: Callable[
-        [str, str, Mapping[str, Mapping[str, str]]], None
-    ]
-    | None = None,
+    manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None] | None = None,
 ) -> list[Mapping[str, Any]]:
     injected_loader = dataset_loader is not None
     if dataset_loader is None:
@@ -435,22 +415,15 @@ def load_asdiv_source(
             trust_remote_code=False,
         )
     except Exception as error:
-        raise _load_failure(
-            ASDIV_DATASET, ASDIV_REVISION, error
-        ) from error
+        raise _load_failure(ASDIV_DATASET, ASDIV_REVISION, error) from error
 
     actual_count = len(loaded)
     if actual_count != ASDIV_SOURCE_COUNT:
-        raise ValueError(
-            "Calc-ASDiv_A source count mismatch: expected "
-            f"{ASDIV_SOURCE_COUNT}, found {actual_count}"
-        )
+        raise ValueError(f"Calc-ASDiv_A source count mismatch: expected {ASDIV_SOURCE_COUNT}, found {actual_count}")
     return list(loaded)
 
 
-def training_identity(
-    *, runtime: Mapping[str, Any], held_out_item_ids: Sequence[str]
-) -> dict[str, Any]:
+def training_identity(*, runtime: Mapping[str, Any], held_out_item_ids: Sequence[str]) -> dict[str, Any]:
     return {
         **STAGE0_IDENTITY,
         "runtime": dict(runtime),

@@ -57,9 +57,7 @@ class TrainabilityProgressWriter:
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Run the bounded trainability investigation for Stage 0."
-    )
+    parser = argparse.ArgumentParser(description="Run the bounded trainability investigation for Stage 0.")
     parser.add_argument(
         "--stability-report",
         type=Path,
@@ -79,8 +77,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional path for JSONL progress records (defaults to final-output with .jsonl suffix)",
     )
     return parser
-
-
 
 
 def _run_investigation(
@@ -158,28 +154,20 @@ def _write_final_report(
 def _validate_args(args: argparse.Namespace) -> None:
     """Validate command-line arguments before any file I/O or model loading."""
     if not args.stability_report.exists():
-        raise FileNotFoundError(
-            f"stability report not found: {args.stability_report}"
-        )
+        raise FileNotFoundError(f"stability report not found: {args.stability_report}")
 
     progress_path = args.progress_output or args.final_output.with_suffix(".jsonl")
 
     output_identity = os.path.normcase(str(args.final_output.resolve()))
     progress_identity = os.path.normcase(str(progress_path.resolve()))
     if output_identity == progress_identity:
-        raise ValueError(
-            "--final-output and --progress-output must use distinct paths"
-        )
+        raise ValueError("--final-output and --progress-output must use distinct paths")
 
     if args.final_output.exists():
-        raise FileExistsError(
-            f"refusing to overwrite trainability output: {args.final_output}"
-        )
+        raise FileExistsError(f"refusing to overwrite trainability output: {args.final_output}")
 
     if progress_path.exists():
-        raise FileExistsError(
-            f"refusing to overwrite trainability progress: {progress_path}"
-        )
+        raise FileExistsError(f"refusing to overwrite trainability progress: {progress_path}")
 
     try:
         report_data = json.loads(args.stability_report.read_text(encoding="utf-8"))
@@ -187,13 +175,11 @@ def _validate_args(args: argparse.Namespace) -> None:
         raise ValueError(f"stability report malformed or unreadable: {e}") from e
 
     if not isinstance(report_data, dict):
-        raise ValueError("stability report root must be an object")
+        raise TypeError("stability report root must be an object")
 
     status = report_data.get("status")
     if status == "passed":
-        raise ValueError(
-            "stability report must have status=failed (passing reports cannot start investigation)"
-        )
+        raise ValueError("stability report must have status=failed (passing reports cannot start investigation)")
     elif status != "failed":
         raise ValueError(f"stability report must have status=failed, got {status!r}")
 

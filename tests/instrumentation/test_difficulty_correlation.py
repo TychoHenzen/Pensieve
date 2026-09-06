@@ -36,9 +36,7 @@ def _spearman(xs: list[float], ys: list[float]) -> float:
     return cov / (var_x * var_y) ** 0.5
 
 
-def _spearman_p_value(
-    xs: list[float], ys: list[float], n_permutations: int = 1000
-) -> float:
+def _spearman_p_value(xs: list[float], ys: list[float], n_permutations: int = 1000) -> float:
     """Permutation p-value for a positive Spearman correlation.
 
     Shuffles the pairing of ``ys`` against ``xs`` and counts how often a

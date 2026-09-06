@@ -50,9 +50,7 @@ def test_stream_item_wrapping_idle_carries_none():
 
 
 def test_stream_item_wrapping_boundary_carries_none():
-    item = StreamItem(
-        event=Boundary(position=1, kind=BoundaryKind.SESSION_END), truth=None
-    )
+    item = StreamItem(event=Boundary(position=1, kind=BoundaryKind.SESSION_END), truth=None)
     assert item.truth is None
 
 
@@ -71,9 +69,7 @@ def test_probe_without_truth_is_rejected():
 # covers: eval/events::StreamItem truth pairing invariant::non-probe with truth
 def test_non_probe_with_truth_is_rejected():
     with pytest.raises(ValueError, match="may carry a ProbeTruth"):
-        StreamItem(
-            event=Observe(position=1, payload="hi"), truth=ProbeTruth(answer="42")
-        )
+        StreamItem(event=Observe(position=1, payload="hi"), truth=ProbeTruth(answer="42"))
 
 
 def test_subject_view_never_yields_probe_truth():
@@ -96,9 +92,7 @@ def test_subject_view_never_leaks_answer_string():
 
 # covers: eval/events::subject_view hides truth and hidden boundaries::hidden boundary omitted
 def test_subject_view_omits_hidden_boundary():
-    hidden = Boundary(
-        position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True
-    )
+    hidden = Boundary(position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True)
     items = [StreamItem(event=hidden, truth=None)]
     result = list(subject_view(items))
     assert result == []
@@ -106,9 +100,7 @@ def test_subject_view_omits_hidden_boundary():
 
 # covers: eval/events::harness_view yields everything unfiltered::hidden boundary included for harness
 def test_harness_view_includes_hidden_boundary():
-    hidden = Boundary(
-        position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True
-    )
+    hidden = Boundary(position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True)
     items = [StreamItem(event=hidden, truth=None)]
     result = list(harness_view(items))
     assert result == [items[0]]
@@ -122,9 +114,7 @@ def test_visible_boundary_appears_in_both_views():
 
 
 def test_views_agree_on_ordering_and_positions():
-    hidden = Boundary(
-        position=2, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True
-    )
+    hidden = Boundary(position=2, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True)
     items = [
         StreamItem(event=Observe(position=1, payload="a"), truth=None),
         StreamItem(event=hidden, truth=None),
@@ -203,9 +193,7 @@ def test_subject_view_preserves_position_order():
 
 # covers: eval/events::subject_view hides truth and hidden boundaries::visible boundary included
 def test_subject_view_includes_visible_boundary():
-    visible = Boundary(
-        position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=False
-    )
+    visible = Boundary(position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=False)
     items = [StreamItem(event=visible, truth=None)]
     result = list(subject_view(items))
     assert visible in result
@@ -257,9 +245,5 @@ def test_no_generator_sets_narration_or_hostile(monkeypatch):
     for generator_class, config in configs.items():
         generator = generator_class()
         for item in generator.generate(config=config, seed=0):
-            assert item.event.narration is None, (
-                f"{generator.name} set narration on position {item.event.position}"
-            )
-            assert item.event.hostile is False, (
-                f"{generator.name} set hostile on position {item.event.position}"
-            )
+            assert item.event.narration is None, f"{generator.name} set narration on position {item.event.position}"
+            assert item.event.hostile is False, f"{generator.name} set hostile on position {item.event.position}"

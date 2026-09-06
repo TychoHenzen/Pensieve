@@ -26,9 +26,7 @@ def test_slot_decoder_defaults_to_model_device() -> None:
 def _make_decoder() -> tuple[NarrationDecoder, LatentLoop]:
     latent_loop = LatentLoop(num_steps=1, device="cpu")
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
-    decoder = NarrationDecoder(
-        model=latent_loop.model, tokenizer=tokenizer, device="cpu", max_tokens=8
-    )
+    decoder = NarrationDecoder(model=latent_loop.model, tokenizer=tokenizer, device="cpu", max_tokens=8)
     return decoder, latent_loop
 
 
@@ -50,14 +48,10 @@ def test_narration_decoder_differs_for_different_slot_states() -> None:
     generator_b = torch.Generator().manual_seed(1)
 
     workspace_a = Workspace(slot_count=SLOT_COUNT)
-    workspace_a.write_slots(
-        torch.randn(SLOT_COUNT, workspace_a.slots.shape[1], generator=generator_a)
-    )
+    workspace_a.write_slots(torch.randn(SLOT_COUNT, workspace_a.slots.shape[1], generator=generator_a))
 
     workspace_b = Workspace(slot_count=SLOT_COUNT)
-    workspace_b.write_slots(
-        torch.randn(SLOT_COUNT, workspace_b.slots.shape[1], generator=generator_b)
-    )
+    workspace_b.write_slots(torch.randn(SLOT_COUNT, workspace_b.slots.shape[1], generator=generator_b))
 
     text_a = decoder.narrate(workspace_a)
     text_b = decoder.narrate(workspace_b)

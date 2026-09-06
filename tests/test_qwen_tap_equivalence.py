@@ -33,16 +33,22 @@ def pinned_backbone() -> FrozenQwenBackbone:
 def _deterministic_embeddings() -> tuple[torch.Tensor, torch.Tensor]:
     generator = torch.Generator(device="cpu")
     generator.manual_seed(1729)
-    context = torch.randn(
-        (5, WORKSPACE_DIMENSION),
-        generator=generator,
-        dtype=torch.float32,
-    ) * 0.02
-    slots = torch.randn(
-        (4, WORKSPACE_DIMENSION),
-        generator=generator,
-        dtype=torch.float32,
-    ) * 0.02
+    context = (
+        torch.randn(
+            (5, WORKSPACE_DIMENSION),
+            generator=generator,
+            dtype=torch.float32,
+        )
+        * 0.02
+    )
+    slots = (
+        torch.randn(
+            (4, WORKSPACE_DIMENSION),
+            generator=generator,
+            dtype=torch.float32,
+        )
+        * 0.02
+    )
     return context, slots
 
 
@@ -58,10 +64,7 @@ def test_pinned_qwen_cached_state_and_slot_gradient_match_full_execution(
     assert pinned_backbone.model.config.hidden_size == WORKSPACE_DIMENSION
     assert LATENT_TAP_LAYER == 12
     assert pinned_backbone.model.config._attn_implementation == "eager"
-    assert all(
-        parameter.dtype == torch.float32
-        for parameter in pinned_backbone.model.parameters()
-    )
+    assert all(parameter.dtype == torch.float32 for parameter in pinned_backbone.model.parameters())
 
     adapter = QwenTapAdapter(pinned_backbone.model)
     context, initial_slots = _deterministic_embeddings()

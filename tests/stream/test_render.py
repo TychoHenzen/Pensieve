@@ -187,7 +187,7 @@ def test_probe_rendering_is_idempotent():
 def test_idle_carries_no_text_and_refuses_to_render():
     event = _idle()
     assert carries_text(event) is False
-    with pytest.raises(ValueError, match="idle"):
+    with pytest.raises(TypeError, match="idle"):
         render_event(event)
 
 
@@ -198,7 +198,7 @@ def test_carries_text_returns_false_for_idle():
 
 # covers: eval/render::Idle carries no text and render_event refuses it::render_event raises on Idle
 def test_render_event_raises_on_idle():
-    with pytest.raises(ValueError, match="idle"):
+    with pytest.raises(TypeError, match="idle"):
         render_event(_idle())
 
 
@@ -250,18 +250,14 @@ def test_example_renders_with_two_decimal_features():
 
 # covers: eval/render::example payload renders with 2-decimal features and hides source::source value hidden
 def test_example_source_value_hidden():
-    event = Observe(
-        position=1, payload={"features": [1.0], "label": "a", "source": "secret-source"}
-    )
+    event = Observe(position=1, payload={"features": [1.0], "label": "a", "source": "secret-source"})
     rendered = render_event(event)
     assert "secret-source" not in rendered
 
 
 # covers: eval/render::example payload renders with 2-decimal features and hides source::features use exactly 2 decimal places
 def test_example_features_use_exactly_two_decimal_places():
-    event = Observe(
-        position=1, payload={"features": [1.0, 2.12345], "label": "x", "source": None}
-    )
+    event = Observe(position=1, payload={"features": [1.0, 2.12345], "label": "x", "source": None})
     rendered = render_event(event)
     assert "1.00" in rendered
     assert "2.12" in rendered
@@ -316,9 +312,7 @@ def test_observe_rendering_is_idempotent():
 def test_rendered_subject_view_drops_idle_and_is_stable():
     items = [
         StreamItem(event=_observe(), truth=None),
-        StreamItem(
-            event=_probe(), truth=ProbeTruth(answer=SECRET_ANSWER)
-        ),
+        StreamItem(event=_probe(), truth=ProbeTruth(answer=SECRET_ANSWER)),
         StreamItem(event=_idle(), truth=None),
         StreamItem(event=_boundary(), truth=None),
     ]
@@ -340,9 +334,7 @@ def test_rendered_subject_view_drops_idle_and_is_stable():
 
 # covers: eval/render::rendered_subject_view drops Idle and hidden Boundary::hidden boundary is omitted
 def test_rendered_subject_view_omits_hidden_boundary():
-    hidden = Boundary(
-        position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True
-    )
+    hidden = Boundary(position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True)
     items = [StreamItem(event=hidden, truth=None)]
     assert list(rendered_subject_view(items)) == []
 
@@ -359,9 +351,7 @@ def test_rendered_subject_view_omits_idle_events():
 
 # covers: eval/render::rendered_subject_view drops Idle and hidden Boundary::hidden boundary omitted
 def test_rendered_subject_view_hidden_boundary_yields_nothing():
-    hidden = Boundary(
-        position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True
-    )
+    hidden = Boundary(position=1, kind=BoundaryKind.TASK_SWITCH, hidden_from_subject=True)
     items = [StreamItem(event=hidden, truth=None)]
     assert list(rendered_subject_view(items)) == []
 
@@ -564,15 +554,11 @@ def test_token_distance_grows_with_event_distance():
     probes_by_teaching: dict[int, list[Probe]] = {}
     for item in items:
         if isinstance(item.event, Probe):
-            probes_by_teaching.setdefault(
-                item.event.teaching_position, []
-            ).append(item.event)
+            probes_by_teaching.setdefault(item.event.teaching_position, []).append(item.event)
 
     assert probes_by_teaching
     for probes in probes_by_teaching.values():
-        ordered = sorted(
-            probes, key=lambda p: p.position - p.teaching_position
-        )
+        ordered = sorted(probes, key=lambda p: p.position - p.teaching_position)
         distances = [p.token_distance for p in ordered]
         assert distances == sorted(distances)
         assert distances[0] < distances[-1]

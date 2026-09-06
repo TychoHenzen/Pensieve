@@ -128,10 +128,7 @@ class EWCBaseline(Subject):
         """
         examples = self._examples[: self._fisher_samples]
         if examples:
-            new_fisher = {
-                name: torch.zeros_like(param)
-                for name, param in self._model.named_parameters()
-            }
+            new_fisher = {name: torch.zeros_like(param) for name, param in self._model.named_parameters()}
             self._model.train()
             for features, label in examples:
                 target_idx = self._label_to_idx.get(label)
@@ -154,10 +151,7 @@ class EWCBaseline(Subject):
                 else:
                     self._fisher[name] = normalized
 
-        self._theta_star = {
-            name: param.detach().clone()
-            for name, param in self._model.named_parameters()
-        }
+        self._theta_star = {name: param.detach().clone() for name, param in self._model.named_parameters()}
         self._model.eval()
 
     def _retrain(self) -> None:

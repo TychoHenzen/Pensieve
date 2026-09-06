@@ -104,9 +104,7 @@ _EGGROLL_SCHEDULE_FIELDS = frozenset(
         "next_dataset_position",
     }
 )
-_SELECTION_FIELDS = frozenset(
-    {"identity", "split", "seed", "problem_count", "ordered_item_ids"}
-)
+_SELECTION_FIELDS = frozenset({"identity", "split", "seed", "problem_count", "ordered_item_ids"})
 _RUNTIME_FIELDS = frozenset(
     {
         "initialization_seed",
@@ -152,14 +150,10 @@ _STANDALONE_EGGROLL_RUN_CONFIG_FIELDS = frozenset(
         "logging_frequency",
     }
 )
-_RUN_SELECTION_FIELDS = frozenset(
-    {"dataset", "revision", "split", "seed", "count"}
-)
+_RUN_SELECTION_FIELDS = frozenset({"dataset", "revision", "split", "seed", "count"})
 _MODEL_SHAPE_FIELDS = frozenset({"slot_count", "num_steps"})
 _OPTIMIZER_CONFIG_FIELDS = frozenset({"learning_rate"})
-_STABILIZED_OPTIMIZER_CONFIG_FIELDS = frozenset(
-    {"type", "momentum", "learning_rate", "parameter_paths"}
-)
+_STABILIZED_OPTIMIZER_CONFIG_FIELDS = frozenset({"type", "momentum", "learning_rate", "parameter_paths"})
 _EGGROLL_POPULATION_FIELDS = frozenset(
     {
         "size",
@@ -287,17 +281,13 @@ class _Validator:
             return None
         return value
 
-    def exact_fields(
-        self, value: Mapping[str, Any], fields: frozenset[str], path: str
-    ) -> None:
+    def exact_fields(self, value: Mapping[str, Any], fields: frozenset[str], path: str) -> None:
         for field in sorted(fields - value.keys()):
             self.add(f"{path}.{field}", "is required")
         for field in sorted(value.keys() - fields):
             self.add(f"{path}.{field}", "is not allowed")
 
-    def integer(
-        self, value: Any, path: str, *, minimum: int | None = None
-    ) -> bool:
+    def integer(self, value: Any, path: str, *, minimum: int | None = None) -> bool:
         if not isinstance(value, int) or isinstance(value, bool):
             self.add(path, "must be an integer")
             return False
@@ -326,16 +316,10 @@ class _Validator:
         minimum: float | None = None,
         exclusive_minimum: bool = False,
     ) -> bool:
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or not math.isfinite(value)
-        ):
+        if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(value):
             self.add(path, "must be a finite number")
             return False
-        if minimum is not None and (
-            value < minimum or (exclusive_minimum and value == minimum)
-        ):
+        if minimum is not None and (value < minimum or (exclusive_minimum and value == minimum)):
             comparison = "greater than" if exclusive_minimum else "at least"
             self.add(path, f"must be {comparison} {minimum}")
             return False
@@ -343,14 +327,10 @@ class _Validator:
 
 
 def _finite_scalar(value: Any) -> bool:
-    return isinstance(value, (str, bool, int, float)) and not (
-        isinstance(value, float) and not math.isfinite(value)
-    )
+    return isinstance(value, (str, bool, int, float)) and not (isinstance(value, float) and not math.isfinite(value))
 
 
-def _validate_identity(
-    validator: _Validator, identity: Any, selections: Any, rng: Any
-) -> None:
+def _validate_identity(validator: _Validator, identity: Any, selections: Any, rng: Any) -> None:
     obj = validator.object(identity, "$.identity")
     if obj is None:
         return
@@ -420,9 +400,7 @@ def _validate_identity(
                 )
 
 
-def _validate_tensor_manifest(
-    validator: _Validator, manifest: Any
-) -> tuple[dict[str, Mapping[str, Any]], list[str]]:
+def _validate_tensor_manifest(validator: _Validator, manifest: Any) -> tuple[dict[str, Mapping[str, Any]], list[str]]:
     by_name: dict[str, Mapping[str, Any]] = {}
     names: list[str] = []
     if not isinstance(manifest, list):
@@ -439,7 +417,7 @@ def _validate_tensor_manifest(
         dtype = obj.get("dtype")
         role = obj.get("role")
         valid_name = validator.string(name, f"{path}.name")
-        if valid_name:
+        if valid_name and isinstance(name, str):
             if name in by_name:
                 validator.add(f"{path}.name", f"duplicates tensor {name!r}")
             else:
@@ -449,15 +427,13 @@ def _validate_tensor_manifest(
             validator.add(f"{path}.shape", "must be a list")
         else:
             for dimension_index, dimension in enumerate(shape):
-                validator.integer(
-                    dimension, f"{path}.shape[{dimension_index}]", minimum=0
-                )
+                validator.integer(dimension, f"{path}.shape[{dimension_index}]", minimum=0)
         if validator.string(dtype, f"{path}.dtype") and dtype not in _DTYPE_TO_SAFETENSORS:
             validator.add(f"{path}.dtype", "is not a supported tensor dtype")
         if role not in TENSOR_ROLES:
             validator.add(f"{path}.role", f"must be one of {sorted(TENSOR_ROLES)}")
 
-        if valid_name and isinstance(role, str):
+        if valid_name and isinstance(name, str) and isinstance(role, str):
             if role == "model_parameter":
                 allowed = {f"model.{parameter}" for parameter in ALLOWED_MODEL_PARAMETER_PATHS}
                 if name not in allowed:
@@ -518,10 +494,14 @@ def _validate_optimizer_manifests(
             seen.add(method)
         optimizer_type = obj.get("optimizer_type")
         validator.string(optimizer_type, f"{path}.optimizer_type")
-        expected_optimizer_type = {
-            "gradient": "Adam",
-            "eggroll": "SGD",
-        }.get(method)
+        expected_optimizer_type = (
+            {
+                "gradient": "Adam",
+                "eggroll": "SGD",
+            }.get(method)
+            if isinstance(method, str)
+            else None
+        )
         if expected_optimizer_type is not None and optimizer_type != expected_optimizer_type:
             validator.add(
                 f"{path}.optimizer_type",
@@ -533,11 +513,7 @@ def _validate_optimizer_manifests(
             validator.add(f"{path}.parameter_names", "must be a list")
             parameter_names = []
         else:
-            expected = list(
-                EGGROLL_MODEL_PARAMETER_PATHS
-                if method == "eggroll"
-                else ALLOWED_MODEL_PARAMETER_PATHS
-            )
+            expected = list(EGGROLL_MODEL_PARAMETER_PATHS if method == "eggroll" else ALLOWED_MODEL_PARAMETER_PATHS)
             for position, parameter in enumerate(parameter_names):
                 item_path = f"{path}.parameter_names[{position}]"
                 if not validator.string(parameter, item_path):
@@ -563,13 +539,9 @@ def _validate_optimizer_manifests(
                 group_obj = validator.object(group, group_path)
                 if group_obj is None:
                     continue
-                validator.exact_fields(
-                    group_obj, frozenset({"parameter_names", "scalars"}), group_path
-                )
+                validator.exact_fields(group_obj, frozenset({"parameter_names", "scalars"}), group_path)
                 names = group_obj.get("parameter_names")
-                if not isinstance(names, list) or any(
-                    not isinstance(name, str) for name in names
-                ):
+                if not isinstance(names, list) or any(not isinstance(name, str) for name in names):
                     validator.add(f"{group_path}.parameter_names", "must be a string list")
                 else:
                     grouped.extend(names)
@@ -583,13 +555,9 @@ def _validate_optimizer_manifests(
                     not isinstance(key, str) or not _finite_scalar(scalar)
                     for key, scalar in (scalars.items() if isinstance(scalars, Mapping) else [])
                 ):
-                    validator.add(
-                        f"{group_path}.scalars", "must contain only finite scalar values"
-                    )
+                    validator.add(f"{group_path}.scalars", "must contain only finite scalar values")
             if grouped != parameter_names:
-                validator.add(
-                    f"{path}.parameter_groups", "must cover the canonical parameter order"
-                )
+                validator.add(f"{path}.parameter_groups", "must cover the canonical parameter order")
 
         scalar_state = obj.get("scalar_state")
         if not isinstance(scalar_state, Mapping):
@@ -607,7 +575,7 @@ def _validate_optimizer_manifests(
         references = obj.get("tensor_references")
         valid_references = isinstance(references, Mapping) and set(references) == set(parameter_names)
         referenced_tensors: set[str] = set()
-        if valid_references:
+        if isinstance(references, Mapping) and valid_references:
             for parameter, states in references.items():
                 if not isinstance(states, Mapping):
                     valid_references = False
@@ -622,8 +590,7 @@ def _validate_optimizer_manifests(
         declared_optimizer_tensors = {
             name
             for name, tensor in tensors.items()
-            if tensor.get("role") == "optimizer_state"
-            and name.startswith(f"optimizer.{method}.")
+            if tensor.get("role") == "optimizer_state" and name.startswith(f"optimizer.{method}.")
         }
         if referenced_tensors != declared_optimizer_tensors:
             valid_references = False
@@ -635,6 +602,8 @@ def _validate_optimizer_manifests(
 
     if [item.get("method") for item in value if isinstance(item, Mapping)] != expected_methods:
         validator.add("$.optimizer_manifests", f"must declare methods {expected_methods!r}")
+
+
 def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
     obj = validator.object(schedule, "$.schedule")
     if obj is None:
@@ -657,9 +626,7 @@ def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
     if mode != "alternating":
         return
     schedule_fields = (
-        _ALTERNATING_SCHEDULE_FIELDS
-        if "consumed_examples" in obj
-        else _LEGACY_ALTERNATING_SCHEDULE_FIELDS
+        _ALTERNATING_SCHEDULE_FIELDS if "consumed_examples" in obj else _LEGACY_ALTERNATING_SCHEDULE_FIELDS
     )
     validator.exact_fields(obj, schedule_fields, "$.schedule")
     if "active_phase" in obj and obj["active_phase"] not in OPTIMIZER_METHODS:
@@ -686,16 +653,9 @@ def _validate_schedule(validator: _Validator, schedule: Any, mode: Any) -> None:
         and not isinstance(phase_steps, bool)
         and completed >= phase_steps
     ):
-        validator.add(
-            "$.schedule.completed_phase_steps", "must be less than phase_steps"
-        )
-    if (
-        "consumed_examples" in obj
-        and obj.get("consumed_examples") != obj.get("global_step")
-    ):
-        validator.add(
-            "$.schedule.consumed_examples", "must equal $.schedule.global_step"
-        )
+        validator.add("$.schedule.completed_phase_steps", "must be less than phase_steps")
+    if "consumed_examples" in obj and obj.get("consumed_examples") != obj.get("global_step"):
+        validator.add("$.schedule.consumed_examples", "must equal $.schedule.global_step")
 
 
 def _validate_run_selection(
@@ -713,15 +673,9 @@ def _validate_run_selection(
     for field in ("dataset", "revision"):
         if field in obj:
             validator.string(obj[field], f"{path}.{field}")
-    if "split" in obj and (
-        validator.string(obj["split"], f"{path}.split")
-        and obj["split"] != expected_split
-    ):
+    if "split" in obj and (validator.string(obj["split"], f"{path}.split") and obj["split"] != expected_split):
         validator.add(f"{path}.split", f"must equal {expected_split!r}")
-    if "seed" in obj and (
-        validator.integer(obj["seed"], f"{path}.seed", minimum=0)
-        and obj["seed"] != 0
-    ):
+    if "seed" in obj and (validator.integer(obj["seed"], f"{path}.seed", minimum=0) and obj["seed"] != 0):
         validator.add(f"{path}.seed", "must equal 0")
     if "count" in obj:
         count = obj["count"]
@@ -729,19 +683,13 @@ def _validate_run_selection(
             validator.integer(count, f"{path}.count", minimum=0)
 
 
-def _validate_run_config(
-    validator: _Validator, value: Any, mode: Any, schedule: Any
-) -> None:
+def _validate_run_config(validator: _Validator, value: Any, mode: Any, schedule: Any) -> None:
     if mode not in {"eggroll", "alternating"}:
         return
     obj = validator.object(value, "$.run_config")
     if obj is None:
         return
-    run_config_fields = (
-        _STANDALONE_EGGROLL_RUN_CONFIG_FIELDS
-        if mode == "eggroll"
-        else _STABILIZED_RUN_CONFIG_FIELDS
-    )
+    run_config_fields = _STANDALONE_EGGROLL_RUN_CONFIG_FIELDS if mode == "eggroll" else _STABILIZED_RUN_CONFIG_FIELDS
     validator.exact_fields(obj, run_config_fields, "$.run_config")
     _validate_run_selection(
         validator,
@@ -760,26 +708,14 @@ def _validate_run_config(
     for field in ("epochs", "phase_steps", "logging_frequency"):
         if field in obj:
             validator.integer(obj[field], f"$.run_config.{field}", minimum=1)
-    if (
-        isinstance(schedule, Mapping)
-        and "phase_steps" in obj
-        and obj["phase_steps"] != schedule.get("phase_steps")
-    ):
-        validator.add(
-            "$.run_config.phase_steps", "must equal $.schedule.phase_steps"
-        )
+    if isinstance(schedule, Mapping) and "phase_steps" in obj and obj["phase_steps"] != schedule.get("phase_steps"):
+        validator.add("$.run_config.phase_steps", "must equal $.schedule.phase_steps")
 
-    model_shape = validator.object(
-        obj.get("model_shape"), "$.run_config.model_shape"
-    )
+    model_shape = validator.object(obj.get("model_shape"), "$.run_config.model_shape")
     if model_shape is not None:
-        validator.exact_fields(
-            model_shape, _MODEL_SHAPE_FIELDS, "$.run_config.model_shape"
-        )
+        validator.exact_fields(model_shape, _MODEL_SHAPE_FIELDS, "$.run_config.model_shape")
         for field in _MODEL_SHAPE_FIELDS & model_shape.keys():
-            validator.integer(
-                model_shape[field], f"$.run_config.model_shape.{field}", minimum=1
-            )
+            validator.integer(model_shape[field], f"$.run_config.model_shape.{field}", minimum=1)
 
     for optimizer_name in ("gradient_optimizer", "eggroll_optimizer"):
         if optimizer_name not in obj:
@@ -812,10 +748,7 @@ def _validate_run_config(
             else:
                 for index, parameter in enumerate(parameter_paths):
                     item_path = f"{path}.parameter_paths[{index}]"
-                    if (
-                        not validator.string(parameter, item_path)
-                        or parameter not in ALLOWED_MODEL_PARAMETER_PATHS
-                    ):
+                    if not validator.string(parameter, item_path) or parameter not in ALLOWED_MODEL_PARAMETER_PATHS:
                         validator.add(item_path, "is not an allowed parameter")
                 expected_paths = list(
                     ALLOWED_MODEL_PARAMETER_PATHS
@@ -828,16 +761,10 @@ def _validate_run_config(
                         "must use the complete method-specific canonical order",
                     )
 
-    population = validator.object(
-        obj.get("eggroll_population"), "$.run_config.eggroll_population"
-    )
+    population = validator.object(obj.get("eggroll_population"), "$.run_config.eggroll_population")
     if population is not None:
         path = "$.run_config.eggroll_population"
-        population_fields = (
-            _STANDALONE_EGGROLL_POPULATION_FIELDS
-            if mode == "eggroll"
-            else _EGGROLL_POPULATION_FIELDS
-        )
+        population_fields = _STANDALONE_EGGROLL_POPULATION_FIELDS if mode == "eggroll" else _EGGROLL_POPULATION_FIELDS
         validator.exact_fields(population, population_fields, path)
         for field in ("size", "rank", "eval_batch_size", "fitness_batch_size"):
             if field in population:
@@ -962,20 +889,14 @@ def _validate_metrics(validator: _Validator, metrics: Any) -> None:
             validator.add(path, "string is too long")
 
 
-def _validate_rng(
-    validator: _Validator, rng: Any, tensors: Mapping[str, Mapping[str, Any]]
-) -> None:
+def _validate_rng(validator: _Validator, rng: Any, tensors: Mapping[str, Mapping[str, Any]]) -> None:
     obj = validator.object(rng, "$.rng")
     if obj is None:
         return
-    validator.exact_fields(
-        obj, frozenset({"python", "numpy", "pytorch_cpu", "cuda"}), "$.rng"
-    )
+    validator.exact_fields(obj, frozenset({"python", "numpy", "pytorch_cpu", "cuda"}), "$.rng")
     python = validator.object(obj.get("python"), "$.rng.python")
     if python is not None:
-        validator.exact_fields(
-            python, frozenset({"version", "state", "gaussian_cache"}), "$.rng.python"
-        )
+        validator.exact_fields(python, frozenset({"version", "state", "gaussian_cache"}), "$.rng.python")
         if "version" in python:
             validator.integer(python["version"], "$.rng.python.version", minimum=0)
         state = python.get("state")
@@ -986,9 +907,7 @@ def _validate_rng(
                 validator.integer(item, f"$.rng.python.state[{index}]", minimum=0)
         cache = python.get("gaussian_cache")
         if cache is not None and (
-            not isinstance(cache, (int, float))
-            or isinstance(cache, bool)
-            or not math.isfinite(cache)
+            not isinstance(cache, (int, float)) or isinstance(cache, bool) or not math.isfinite(cache)
         ):
             validator.add("$.rng.python.gaussian_cache", "must be null or finite")
 
@@ -996,9 +915,7 @@ def _validate_rng(
     if numpy is not None:
         validator.exact_fields(
             numpy,
-            frozenset(
-                {"bit_generator", "position", "has_gaussian", "gaussian_cache", "state_tensor"}
-            ),
+            frozenset({"bit_generator", "position", "has_gaussian", "gaussian_cache", "state_tensor"}),
             "$.rng.numpy",
         )
         if "bit_generator" in numpy:
@@ -1082,7 +999,7 @@ def _validate_optimizer_run_config(
         if not isinstance(manifest, Mapping):
             continue
         method = manifest.get("method")
-        config_name = config_names.get(method)
+        config_name = config_names.get(method) if isinstance(method, str) else None
         config = run_config.get(config_name) if config_name is not None else None
         if not isinstance(config, Mapping):
             continue
@@ -1100,9 +1017,7 @@ def _validate_optimizer_run_config(
         groups = manifest.get("parameter_groups")
         scalars = (
             groups[0].get("scalars")
-            if isinstance(groups, list)
-            and len(groups) == 1
-            and isinstance(groups[0], Mapping)
+            if isinstance(groups, list) and len(groups) == 1 and isinstance(groups[0], Mapping)
             else None
         )
         if not isinstance(scalars, Mapping):
@@ -1137,10 +1052,13 @@ def _validate_schedule_accounting(
     epoch = schedule.get("epoch")
     next_position = schedule.get("next_dataset_position")
     consumed = schedule.get("consumed_examples")
-    if not all(
-        isinstance(value, int) and not isinstance(value, bool)
-        for value in (problem_count, epoch, next_position, consumed)
-    ):
+    if not isinstance(problem_count, int) or isinstance(problem_count, bool):
+        return
+    if not isinstance(epoch, int) or isinstance(epoch, bool):
+        return
+    if not isinstance(next_position, int) or isinstance(next_position, bool):
+        return
+    if not isinstance(consumed, int) or isinstance(consumed, bool):
         return
     if problem_count <= 0 or epoch < 1 or next_position < 0 or consumed < 0:
         return
@@ -1150,11 +1068,7 @@ def _validate_schedule_accounting(
             "must be less than the selected training problem count",
         )
         return
-    expected_consumed = (
-        epoch * problem_count
-        if next_position == 0
-        else (epoch - 1) * problem_count + next_position
-    )
+    expected_consumed = epoch * problem_count if next_position == 0 else (epoch - 1) * problem_count + next_position
     if consumed != expected_consumed:
         validator.add(
             "$.schedule.consumed_examples",
@@ -1178,9 +1092,7 @@ def _validate_schedule_accounting(
             )
 
     counter_fields = (
-        ("eggroll_optimizer_calls",)
-        if mode == "eggroll"
-        else ("gradient_optimizer_calls", "eggroll_optimizer_calls")
+        ("eggroll_optimizer_calls",) if mode == "eggroll" else ("gradient_optimizer_calls", "eggroll_optimizer_calls")
     )
     optimizer_calls = 0
     for field in counter_fields:
@@ -1217,36 +1129,22 @@ def validate_checkpoint_metadata(
     if root is None:
         raise CheckpointMetadataError("; ".join(validator.errors))
     mode = root.get("mode")
-    root_fields = (
-        _RUN_CONFIG_ROOT_FIELDS
-        if mode in {"eggroll", "alternating"}
-        else _ROOT_FIELDS
-    )
+    root_fields = _RUN_CONFIG_ROOT_FIELDS if mode in {"eggroll", "alternating"} else _ROOT_FIELDS
     validator.exact_fields(root, root_fields, "$")
     version = root.get("schema_version")
-    if (
-        not isinstance(version, int)
-        or isinstance(version, bool)
-        or version != CHECKPOINT_SCHEMA_VERSION
-    ):
+    if not isinstance(version, int) or isinstance(version, bool) or version != CHECKPOINT_SCHEMA_VERSION:
         validator.add("$.schema_version", "must be the integer 2")
     if mode not in CHECKPOINT_MODES:
         validator.add("$.mode", f"must be one of {sorted(CHECKPOINT_MODES)}")
 
     tensors, _ = _validate_tensor_manifest(validator, root.get("tensor_manifest"))
-    _validate_optimizer_manifests(
-        validator, root.get("optimizer_manifests"), mode, tensors
-    )
+    _validate_optimizer_manifests(validator, root.get("optimizer_manifests"), mode, tensors)
     _validate_schedule(validator, root.get("schedule"), mode)
-    _validate_run_config(
-        validator, root.get("run_config"), mode, root.get("schedule")
-    )
+    _validate_run_config(validator, root.get("run_config"), mode, root.get("schedule"))
     _validate_selections(validator, root.get("selections"))
     _validate_metrics(validator, root.get("metrics"))
     _validate_rng(validator, root.get("rng"), tensors)
-    _validate_identity(
-        validator, root.get("identity"), root.get("selections"), root.get("rng")
-    )
+    _validate_identity(validator, root.get("identity"), root.get("selections"), root.get("rng"))
     _validate_optimizer_run_config(
         validator,
         root.get("optimizer_manifests"),
@@ -1295,9 +1193,7 @@ def _canonical_metadata_bytes(
 ) -> tuple[bytes, dict[str, Mapping[str, Any]] | None]:
     validated = validate_checkpoint_metadata(metadata)
     canonical = validated.to_dict()
-    declared_tensors = {
-        item["name"]: item for item in canonical["tensor_manifest"]
-    }
+    declared_tensors = {item["name"]: item for item in canonical["tensor_manifest"]}
     try:
         payload = json.dumps(
             canonical,
@@ -1309,9 +1205,7 @@ def _canonical_metadata_bytes(
     except (TypeError, ValueError) as error:
         raise CheckpointMetadataError(f"$: must be finite JSON data: {error}") from error
     if len(payload) > MAX_METADATA_BYTES:
-        raise CheckpointContainerError(
-            f"{METADATA_MEMBER} size {len(payload)} exceeds {MAX_METADATA_BYTES} bytes"
-        )
+        raise CheckpointContainerError(f"{METADATA_MEMBER} size {len(payload)} exceeds {MAX_METADATA_BYTES} bytes")
     return payload, declared_tensors
 
 
@@ -1319,21 +1213,15 @@ def _duplicate_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     counts = Counter(key for key, _ in pairs)
     duplicates = sorted(key for key, count in counts.items() if count > 1)
     if duplicates:
-        raise CheckpointContainerError(
-            f"safetensors header has duplicate key {duplicates[0]!r}"
-        )
+        raise CheckpointContainerError(f"safetensors header has duplicate key {duplicates[0]!r}")
     return dict(pairs)
 
 
-def _validate_safetensors_payload(
-    payload: bytes, declared_tensors: Mapping[str, Mapping[str, Any]] | None
-) -> None:
+def _validate_safetensors_payload(payload: bytes, declared_tensors: Mapping[str, Mapping[str, Any]] | None) -> None:
     if not isinstance(payload, bytes):
         raise CheckpointContainerError("tensor_payload must be bytes")
     if len(payload) > MAX_TENSOR_BYTES:
-        raise CheckpointContainerError(
-            f"{TENSORS_MEMBER} size {len(payload)} exceeds {MAX_TENSOR_BYTES} bytes"
-        )
+        raise CheckpointContainerError(f"{TENSORS_MEMBER} size {len(payload)} exceeds {MAX_TENSOR_BYTES} bytes")
     if len(payload) < 8:
         raise CheckpointContainerError("tensor_payload is not a safetensors container")
     header_size = struct.unpack("<Q", payload[:8])[0]
@@ -1343,9 +1231,7 @@ def _validate_safetensors_payload(
         header = json.loads(
             payload[8 : 8 + header_size].decode("utf-8"),
             object_pairs_hook=_duplicate_object,
-            parse_constant=lambda value: (_ for _ in ()).throw(
-                ValueError(f"non-finite constant {value}")
-            ),
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f"non-finite constant {value}")),
         )
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as error:
         raise CheckpointContainerError(f"invalid safetensors header: {error}") from error
@@ -1354,10 +1240,7 @@ def _validate_safetensors_payload(
     metadata = header.get("__metadata__")
     if metadata is not None and (
         not isinstance(metadata, dict)
-        or any(
-            not isinstance(key, str) or not isinstance(value, str)
-            for key, value in metadata.items()
-        )
+        or any(not isinstance(key, str) or not isinstance(value, str) for key, value in metadata.items())
     ):
         raise CheckpointContainerError("safetensors __metadata__ must map strings to strings")
     entries = {key: value for key, value in header.items() if key != "__metadata__"}
@@ -1391,13 +1274,9 @@ def _validate_safetensors_payload(
             declared = declared_tensors[name]
             expected_dtype = _DTYPE_TO_SAFETENSORS[declared["dtype"]]
             if shape != list(declared["shape"]):
-                raise CheckpointContainerError(
-                    f"safetensors tensor {name!r} shape does not match tensor_manifest"
-                )
+                raise CheckpointContainerError(f"safetensors tensor {name!r} shape does not match tensor_manifest")
             if dtype != expected_dtype:
-                raise CheckpointContainerError(
-                    f"safetensors tensor {name!r} dtype does not match tensor_manifest"
-                )
+                raise CheckpointContainerError(f"safetensors tensor {name!r} dtype does not match tensor_manifest")
             element_count = math.prod(shape)
             expected_bytes = element_count * _DTYPE_BYTES[declared["dtype"]]
             if offsets[1] - offsets[0] != expected_bytes:
@@ -1414,9 +1293,7 @@ def _validate_safetensors_payload(
             )
         cursor = end
     if cursor != data_size:
-        raise CheckpointContainerError(
-            "safetensors data size does not match declared tensor offsets"
-        )
+        raise CheckpointContainerError("safetensors data size does not match declared tensor offsets")
 
 
 def write_checkpoint_container(
@@ -1459,34 +1336,21 @@ def _duplicate_metadata_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     counts = Counter(key for key, _ in pairs)
     duplicates = sorted(key for key, count in counts.items() if count > 1)
     if duplicates:
-        raise CheckpointContainerError(
-            f"metadata.json has duplicate key {duplicates[0]!r}"
-        )
+        raise CheckpointContainerError(f"metadata.json has duplicate key {duplicates[0]!r}")
     return dict(pairs)
 
 
 def _validate_archive_structure(archive: ZipFile) -> dict[str, ZipInfo]:
     infos = archive.infolist()
     names = [info.filename for info in infos]
-    duplicate_names = sorted(
-        name for name, count in Counter(names).items() if count > 1
-    )
+    duplicate_names = sorted(name for name, count in Counter(names).items() if count > 1)
     if duplicate_names:
-        raise CheckpointContainerError(
-            f"checkpoint has duplicate member {duplicate_names[0]!r}"
-        )
+        raise CheckpointContainerError(f"checkpoint has duplicate member {duplicate_names[0]!r}")
 
     for name in names:
         path = Path(name)
-        if (
-            name not in {METADATA_MEMBER, TENSORS_MEMBER}
-            and (
-                path.is_absolute()
-                or "/" in name
-                or "\\" in name
-                or ":" in name
-                or name in {".", ".."}
-            )
+        if name not in {METADATA_MEMBER, TENSORS_MEMBER} and (
+            path.is_absolute() or "/" in name or "\\" in name or ":" in name or name in {".", ".."}
         ):
             raise CheckpointContainerError(f"checkpoint has unsafe member name {name!r}")
 
@@ -1494,14 +1358,10 @@ def _validate_archive_structure(archive: ZipFile) -> dict[str, ZipInfo]:
     present = set(names)
     missing = sorted(expected - present)
     if missing:
-        raise CheckpointContainerError(
-            f"checkpoint is missing required member {missing[0]!r}"
-        )
+        raise CheckpointContainerError(f"checkpoint is missing required member {missing[0]!r}")
     extra = sorted(present - expected)
     if extra:
-        raise CheckpointContainerError(
-            f"checkpoint has unexpected extra member {extra[0]!r}"
-        )
+        raise CheckpointContainerError(f"checkpoint has unexpected extra member {extra[0]!r}")
 
     by_name = {info.filename: info for info in infos}
     for name, maximum in (
@@ -1512,13 +1372,9 @@ def _validate_archive_structure(archive: ZipFile) -> dict[str, ZipInfo]:
         if info.is_dir():
             raise CheckpointContainerError(f"checkpoint member {name!r} must be a file")
         if info.compress_type != ZIP_STORED:
-            raise CheckpointContainerError(
-                f"checkpoint member {name!r} must use ZIP_STORED compression"
-            )
+            raise CheckpointContainerError(f"checkpoint member {name!r} must use ZIP_STORED compression")
         if info.file_size > maximum or info.compress_size > maximum:
-            raise CheckpointContainerError(
-                f"{name} size exceeds {maximum} bytes"
-            )
+            raise CheckpointContainerError(f"{name} size exceeds {maximum} bytes")
     return by_name
 
 
@@ -1532,13 +1388,9 @@ def _read_bounded_member(
             payload = member.read(maximum + 1)
             trailing = member.read(1)
     except (BadZipFile, OSError, RuntimeError) as error:
-        raise CheckpointContainerError(
-            f"checkpoint member {info.filename!r} cannot be read: {error}"
-        ) from error
+        raise CheckpointContainerError(f"checkpoint member {info.filename!r} cannot be read: {error}") from error
     if len(payload) > maximum or trailing:
-        raise CheckpointContainerError(
-            f"{info.filename} actual size exceeds {maximum} bytes"
-        )
+        raise CheckpointContainerError(f"{info.filename} actual size exceeds {maximum} bytes")
     if len(payload) != info.file_size:
         raise CheckpointContainerError(
             f"checkpoint member {info.filename!r} actual size does not match its ZIP declaration"
@@ -1550,16 +1402,12 @@ def _parse_checkpoint_metadata(payload: bytes) -> ValidatedCheckpointMetadata:
     try:
         decoded = payload.decode("utf-8")
     except UnicodeDecodeError as error:
-        raise CheckpointContainerError(
-            f"metadata.json is not valid UTF-8: {error}"
-        ) from error
+        raise CheckpointContainerError(f"metadata.json is not valid UTF-8: {error}") from error
     try:
         metadata = json.loads(
             decoded,
             object_pairs_hook=_duplicate_metadata_object,
-            parse_constant=lambda value: (_ for _ in ()).throw(
-                ValueError(f"non-finite JSON constant {value}")
-            ),
+            parse_constant=lambda value: (_ for _ in ()).throw(ValueError(f"non-finite JSON constant {value}")),
         )
     except (json.JSONDecodeError, ValueError) as error:
         if isinstance(error, CheckpointContainerError):
@@ -1568,14 +1416,8 @@ def _parse_checkpoint_metadata(payload: bytes) -> ValidatedCheckpointMetadata:
     if not isinstance(metadata, dict):
         raise CheckpointContainerError("metadata.json root must be an object")
     version = metadata.get("schema_version")
-    if (
-        not isinstance(version, int)
-        or isinstance(version, bool)
-        or version != CHECKPOINT_SCHEMA_VERSION
-    ):
-        raise CheckpointMetadataError(
-            f"$.schema_version: unsupported value {version!r}; expected integer 2"
-        )
+    if not isinstance(version, int) or isinstance(version, bool) or version != CHECKPOINT_SCHEMA_VERSION:
+        raise CheckpointMetadataError(f"$.schema_version: unsupported value {version!r}; expected integer 2")
     return validate_checkpoint_metadata(metadata)
 
 
@@ -1587,9 +1429,7 @@ def _load_safetensors_on_cpu(payload: bytes) -> Mapping[str, Any]:
     for name, tensor in tensors.items():
         device = getattr(tensor, "device", None)
         if device is None or device.type != "cpu":
-            raise CheckpointContainerError(
-                f"safetensors tensor {name!r} was not loaded on CPU"
-            )
+            raise CheckpointContainerError(f"safetensors tensor {name!r} was not loaded on CPU")
     return tensors
 
 
@@ -1602,22 +1442,14 @@ def read_checkpoint_container(
     try:
         with ZipFile(path, "r") as archive:
             members = _validate_archive_structure(archive)
-            metadata_payload = _read_bounded_member(
-                archive, members[METADATA_MEMBER], MAX_METADATA_BYTES
-            )
+            metadata_payload = _read_bounded_member(archive, members[METADATA_MEMBER], MAX_METADATA_BYTES)
             metadata = _parse_checkpoint_metadata(metadata_payload)
-            declared_tensors = {
-                item["name"]: item for item in metadata.tensor_manifest
-            }
-            tensor_payload = _read_bounded_member(
-                archive, members[TENSORS_MEMBER], MAX_TENSOR_BYTES
-            )
+            declared_tensors = {item["name"]: item for item in metadata.tensor_manifest}
+            tensor_payload = _read_bounded_member(archive, members[TENSORS_MEMBER], MAX_TENSOR_BYTES)
     except CheckpointContainerError:
         raise
     except (BadZipFile, OSError, ValueError) as error:
-        raise CheckpointContainerError(
-            f"checkpoint is not a valid ZIP container: {error}"
-        ) from error
+        raise CheckpointContainerError(f"checkpoint is not a valid ZIP container: {error}") from error
 
     _validate_safetensors_payload(tensor_payload, declared_tensors)
     loader = tensor_loader or _load_safetensors_on_cpu

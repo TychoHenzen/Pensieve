@@ -64,31 +64,21 @@ def _progress_record(value: dict[str, object], line_number: int) -> ProgressReco
     exact_match = value.get("answer_exact_match")
     if record_type == "evaluation" and exact_match is None:
         raise ValueError(f"line {line_number}: evaluation requires answer_exact_match")
-    parsed_exact_match = (
-        None
-        if exact_match is None
-        else _finite_number(exact_match, "answer_exact_match", line_number)
-    )
+    parsed_exact_match = None if exact_match is None else _finite_number(exact_match, "answer_exact_match", line_number)
     if parsed_exact_match is not None and not 0.0 <= parsed_exact_match <= 1.0:
         raise ValueError(f"line {line_number}: answer_exact_match must be in [0, 1]")
-    shared_variance = _finite_number(
-        value.get("shared_variance"), "shared_variance", line_number
-    )
+    shared_variance = _finite_number(value.get("shared_variance"), "shared_variance", line_number)
     if shared_variance < 0.0:
         raise ValueError(f"line {line_number}: shared_variance must be non-negative")
     return ProgressRecord(
         record_type=str(record_type),
         global_step=_integer(value.get("global_step"), "global_step", line_number),
         epoch=_integer(value.get("epoch"), "epoch", line_number),
-        example_position=_integer(
-            value.get("example_position"), "example_position", line_number
-        ),
+        example_position=_integer(value.get("example_position"), "example_position", line_number),
         phase_step=_integer(value.get("phase_step"), "phase_step", line_number),
         cycle=_integer(value.get("cycle"), "cycle", line_number),
         update_method=str(update_method),
-        language_model_loss=_finite_number(
-            value.get("language_model_loss"), "language_model_loss", line_number
-        ),
+        language_model_loss=_finite_number(value.get("language_model_loss"), "language_model_loss", line_number),
         shared_variance=shared_variance,
         answer_exact_match=parsed_exact_match,
     )
@@ -123,9 +113,7 @@ def write_metrics_csv(records: Sequence[ProgressRecord], path: Path) -> None:
         writer = csv.DictWriter(handle, fieldnames=CSV_FIELDS)
         writer.writeheader()
         for record in records:
-            writer.writerow(
-                {field: getattr(record, field) for field in CSV_FIELDS}
-            )
+            writer.writerow({field: getattr(record, field) for field in CSV_FIELDS})
 
 
 def _extent(values: Sequence[float], *, include_zero: bool = False) -> tuple[float, float]:
@@ -146,10 +134,7 @@ def _format_number(value: float) -> str:
 
 
 def _line_path(points: Sequence[tuple[float, float]]) -> str:
-    return " ".join(
-        ("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}"
-        for index, (x, y) in enumerate(points)
-    )
+    return " ".join(("M" if index == 0 else "L") + f" {x:.2f} {y:.2f}" for index, (x, y) in enumerate(points))
 
 
 def _chart(
@@ -216,7 +201,7 @@ def _chart(
     for tick in y_ticks:
         y = top + (y_high - tick) / (y_high - y_low) * plot_height
         grid.append(f'<line class="grid" x1="{left}" y1="{y:.2f}" x2="{left + plot_width}" y2="{y:.2f}"/>')
-        original = 10 ** tick if log_scale else tick
+        original = 10**tick if log_scale else tick
         label = f"{original * 100:.0f}%" if percent else _format_number(original)
         labels.append(f'<text class="tick" x="{left - 10}" y="{y + 4:.2f}" text-anchor="end">{label}</text>')
 
@@ -238,9 +223,7 @@ def _chart(
             if record.record_type != "training":
                 continue
             if record.update_method == method:
-                current_run.append(
-                    (sx(float(record.global_step)), sy(float(item)))
-                )
+                current_run.append((sx(float(record.global_step)), sy(float(item))))
             elif current_run:
                 runs.append(current_run)
                 current_run = []
@@ -250,9 +233,7 @@ def _chart(
             if len(run) > 1:
                 marks.append(f'<path class="series {method}" d="{_line_path(run)}"/>')
             for x, y in run:
-                marks.append(
-                    f'<circle class="point {method}" cx="{x:.2f}" cy="{y:.2f}" r="3"/>'
-                )
+                marks.append(f'<circle class="point {method}" cx="{x:.2f}" cy="{y:.2f}" r="3"/>')
     evaluation_points = [
         (sx(float(record.global_step)), sy(float(item)))
         for record, item in points
@@ -261,9 +242,7 @@ def _chart(
     if len(evaluation_points) > 1:
         marks.append(f'<path class="series evaluation" d="{_line_path(evaluation_points)}"/>')
     for x, y in evaluation_points:
-        marks.append(
-            f'<rect class="point evaluation" x="{x - 4:.2f}" y="{y - 4:.2f}" width="8" height="8"/>'
-        )
+        marks.append(f'<rect class="point evaluation" x="{x - 4:.2f}" y="{y - 4:.2f}" width="8" height="8"/>')
 
     return f"""
     <section class="chart-section">
@@ -271,11 +250,11 @@ def _chart(
       <svg viewBox="0 0 {int(width)} {int(height)}" role="img" aria-labelledby="{chart_id}-title {chart_id}-desc">
         <title id="{chart_id}-title">{escape(title)}</title>
         <desc id="{chart_id}-desc">{escape(y_label)} plotted against global training step.</desc>
-        {''.join(grid)}
+        {"".join(grid)}
         <rect class="frame" x="{left}" y="{top}" width="{plot_width}" height="{plot_height}"/>
-        {''.join(references)}
-        {''.join(marks)}
-        {''.join(labels)}
+        {"".join(references)}
+        {"".join(marks)}
+        {"".join(labels)}
         <text class="axis-title" x="{left + plot_width / 2}" y="{height - 3}" text-anchor="middle">Global step</text>
         <text class="axis-title" transform="translate(18 {top + plot_height / 2}) rotate(-90)" text-anchor="middle">{escape(y_label)}</text>
       </svg>
@@ -367,7 +346,7 @@ def write_training_graph(
   <h1>{escape(title)}</h1>
   <p class="summary">{training_count} training samples and {evaluation_count} held-out evaluations from structured progress records.</p>
   <div class="legend" aria-label="Series legend"><span class="eggroll">Eggroll</span><span class="gradient">Gradient</span><span class="evaluation">Evaluation</span></div>
-  {''.join(charts)}
+  {"".join(charts)}
 </body>
 </html>
 """
@@ -376,9 +355,7 @@ def write_training_graph(
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Convert a structured alternating-training log to CSV and HTML."
-    )
+    parser = argparse.ArgumentParser(description="Convert a structured alternating-training log to CSV and HTML.")
     parser.add_argument("log", type=Path)
     parser.add_argument("--output-dir", type=Path, default=None)
     parser.add_argument("--title", type=str, default=None)
@@ -395,9 +372,7 @@ def main(argv: Sequence[str] | None = None) -> None:
     if args.baseline_exact_match is not None and not 0.0 <= args.baseline_exact_match <= 1.0:
         raise ValueError("baseline exact match must be in [0, 1]")
     records = read_progress_records(args.log)
-    output_dir = args.output_dir or args.log.with_suffix("").with_name(
-        args.log.stem + "-metrics"
-    )
+    output_dir = args.output_dir or args.log.with_suffix("").with_name(args.log.stem + "-metrics")
     csv_path = output_dir / "training-metrics.csv"
     html_path = output_dir / "training-graph.html"
     write_metrics_csv(records, csv_path)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import torch
 import torch.nn.functional as F
@@ -115,7 +116,7 @@ def prompt_teacher_state(
 
 
 def prepare_training_example(
-    tokenizer: object,
+    tokenizer: Any,
     question: str,
     target: str,
 ) -> PreparedTrainingExample:
@@ -129,10 +130,7 @@ def prepare_training_example(
     if context_input_ids.shape[0] != 1:
         raise ValueError("Qwen chat input_ids must contain exactly one example")
     if context_input_ids.shape[1] > QWEN_PROMPT_TOKEN_LIMIT:
-        raise ValueError(
-            "Qwen chat prompt exceeds the 512-token Stage 0 limit: "
-            f"actual {context_input_ids.shape[1]}"
-        )
+        raise ValueError(f"Qwen chat prompt exceeds the 512-token Stage 0 limit: actual {context_input_ids.shape[1]}")
 
     canonical_target = canonicalize_numerical_target(target)
     encoded_target = tokenizer(
@@ -195,16 +193,12 @@ def decoder_aligned_answer_loss(
     The last slot predicts the first answer token. Each answer-token prefix
     predicts the next token, and EOS terminates the target sequence.
     """
-    input_embeds, labels = decoder_aligned_inputs_and_labels(
-        model, slots, answer_ids, eos_token_id
-    )
+    input_embeds, labels = decoder_aligned_inputs_and_labels(model, slots, answer_ids, eos_token_id)
     batch_size, sequence_length = labels.shape
-    attention_mask = torch.ones(
-        (batch_size, sequence_length), dtype=torch.long, device=input_embeds.device
+    attention_mask = torch.ones((batch_size, sequence_length), dtype=torch.long, device=input_embeds.device)
+    position_ids = (
+        torch.arange(sequence_length, dtype=torch.long, device=input_embeds.device).unsqueeze(0).expand(batch_size, -1)
     )
-    position_ids = torch.arange(
-        sequence_length, dtype=torch.long, device=input_embeds.device
-    ).unsqueeze(0).expand(batch_size, -1)
     logits = model(  # type: ignore[operator]
         inputs_embeds=input_embeds,
         attention_mask=attention_mask,
@@ -230,16 +224,12 @@ def prompt_aligned_answer_objective(
     teacher_state: torch.Tensor,
 ) -> PromptAlignedAnswerObjective:
     """Train answer decoding while preserving Qwen's question-conditioned state."""
-    input_embeds, labels = decoder_aligned_inputs_and_labels(
-        model, slots, answer_ids, eos_token_id
-    )
+    input_embeds, labels = decoder_aligned_inputs_and_labels(model, slots, answer_ids, eos_token_id)
     batch_size, sequence_length = labels.shape
-    attention_mask = torch.ones(
-        (batch_size, sequence_length), dtype=torch.long, device=input_embeds.device
+    attention_mask = torch.ones((batch_size, sequence_length), dtype=torch.long, device=input_embeds.device)
+    position_ids = (
+        torch.arange(sequence_length, dtype=torch.long, device=input_embeds.device).unsqueeze(0).expand(batch_size, -1)
     )
-    position_ids = torch.arange(
-        sequence_length, dtype=torch.long, device=input_embeds.device
-    ).unsqueeze(0).expand(batch_size, -1)
     hidden_states, logits = _decoder_hidden_and_logits(
         model,
         inputs_embeds=input_embeds,
@@ -253,9 +243,7 @@ def prompt_aligned_answer_objective(
         reduction="none",
     ).reshape(batch_size, sequence_length)
     supervised = labels.ne(-100)
-    language_model_loss = (token_losses * supervised).sum(dim=1) / supervised.sum(
-        dim=1
-    )
+    language_model_loss = (token_losses * supervised).sum(dim=1) / supervised.sum(dim=1)
 
     slot_count = input_embeds.shape[1] - answer_ids.numel()
     student_state = hidden_states[:, slot_count - 1, :]

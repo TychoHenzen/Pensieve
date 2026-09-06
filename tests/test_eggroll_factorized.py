@@ -75,9 +75,7 @@ def _materialized_outputs(
 ) -> torch.Tensor:
     outputs = []
     candidate_inputs = inputs.ndim > 2
-    for candidate_index, (factor, noise, sign) in enumerate(
-        zip(factors, bias_noises, signs, strict=True)
-    ):
+    for candidate_index, (factor, noise, sign) in enumerate(zip(factors, bias_noises, signs, strict=True)):
         current_inputs = inputs[candidate_index] if candidate_inputs else inputs
         outputs.append(
             F.linear(
@@ -179,10 +177,7 @@ def test_factorized_linear_validates_candidate_counts(
     message: str,
 ) -> None:
     weight = torch.zeros(7, 5)
-    factors = [
-        MatrixFactors(a=torch.zeros(7, 2), b=torch.zeros(5, 2), scale=0.1)
-        for _ in range(factor_count)
-    ]
+    factors = [MatrixFactors(a=torch.zeros(7, 2), b=torch.zeros(5, 2), scale=0.1) for _ in range(factor_count)]
 
     with pytest.raises(ValueError, match=message):
         factorized_linear(inputs, weight, factors, signs)

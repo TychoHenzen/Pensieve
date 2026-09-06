@@ -21,6 +21,28 @@ __pycache__/
 
 # .coverage: coverage data written by pytest-cov / coverage.py
 .coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Ruff and Pyright local caches
+.ruff_cache/
+.pyright/
+
+# Build artifacts
+build/
+dist/
+*.whl
+
+# Local environment files. Keep the example configuration visible.
+.env
+.env.*
+!.env.example
+
+# Serena local state. Intentional project metadata and memories remain tracked.
+.serena/cache/
+.serena/logs/
+.serena/project.local.yml
 
 # .idea/: project config written by PyCharm / IntelliJ
 .idea/

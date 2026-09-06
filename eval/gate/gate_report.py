@@ -55,11 +55,7 @@ def evaluate_gate_results(
     baseline = _fraction(token_result) if token_result is not None else Fraction(0, 1)
     runs = latent_result.get("runs", []) if latent_result is not None else []
     run_fractions = [_fraction(run) for run in runs if isinstance(run, dict)]
-    latent_mean = (
-        sum(run_fractions, Fraction(0, 1)) / len(run_fractions)
-        if run_fractions
-        else Fraction(0, 1)
-    )
+    latent_mean = sum(run_fractions, Fraction(0, 1)) / len(run_fractions) if run_fractions else Fraction(0, 1)
     criteria = {
         "criterion_baseline_present": baseline_present,
         "criterion_baseline_meaningful": (
@@ -74,24 +70,24 @@ def evaluate_gate_results(
         ),
         "criterion_min_seeds": _exact_default_seeds(latent_result),
     }
-    token_display = None if token_result is None else {
-        **token_result,
-        "accuracy": float(baseline),
-    }
+    token_display = (
+        None
+        if token_result is None
+        else {
+            **token_result,
+            "accuracy": float(baseline),
+        }
+    )
     latent_display = None
     if latent_result is not None:
         floats = [float(value) for value in run_fractions]
         mean = float(latent_mean)
-        variance = (
-            sum((value - mean) ** 2 for value in floats) / (len(floats) - 1)
-            if len(floats) > 1
-            else 0.0
-        )
+        variance = sum((value - mean) ** 2 for value in floats) / (len(floats) - 1) if len(floats) > 1 else 0.0
         latent_display = {
             **latent_result,
             "accuracies": floats,
             "mean": mean,
-            "std": variance ** 0.5,
+            "std": variance**0.5,
         }
     return {
         "schema_version": 2,
@@ -101,16 +97,12 @@ def evaluate_gate_results(
     }
 
 
-def _selected_records(
-    records: tuple[AsdivRecord, ...], ordered_ids: list[str]
-) -> tuple[AsdivRecord, ...]:
+def _selected_records(records: tuple[AsdivRecord, ...], ordered_ids: list[str]) -> tuple[AsdivRecord, ...]:
     by_id = {record.id: record for record in records}
     try:
         return tuple(by_id[item_id] for item_id in ordered_ids)
     except KeyError as exc:
-        raise result_cache.GateResultError(
-            f"cached selection contains unknown item {exc.args[0]!r}"
-        ) from exc
+        raise result_cache.GateResultError(f"cached selection contains unknown item {exc.args[0]!r}") from exc
 
 
 def build_report(
@@ -130,9 +122,7 @@ def build_report(
         return report
 
     if expected_token_identity is None:
-        raise result_cache.GateResultError(
-            "current expected token identity is required to read cached results"
-        )
+        raise result_cache.GateResultError("current expected token identity is required to read cached results")
 
     source_records = records or tuple(load_asdiv_a_record_split("test"))
     selection = expected_token_identity.get("selection")
@@ -177,10 +167,7 @@ def _print_summary(report: dict[str, Any]) -> None:
     if latent_result is None:
         print("latent eval: missing")
     else:
-        print(
-            f"latent eval mean accuracy: {latent_result['mean']:.4f} "
-            f"(std={latent_result['std']:.4f})"
-        )
+        print(f"latent eval mean accuracy: {latent_result['mean']:.4f} (std={latent_result['std']:.4f})")
     for name, passed in report["criteria"].items():
         print(f"{name}: {'PASS' if passed else 'FAIL'}")
     print(f"GATE: {'PASS' if report['pass'] else 'FAIL'}")

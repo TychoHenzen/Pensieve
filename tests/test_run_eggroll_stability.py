@@ -49,9 +49,7 @@ class FixtureState:
 class FixtureTrainer:
     def __init__(self) -> None:
         self.state = FixtureState()
-        self.optimizer = torch.optim.SGD(
-            self.state.eggroll_parameters(), lr=0.1, momentum=0.0
-        )
+        self.optimizer = torch.optim.SGD(self.state.eggroll_parameters(), lr=0.1, momentum=0.0)
         self.fitness_batch_size = 8
         self.pop_size = 128
         self.sigma = 0.001
@@ -73,9 +71,7 @@ class FixtureTrainer:
         with torch.no_grad():
             for parameter in self.state.eggroll_parameters():
                 parameter.add_(0.001)
-        return SimpleNamespace(
-            consumed_record_count=fitness_batch.consumed_record_count
-        )
+        return SimpleNamespace(consumed_record_count=fitness_batch.consumed_record_count)
 
 
 def _records(split: str, count: int) -> tuple[AsdivRecord, ...]:
@@ -193,10 +189,7 @@ def test_public_command_retains_structured_fixture_outcomes(
         ]
     )
     report = json.loads(report_path.read_text(encoding="utf-8"))
-    progress = [
-        json.loads(line)
-        for line in progress_path.read_text(encoding="utf-8").splitlines()
-    ]
+    progress = [json.loads(line) for line in progress_path.read_text(encoding="utf-8").splitlines()]
     summary = json.loads(capsys.readouterr().out.strip())
 
     assert code == expected_code
@@ -243,9 +236,7 @@ def test_stale_or_mismatched_fixture_is_rejected_before_runtime_access(
 
     trainer, held_out = _install_fixture(monkeypatch, evaluator)
     report_path = tmp_path / "passing.json"
-    assert run_eggroll_stability.main(
-        ["--output", str(report_path), "--device", "cpu"]
-    ) == 0
+    assert run_eggroll_stability.main(["--output", str(report_path), "--device", "cpu"]) == 0
     expected = build_stability_configuration(
         trainer,
         asset_identity=build_stability_asset_identity(
@@ -276,9 +267,9 @@ def test_stale_or_mismatched_fixture_is_rejected_before_runtime_access(
     with pytest.raises(StabilityReportValidationError) as caught:
         load_compatible_stability_report(report_path, expected)
 
-    assert tuple(
-        path for path in expected_paths if any(path in issue for issue in caught.value.issues)
-    ) == expected_paths
+    assert (
+        tuple(path for path in expected_paths if any(path in issue for issue in caught.value.issues)) == expected_paths
+    )
     assert all(path in str(caught.value) for path in expected_paths)
 
 

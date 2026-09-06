@@ -250,10 +250,11 @@ Do not assume a single run proves correctness. The gate requires five paired run
 
 ```python
 import torch
+
 ckpt = torch.load("checkpoints/stage0_epoch_5.pt", weights_only=False)
 print(ckpt.keys())  # top-level keys
-print(ckpt['trainer_state'].keys())  # trainer internals
-print(ckpt['model'].latent_loop.projection.weight.shape)  # model state
+print(ckpt["trainer_state"].keys())  # trainer internals
+print(ckpt["model"].latent_loop.projection.weight.shape)  # model state
 ```
 
 ### Visualizing Stream Output
@@ -270,6 +271,7 @@ The `eval.instrumentation` module has cost counters and metrics collectors. Add 
 
 ```python
 from eval.instrumentation import CostCounters
+
 costs = CostCounters()
 # ... in loop:
 costs.forward_pass(flops=model.flops)
@@ -305,3 +307,7 @@ When you move to Stage 1 (persistent state, adaptive halting):
 - The gate moves from "match baseline accuracy" to "performance holds across an artificially long stream."
 
 Read `PLAN.md` Stage 1 and the corresponding change proposal under `openspec/changes/stage-1-persistent-state/proposal.md` before starting.
+
+## dod-guard GitHub workflow
+
+Use `/add-backlog-idea` to capture ideas in Backlog. Use `/refine-backlog-item` to research an idea and move it to Todo as a PBI. Use `/next-ticket` to implement and push the selected PBI branch. Use `/submit-draft-pr` to create or update its draft pull request. Keep review read-only until the user explicitly accepts findings. Use `/complete-pr` for ready, merge, linked-issue confirmation, and remote branch deletion.

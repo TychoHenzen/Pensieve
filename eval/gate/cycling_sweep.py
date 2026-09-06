@@ -62,14 +62,25 @@ DEFAULT_CYCLE_CONFIGS = [
 def _build_subject(method: str, device: str, train_iterations: int) -> Subject:
     if method == "naive":
         return NaiveBaseline(
-            INPUT_DIM, OUTPUT_DIM, 2, 400, 0.001,
-            train_iterations=train_iterations, device=device,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            2,
+            400,
+            0.001,
+            train_iterations=train_iterations,
+            device=device,
         )
     if method == "replay":
         return ReplayBaseline(
-            INPUT_DIM, OUTPUT_DIM, 2, 400, 0.001,
-            latent_dim=100, train_iterations=train_iterations,
-            device=device, pixel_mode=True,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            2,
+            400,
+            0.001,
+            latent_dim=100,
+            train_iterations=train_iterations,
+            device=device,
+            pixel_mode=True,
         )
     raise ValueError(f"unknown method: {method}")
 
@@ -123,7 +134,12 @@ def _phase_avg(per_task: dict[int, float]) -> float:
 
 
 def _run_config_seed(
-    cfg: CycleConfig, dataset: str, method: str, seed: int, device: str, data_dir: str,
+    cfg: CycleConfig,
+    dataset: str,
+    method: str,
+    seed: int,
+    device: str,
+    data_dir: str,
 ) -> list[float]:
     """Run all of `cfg`'s cycles for one (method, dataset, seed); returns per-cycle final accuracy."""
     random.seed(seed)
@@ -159,7 +175,12 @@ def run_sweep(
                 trajectories: list[list[float]] = []
                 for seed in seeds:
                     cycle_accuracies = _run_config_seed(
-                        cfg, dataset, method, seed, device, data_dir,
+                        cfg,
+                        dataset,
+                        method,
+                        seed,
+                        device,
+                        data_dir,
                     )
                     trajectories.append(cycle_accuracies)
                     final_accuracies.append(cycle_accuracies[-1])
@@ -182,16 +203,12 @@ def run_sweep(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Gate 8.4: cycling sweep on FashionMNIST alongside MNIST."
-    )
+    parser = argparse.ArgumentParser(description="Gate 8.4: cycling sweep on FashionMNIST alongside MNIST.")
     parser.add_argument("--datasets", default=",".join(DEFAULT_DATASETS))
     parser.add_argument("--methods", default=",".join(DEFAULT_METHODS))
     parser.add_argument("--seeds", default=",".join(str(seed) for seed in DEFAULT_SEEDS))
     parser.add_argument("--data-dir", default="./data")
-    parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
-    )
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     return parser.parse_args()
 

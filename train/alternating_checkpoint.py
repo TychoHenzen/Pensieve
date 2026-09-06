@@ -7,7 +7,7 @@ import random
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import torch
@@ -83,9 +83,7 @@ class AlternatingCheckpoint:
             global_step=int(value["global_step"]),
             epoch=int(value["epoch"]),
             dataset_position=next_position - 1,
-            phase_variance_sum=float(
-                self.metadata.get("metrics", {}).get("phase_variance_sum", 0.0)
-            ),
+            phase_variance_sum=float(self.metadata.get("metrics", {}).get("phase_variance_sum", 0.0)),
             gradient_optimizer_calls=int(value.get("gradient_optimizer_calls", 0)),
             eggroll_optimizer_calls=int(value.get("eggroll_optimizer_calls", 0)),
         )
@@ -100,10 +98,7 @@ def capture_checkpoint(
     validated = validate_checkpoint_metadata(metadata)
     if validated.mode != "alternating":
         raise ValueError("$.mode: alternating checkpoint capture requires 'alternating'")
-    cpu_tensors = {
-        name: tensor.detach().to(device="cpu").contiguous().clone()
-        for name, tensor in tensors.items()
-    }
+    cpu_tensors = {name: tensor.detach().to(device="cpu").contiguous().clone() for name, tensor in tensors.items()}
     return AlternatingCheckpoint(validated.to_dict(), cpu_tensors)
 
 
@@ -146,10 +141,7 @@ def _optimizer_checkpoint_state(
     state = optimizer.state_dict()
     groups = state["param_groups"]
     if len(groups) != 1 or len(groups[0]["params"]) != len(parameter_names):
-        raise ValueError(
-            f"$.optimizer_manifests.{method}.parameter_groups: "
-            "must contain one canonical parameter group"
-        )
+        raise ValueError(f"$.optimizer_manifests.{method}.parameter_groups: must contain one canonical parameter group")
     parameter_ids = list(groups[0]["params"])
     parameter_groups: list[dict[str, Any]] = []
     scalars: dict[str, Any] = {}
@@ -164,12 +156,9 @@ def _optimizer_checkpoint_state(
             scalars[key] = value
         else:
             raise ValueError(
-                f"$.optimizer_manifests.{method}.parameter_groups[0].scalars.{key}: "
-                "must be a finite scalar"
+                f"$.optimizer_manifests.{method}.parameter_groups[0].scalars.{key}: must be a finite scalar"
             )
-    parameter_groups.append(
-        {"parameter_names": parameter_names, "scalars": scalars}
-    )
+    parameter_groups.append({"parameter_names": parameter_names, "scalars": scalars})
 
     scalar_state: dict[str, dict[str, Any]] = {}
     references: dict[str, dict[str, str]] = {}
@@ -178,9 +167,7 @@ def _optimizer_checkpoint_state(
         references[parameter_name] = {}
         parameter_state = state["state"].get(parameter_id, {})
         for state_name, value in parameter_state.items():
-            if isinstance(value, torch.Tensor) and (
-                value.ndim > 0 or state_name != "step"
-            ):
+            if isinstance(value, torch.Tensor) and (value.ndim > 0 or state_name != "step"):
                 tensor_name = f"optimizer.{method}.{parameter_name}.{state_name}"
                 tensor = value.detach().to(device="cpu").contiguous().clone()
                 tensors[tensor_name] = tensor
@@ -232,9 +219,7 @@ def build_alternating_checkpoint(
     if set(model_state) != expected_parameters:
         missing = sorted(expected_parameters - set(model_state))
         extra = sorted(set(model_state) - expected_parameters)
-        raise ValueError(
-            f"$.tensor_manifest: model parameter names differ; missing={missing!r}, extra={extra!r}"
-        )
+        raise ValueError(f"$.tensor_manifest: model parameter names differ; missing={missing!r}, extra={extra!r}")
     for parameter_name in stage0_parameter_paths():
         tensor_name = f"model.{parameter_name}"
         tensor = model_state[parameter_name].detach().to(device="cpu").contiguous().clone()
@@ -242,29 +227,23 @@ def build_alternating_checkpoint(
         manifest.append(_manifest_item(tensor_name, tensor, "model_parameter"))
 
     optimizer_manifests = [
-        _optimizer_checkpoint_state(
-            "gradient", gradient_optimizer, tensors, manifest
-        ),
+        _optimizer_checkpoint_state("gradient", gradient_optimizer, tensors, manifest),
         _optimizer_checkpoint_state("eggroll", eggroll_optimizer, tensors, manifest),
     ]
 
-    numpy_state = np.random.get_state()
+    numpy_state = cast(tuple[str, np.ndarray, int, int, float], np.random.get_state())
     numpy_tensor = torch.from_numpy(np.asarray(numpy_state[1], dtype=np.uint32).copy())
     tensors["rng.numpy.state"] = numpy_tensor
     manifest.append(_manifest_item("rng.numpy.state", numpy_tensor, "numpy_rng_state"))
     cpu_rng = torch.get_rng_state().detach().cpu().clone()
     tensors["rng.pytorch.cpu"] = cpu_rng
-    manifest.append(
-        _manifest_item("rng.pytorch.cpu", cpu_rng, "pytorch_cpu_rng_state")
-    )
+    manifest.append(_manifest_item("rng.pytorch.cpu", cpu_rng, "pytorch_cpu_rng_state"))
     cuda_metadata: list[dict[str, str]] = []
     for index, cuda_rng in enumerate(torch.cuda.get_rng_state_all()):
         tensor_name = f"rng.pytorch.cuda.{index}"
         tensor = cuda_rng.detach().cpu().clone()
         tensors[tensor_name] = tensor
-        manifest.append(
-            _manifest_item(tensor_name, tensor, "pytorch_cuda_rng_state")
-        )
+        manifest.append(_manifest_item(tensor_name, tensor, "pytorch_cuda_rng_state"))
         cuda_metadata.append({"device": f"cuda:{index}", "state_tensor": tensor_name})
 
     python_state = random.getstate()
@@ -362,9 +341,7 @@ def save_boundary_checkpoints(
     checkpoint_directory = Path(directory)
     checkpoint_directory.mkdir(parents=True, exist_ok=True)
     if phase_boundary:
-        paths.append(
-            checkpoint_directory / f"phase-{checkpoint.schedule.global_step}.ckpt"
-        )
+        paths.append(checkpoint_directory / f"phase-{checkpoint.schedule.global_step}.ckpt")
     if epoch_boundary:
         paths.append(checkpoint_directory / f"epoch-{checkpoint.schedule.epoch}.ckpt")
     if not paths:
@@ -385,6 +362,7 @@ def resume_config_conflicts(
     completed_epochs: int,
 ) -> tuple[str, ...]:
     """Return canonical paths for settings that cannot change during resume."""
+
     def different_paths(saved: object, current: object, path: str) -> list[str]:
         if isinstance(saved, Mapping) and isinstance(current, Mapping):
             paths: list[str] = []
@@ -392,9 +370,7 @@ def resume_config_conflicts(
                 if key not in saved or key not in current:
                     paths.append(f"{path}.{key}")
                 else:
-                    paths.extend(
-                        different_paths(saved[key], current[key], f"{path}.{key}")
-                    )
+                    paths.extend(different_paths(saved[key], current[key], f"{path}.{key}"))
             return paths
         if isinstance(saved, (list, tuple)) and isinstance(current, (list, tuple)):
             paths = []
@@ -402,30 +378,16 @@ def resume_config_conflicts(
                 if index >= len(saved) or index >= len(current):
                     paths.append(f"{path}[{index}]")
                 else:
-                    paths.extend(
-                        different_paths(saved[index], current[index], f"{path}[{index}]")
-                    )
+                    paths.extend(different_paths(saved[index], current[index], f"{path}[{index}]"))
             return paths
         return [] if saved == current else [path]
 
-    guarded_saved = {
-        key: value
-        for key, value in checkpoint_config.items()
-        if key not in RESUME_MUTABLE_SETTINGS
-    }
-    guarded_current = {
-        key: value
-        for key, value in resume_config.items()
-        if key not in RESUME_MUTABLE_SETTINGS
-    }
+    guarded_saved = {key: value for key, value in checkpoint_config.items() if key not in RESUME_MUTABLE_SETTINGS}
+    guarded_current = {key: value for key, value in resume_config.items() if key not in RESUME_MUTABLE_SETTINGS}
     conflicts = different_paths(guarded_saved, guarded_current, "$.run_config")
 
     epoch_target = resume_config.get("epochs")
-    if (
-        not isinstance(epoch_target, int)
-        or isinstance(epoch_target, bool)
-        or epoch_target < completed_epochs
-    ):
+    if not isinstance(epoch_target, int) or isinstance(epoch_target, bool) or epoch_target < completed_epochs:
         conflicts.append("$.run_config.epochs")
 
     return tuple(dict.fromkeys(conflicts))
@@ -445,6 +407,4 @@ def validate_resume_config(
     )
 
     if conflicts:
-        raise ValueError(
-            "incompatible resume configuration: " + ", ".join(conflicts)
-        )
+        raise ValueError("incompatible resume configuration: " + ", ".join(conflicts))

@@ -43,6 +43,7 @@ class EpochStats:
     max_variance: float
     steps: int
 
+
 DEFAULT_NUM_STEPS = 2
 DEFAULT_LR = 1e-4
 
@@ -61,15 +62,11 @@ class LatentCoreTrainer:
         ema_decay: float = DEFAULT_EMA_DECAY,
         state: TrainingState | None = None,
     ) -> None:
-        self.state = state or TrainingState(
-            slot_count=slot_count, num_steps=num_steps, device=device
-        )
+        self.state = state or TrainingState(slot_count=slot_count, num_steps=num_steps, device=device)
         self.slot_count = self.state.encoder.slot_count
         self.device = device
         self.variance_weight = variance_weight
-        self.prompt_alignment_weight = validate_prompt_alignment_weight(
-            prompt_alignment_weight
-        )
+        self.prompt_alignment_weight = validate_prompt_alignment_weight(prompt_alignment_weight)
         self.workspace = self.state.workspace
         self.encoder = self.state.encoder
         self.latent_loop = self.state.latent_loop
@@ -117,13 +114,8 @@ class LatentCoreTrainer:
             teacher_state=teacher_state,
         )
         lm_loss = answer_objective.language_model_loss.mean()
-        prompt_alignment_penalty = (
-            self.prompt_alignment_weight
-            * answer_objective.prompt_alignment_loss.mean()
-        )
-        collapse_penalty = self.variance_weight * slot_variance_penalty(
-            loop_slots
-        ).mean()
+        prompt_alignment_penalty = self.prompt_alignment_weight * answer_objective.prompt_alignment_loss.mean()
+        collapse_penalty = self.variance_weight * slot_variance_penalty(loop_slots).mean()
         total_objective = lm_loss + prompt_alignment_penalty + collapse_penalty
         total_objective.backward()
         self.optimizer.step()

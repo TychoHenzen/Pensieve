@@ -10,7 +10,6 @@ from eval.subject import CostCounters, Subject
 
 
 class TaskWiperOracle(Subject):
-
     def __init__(self, seed: int = 0) -> None:
         self._facts: dict[str, str] = {}
         self._rng = random.Random(seed)

@@ -7,7 +7,6 @@ from eval.subject import CostCounters, Subject
 
 
 class CheaterOracle(Subject):
-
     def __init__(self, truth_map: dict[str, str]) -> None:
         self._truth_map = truth_map
         self._learned: dict[str, str] = {}

@@ -86,9 +86,7 @@ def _parse_target(value: object) -> tuple[str, Fraction]:
         raise ValueError("result is not a finite numerical value") from error
     if "/" in normalized:
         canonical = (
-            str(rational.numerator)
-            if rational.denominator == 1
-            else f"{rational.numerator}/{rational.denominator}"
+            str(rational.numerator) if rational.denominator == 1 else f"{rational.numerator}/{rational.denominator}"
         )
     elif "." in normalized:
         canonical = format(Decimal(normalized), "f").rstrip("0").rstrip(".")
@@ -148,9 +146,9 @@ def _normalize_row(split: str, position: int, row: object) -> AsdivRecord:
 
 def _fingerprint(record: AsdivRecord) -> str:
     payload = {"question": record.question, "target": record.target}
-    encoded = json.dumps(
-        payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
-    ).encode("utf-8")
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode(
+        "utf-8"
+    )
     return hashlib.sha256(encoded).hexdigest()
 
 
@@ -165,17 +163,10 @@ def load_asdiv_records(
     by the measured frozen-Qwen preflight. The remaining rows become the
     disjoint training and validation partitions.
     """
-    rows = list(
-        source_rows
-        if source_rows is not None
-        else load_asdiv_source(dataset_loader=dataset_loader)
-    )
+    rows = list(source_rows if source_rows is not None else load_asdiv_source(dataset_loader=dataset_loader))
     expected_total = sum(ASDIV_PARTITION_COUNTS.values())
     if len(rows) != expected_total:
-        raise ValueError(
-            "Calc-ASDiv_A source count mismatch: expected "
-            f"{expected_total}, found {len(rows)}"
-        )
+        raise ValueError(f"Calc-ASDiv_A source count mismatch: expected {expected_total}, found {len(rows)}")
     random.Random(ASDIV_PARTITION_SEED).shuffle(rows)
     test_end = ASDIV_PARTITION_COUNTS["test"]
     train_end = test_end + ASDIV_PARTITION_COUNTS["train"]
@@ -207,10 +198,7 @@ def load_asdiv_records(
             normalized.append(record)
         expected = ASDIV_PARTITION_COUNTS[split]
         if len(normalized) != expected:
-            raise ValueError(
-                f"Calc-ASDiv_A {split} count mismatch: expected "
-                f"{expected}, found {len(normalized)}"
-            )
+            raise ValueError(f"Calc-ASDiv_A {split} count mismatch: expected {expected}, found {len(normalized)}")
         records[split] = tuple(normalized)
     return records
 
@@ -237,12 +225,11 @@ def asdiv_a_selection_identity(
     *, records: Sequence[AsdivRecord], split: str, seed: int, problem_count: int, revision: str
 ) -> str:
     """Return the digest of the selected ordered records and selection inputs."""
-    canonical_records = [
-        {"id": record.id, "question": record.question, "target": record.target}
-        for record in records
-    ]
+    canonical_records = [{"id": record.id, "question": record.question, "target": record.target} for record in records]
     records_sha256 = hashlib.sha256(
-        json.dumps(canonical_records, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False).encode("utf-8")
+        json.dumps(
+            canonical_records, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False
+        ).encode("utf-8")
     ).hexdigest()
     identity = {
         "schema_version": 1,

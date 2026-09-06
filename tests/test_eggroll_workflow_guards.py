@@ -81,16 +81,12 @@ def test_long_standalone_rejects_invalid_report_before_dataset_or_model_access(
     if outcome == "missing":
         report = None
     elif outcome == "failed":
-        write_stability_report(
-            report_path, status="failed", prompt_alignment_weight=0.1
-        )
+        write_stability_report(report_path, status="failed", prompt_alignment_weight=0.1)
     elif outcome == "stale":
         write_stability_report(report_path, prompt_alignment_weight=0.1)
         _stale_report(report_path)
     else:
-        write_stability_report(
-            report_path, population=64, prompt_alignment_weight=0.1
-        )
+        write_stability_report(report_path, population=64, prompt_alignment_weight=0.1)
     accesses: list[str] = []
     monkeypatch.setattr(run_eggroll, "_parse_args", lambda: _eggroll_args(report))
     monkeypatch.setattr(
@@ -125,9 +121,7 @@ def test_standalone_development_run_at_256_examples_needs_no_report(
     monkeypatch.setattr(
         run_eggroll,
         "_load_dataset_context",
-        lambda _count: accesses.append("dataset") or (_ for _ in ()).throw(
-            RuntimeError("development dataset reached")
-        ),
+        lambda _count: accesses.append("dataset") or (_ for _ in ()).throw(RuntimeError("development dataset reached")),
     )
 
     with pytest.raises(RuntimeError, match="development dataset reached"):
@@ -148,20 +142,14 @@ def test_alternating_rejects_invalid_report_before_checkpoint_dataset_or_model_a
     if outcome == "missing":
         report = None
     elif outcome == "failed":
-        write_stability_report(
-            report_path, status="failed", prompt_alignment_weight=0.1
-        )
+        write_stability_report(report_path, status="failed", prompt_alignment_weight=0.1)
     elif outcome == "stale":
         write_stability_report(report_path, prompt_alignment_weight=0.1)
         _stale_report(report_path)
     else:
-        write_stability_report(
-            report_path, sigma=0.002, prompt_alignment_weight=0.1
-        )
+        write_stability_report(report_path, sigma=0.002, prompt_alignment_weight=0.1)
     accesses: list[str] = []
-    monkeypatch.setattr(
-        run_alternating, "_parse_args", lambda _argv=None: _alternating_args(report)
-    )
+    monkeypatch.setattr(run_alternating, "_parse_args", lambda _argv=None: _alternating_args(report))
     monkeypatch.setattr(
         run_alternating,
         "load_checkpoint",

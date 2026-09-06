@@ -11,6 +11,8 @@ encoder and decoder run frozen pretrained models outside that budget.
 
 from __future__ import annotations
 
+from typing import Any
+
 import torch
 
 from codecs_module.decoder import SlotDecoder
@@ -35,23 +37,17 @@ class LatentCoreSubject(Subject):
         num_steps: int = DEFAULT_NUM_STEPS,
         device: str = "cpu",
         narration: bool = False,
-        backbone: object | None = None,
+        backbone: Any | None = None,
     ) -> None:
         self.backbone = backbone or load_frozen_qwen_backbone(device=device)
         self.workspace = Workspace(slot_count=slot_count)
-        self.latent_loop = LatentLoop(
-            num_steps=num_steps, device=device, backbone=self.backbone
-        )
+        self.latent_loop = LatentLoop(num_steps=num_steps, device=device, backbone=self.backbone)
         self.encoder = SlotEncoder(slot_count=slot_count, device=device)
         self.tokenizer = self.backbone.tokenizer
         self._last_context_embeds: torch.Tensor | None = None
-        self.decoder = SlotDecoder(
-            model=self.latent_loop.model, tokenizer=self.tokenizer, device=device
-        )
+        self.decoder = SlotDecoder(model=self.latent_loop.model, tokenizer=self.tokenizer, device=device)
         self.narration_decoder = (
-            NarrationDecoder(
-                model=self.latent_loop.model, tokenizer=self.tokenizer, device=device
-            )
+            NarrationDecoder(model=self.latent_loop.model, tokenizer=self.tokenizer, device=device)
             if narration
             else None
         )
@@ -80,9 +76,7 @@ class LatentCoreSubject(Subject):
     def snapshot(self) -> object:
         return {
             "workspace": self.workspace.snapshot(),
-            "last_context_embeds": self._last_context_embeds.clone()
-            if self._last_context_embeds is not None
-            else None,
+            "last_context_embeds": self._last_context_embeds.clone() if self._last_context_embeds is not None else None,
         }
 
     def restore(self, state: object) -> None:

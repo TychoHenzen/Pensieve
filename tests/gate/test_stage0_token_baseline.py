@@ -53,9 +53,7 @@ class _FakeTokenizer:
         self.template_calls: list[tuple[list[dict[str, str]], dict[str, Any]]] = []
         self.decode_calls: list[tuple[list[int], dict[str, Any]]] = []
 
-    def apply_chat_template(
-        self, messages: list[dict[str, str]], **kwargs: Any
-    ) -> dict[str, _FakeTensor]:
+    def apply_chat_template(self, messages: list[dict[str, str]], **kwargs: Any) -> dict[str, _FakeTensor]:
         self.template_calls.append((messages, kwargs))
         token_ids = list(range(1, self.prompt_length + 1))
         return {
@@ -90,9 +88,7 @@ def _records(count: int = FULL_TEST_COUNT) -> tuple[AsdivRecord, ...]:
     )
 
 
-def _backbone_loader(
-    tokenizer: _FakeTokenizer, model: _FakeModel
-) -> Callable[..., Any]:
+def _backbone_loader(tokenizer: _FakeTokenizer, model: _FakeModel) -> Callable[..., Any]:
     def load(*args: Any, **kwargs: Any) -> Any:
         del args, kwargs
         return SimpleNamespace(
@@ -151,9 +147,7 @@ def test_full_baseline_persists_every_seed_zero_test_identifier_in_order() -> No
 # covers: eval/stage0-gate::Frozen Qwen token baseline::Official prompt format
 def test_official_qwen_prompt_template_and_greedy_generation_are_exact() -> None:
     records = _records()
-    expected_selection = select_asdiv_a_records(
-        {"test": records}, split="test", seed=0, problem_count=None
-    )
+    expected_selection = select_asdiv_a_records({"test": records}, split="test", seed=0, problem_count=None)
 
     result, tokenizer, model = _run(records, development_limit=1)
 
@@ -273,15 +267,11 @@ def test_development_limit_is_a_bounded_non_boolean_integer(
 
 def test_limited_selection_is_explicitly_development_only_and_non_gating() -> None:
     records = _records()
-    full_selection = select_asdiv_a_records(
-        {"test": records}, split="test", seed=0, problem_count=None
-    )
+    full_selection = select_asdiv_a_records({"test": records}, split="test", seed=0, problem_count=None)
 
     result, _, _ = _run(records, development_limit=7)
 
-    assert tuple(item["item_id"] for item in result["items"]) == (
-        full_selection.ordered_item_ids[:7]
-    )
+    assert tuple(item["item_id"] for item in result["items"]) == (full_selection.ordered_item_ids[:7])
     assert result["total"] == 7
     assert result["identity"]["development_only"] is True
     assert "pass" not in result

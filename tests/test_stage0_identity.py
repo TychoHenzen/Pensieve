@@ -37,9 +37,7 @@ EXPECTED_CANONICAL_IDENTITY = (
     b'"sentence_encoder_revision":"1110a243fdf4706b3f48f1d95db1a4f5529b4d41",'
     b'"workspace_dimension":896}'
 )
-EXPECTED_IDENTITY_SHA256 = (
-    "8226e98ce90883c4900ae6cf6ab8639baf18f24bb4bd48adcc7fd149773ec652"
-)
+EXPECTED_IDENTITY_SHA256 = "8226e98ce90883c4900ae6cf6ab8639baf18f24bb4bd48adcc7fd149773ec652"
 
 EXPECTED_DATASET_MANIFEST = {
     "data/test-00000-of-00001-d118ad90f5719063.parquet": {
@@ -118,10 +116,7 @@ EXPECTED_MINILM_MANIFEST = {
     },
 }
 
-PROMPT = (
-    "Solve this math word problem. Return only the numerical answer."
-    "\n\nProblem:\n{question}"
-)
+PROMPT = "Solve this math word problem. Return only the numerical answer.\n\nProblem:\n{question}"
 ANSWER_PREFILL = "#### "
 
 
@@ -153,9 +148,7 @@ def test_stage0_identity_has_pinned_coordinates_and_canonical_sha256():
 def test_canonical_json_is_compact_sorted_utf8_and_rejects_non_finite_values():
     stage0 = _subject()
 
-    assert stage0.canonical_json_bytes({"z": "café", "a": [1, 2]}) == (
-        b'{"a":[1,2],"z":"caf\xc3\xa9"}'
-    )
+    assert stage0.canonical_json_bytes({"z": "café", "a": [1, 2]}) == (b'{"a":[1,2],"z":"caf\xc3\xa9"}')
     with pytest.raises(ValueError):
         stage0.canonical_json_bytes({"not_finite": float("nan")})
 
@@ -171,9 +164,7 @@ def test_manifests_pin_every_declared_asset_and_digest_algorithm():
 def test_manifest_digest_uses_git_blob_framing_or_raw_sha256_as_declared():
     stage0 = _subject()
 
-    assert stage0.digest_bytes(b"hello", "git_blob_sha1") == (
-        "b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0"
-    )
+    assert stage0.digest_bytes(b"hello", "git_blob_sha1") == ("b6fc4c620b67d95f953a5c1c1230aaab5db5a1b0")
     assert stage0.digest_bytes(b"hello", "sha256") == (
         "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"
     )
@@ -319,9 +310,7 @@ def test_failed_minilm_manifest_verification_names_pinned_coordinates():
         ("load_minilm_model", MINILM_MODEL, MINILM_REVISION),
     ),
 )
-def test_unavailable_model_revision_error_names_model_and_revision(
-    loader_name: str, repository: str, revision: str
-):
+def test_unavailable_model_revision_error_names_model_and_revision(loader_name: str, repository: str, revision: str):
     stage0 = _subject()
     model_loader = Mock(side_effect=OSError("revision not found"))
 
@@ -359,9 +348,7 @@ def test_training_identity_contains_runtime_fields_and_fixed_held_out_identifier
     }
     held_out_item_ids = ["asdiv_a__validation_17", "asdiv_a__validation_904"]
 
-    identity = stage0.training_identity(
-        runtime=runtime, held_out_item_ids=held_out_item_ids
-    )
+    identity = stage0.training_identity(runtime=runtime, held_out_item_ids=held_out_item_ids)
 
     assert identity == {
         **EXPECTED_STAGE0_IDENTITY,

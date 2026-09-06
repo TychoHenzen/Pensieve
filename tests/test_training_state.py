@@ -20,9 +20,7 @@ class FakeWorkspace:
 
 
 class FakeEncoder(nn.Module):
-    def __init__(
-        self, slot_count: int, device: str, sentence_model: object | None = None
-    ) -> None:
+    def __init__(self, slot_count: int, device: str, sentence_model: object | None = None) -> None:
         super().__init__()
         del device, sentence_model
         self.slot_count = slot_count
@@ -85,21 +83,13 @@ def test_shared_state_uses_explicit_method_parameter_registries(monkeypatch) -> 
     assert gradient_trainer.optimizer is not eggroll_trainer.optimizer
     assert gradient_trainer.trainable_params == list(state.parameters())
     assert eggroll_trainer.trainable_params == list(state.eggroll_parameters())
-    gradient_optimizer_ids = {
-        id(parameter) for parameter in gradient_trainer.optimizer.param_groups[0]["params"]
-    }
-    eggroll_optimizer_ids = {
-        id(parameter) for parameter in eggroll_trainer.optimizer.param_groups[0]["params"]
-    }
+    gradient_optimizer_ids = {id(parameter) for parameter in gradient_trainer.optimizer.param_groups[0]["params"]}
+    eggroll_optimizer_ids = {id(parameter) for parameter in eggroll_trainer.optimizer.param_groups[0]["params"]}
     gradient_optimizer_paths = tuple(
-        name
-        for name, parameter in state.trainable_params.items()
-        if id(parameter) in gradient_optimizer_ids
+        name for name, parameter in state.trainable_params.items() if id(parameter) in gradient_optimizer_ids
     )
     eggroll_optimizer_paths = tuple(
-        name
-        for name, parameter in state.trainable_params.items()
-        if id(parameter) in eggroll_optimizer_ids
+        name for name, parameter in state.trainable_params.items() if id(parameter) in eggroll_optimizer_ids
     )
     assert gradient_optimizer_paths == GRADIENT_PARAMETER_PATHS
     assert eggroll_optimizer_paths == EGGROLL_PARAMETER_PATHS
@@ -126,12 +116,8 @@ def test_eggroll_keeps_biases_vectors_and_temperature_at_base_values(monkeypatch
 
     state = TrainingState(slot_count=3, num_steps=1)
     trainer = EggrollTrainer(pop_size=2, lr=0.1, state=state)
-    excluded_paths = tuple(
-        path for path in GRADIENT_PARAMETER_PATHS if path not in EGGROLL_PARAMETER_PATHS
-    )
-    base_values = {
-        path: state.trainable_params[path].detach().clone() for path in excluded_paths
-    }
+    excluded_paths = tuple(path for path in GRADIENT_PARAMETER_PATHS if path not in EGGROLL_PARAMETER_PATHS)
+    base_values = {path: state.trainable_params[path].detach().clone() for path in excluded_paths}
 
     _optimizer_step(trainer.optimizer, trainer.trainable_params, gradient=1.0)
     _optimizer_step(trainer.optimizer, trainer.trainable_params, gradient=2.0)
@@ -145,10 +131,7 @@ def test_eggroll_keeps_biases_vectors_and_temperature_at_base_values(monkeypatch
         "latent_loop.layer_norm.weight",
         "latent_loop.layer_norm.bias",
     )
-    assert all(
-        torch.equal(state.trainable_params[path], base_values[path])
-        for path in excluded_paths
-    )
+    assert all(torch.equal(state.trainable_params[path], base_values[path]) for path in excluded_paths)
     assert set(trainer.optimizer.state) == set()
 
 
@@ -163,15 +146,10 @@ def test_eggroll_updates_leave_non_matrix_trainables_bitwise_unchanged(monkeypat
     assert gradient_trainer.encoder is eggroll_trainer.encoder
     gradient_params = list(state.parameters())
     eggroll_params = list(state.eggroll_parameters())
-    excluded = [
-        parameter
-        for name, parameter in state.trainable_params.items()
-        if name not in EGGROLL_PARAMETER_PATHS
-    ]
+    excluded = [parameter for name, parameter in state.trainable_params.items() if name not in EGGROLL_PARAMETER_PATHS]
     _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=1.0)
     gradient_state_before_eggroll = {
-        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone()
-        for parameter in gradient_params
+        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone() for parameter in gradient_params
     }
     before = [parameter.detach().clone() for parameter in excluded]
 
@@ -182,10 +160,7 @@ def test_eggroll_updates_leave_non_matrix_trainables_bitwise_unchanged(monkeypat
         torch.equal(gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state)
         for parameter, saved_state in gradient_state_before_eggroll.items()
     )
-    assert all(
-        torch.equal(parameter, original)
-        for parameter, original in zip(excluded, before, strict=True)
-    )
+    assert all(torch.equal(parameter, original) for parameter, original in zip(excluded, before, strict=True))
     assert set(eggroll_trainer.optimizer.state) == set()
 
 
@@ -211,16 +186,13 @@ def test_switch_from_eggroll_preserves_shared_parameters_and_prior_adam_state(mo
 
     _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=1.0)
     adam_before_eggroll = {
-        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone()
-        for parameter in gradient_params
+        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone() for parameter in gradient_params
     }
     _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=2.0)
     eggroll_values = [parameter.detach().clone() for parameter in eggroll_params]
 
     assert all(
-        torch.equal(
-            gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state
-        )
+        torch.equal(gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state)
         for parameter, saved_state in adam_before_eggroll.items()
     )
     assert id(gradient_trainer.optimizer) == gradient_optimizer_id
@@ -235,8 +207,7 @@ def test_switch_from_eggroll_preserves_shared_parameters_and_prior_adam_state(mo
     assert id(gradient_trainer.optimizer) == gradient_optimizer_id
     assert _parameter_ids(gradient_trainer.optimizer) == gradient_group_ids
     assert any(
-        not torch.equal(parameter, expected)
-        for parameter, expected in zip(eggroll_params, eggroll_values, strict=True)
+        not torch.equal(parameter, expected) for parameter, expected in zip(eggroll_params, eggroll_values, strict=True)
     )
     assert all(
         torch.allclose(
@@ -268,8 +239,7 @@ def test_return_to_eggroll_preserves_shared_matrices_and_inactive_adam_state(mon
     _optimizer_step(gradient_trainer.optimizer, gradient_params, gradient=3.0)
 
     adam_before_return = {
-        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone()
-        for parameter in gradient_params
+        parameter: gradient_trainer.optimizer.state[parameter]["exp_avg"].clone() for parameter in gradient_params
     }
     gradient_values = [parameter.detach().clone() for parameter in eggroll_params]
     _optimizer_step(eggroll_trainer.optimizer, eggroll_params, gradient=4.0)
@@ -281,9 +251,7 @@ def test_return_to_eggroll_preserves_shared_matrices_and_inactive_adam_state(mon
     assert id(gradient_trainer.optimizer) == gradient_optimizer_id
     assert _parameter_ids(gradient_trainer.optimizer) == gradient_group_ids
     assert all(
-        torch.equal(
-            gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state
-        )
+        torch.equal(gradient_trainer.optimizer.state[parameter]["exp_avg"], saved_state)
         for parameter, saved_state in adam_before_return.items()
     )
     assert all(

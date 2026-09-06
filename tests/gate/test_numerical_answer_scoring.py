@@ -29,9 +29,7 @@ def test_without_delimiter_selects_the_final_candidate() -> None:
         ("#### 1,234,567.25", "1234567.25"),
     ],
 )
-def test_valid_signs_and_grouped_numbers_are_supported(
-    generated: str, expected: str
-) -> None:
+def test_valid_signs_and_grouped_numbers_are_supported(generated: str, expected: str) -> None:
     assert score_numerical_answer(generated, expected)
 
 
@@ -64,9 +62,7 @@ def test_fraction_and_decimal_reduce_to_the_same_exact_value() -> None:
     ],
 )
 # covers: eval/stage0-gate::Numerical answer equivalence::Repeating decimal tolerance
-def test_tolerance_accepts_its_inclusive_boundary_including_near_zero(
-    generated: str, expected: str
-) -> None:
+def test_tolerance_accepts_its_inclusive_boundary_including_near_zero(generated: str, expected: str) -> None:
     assert score_numerical_answer(generated, expected)
 
 

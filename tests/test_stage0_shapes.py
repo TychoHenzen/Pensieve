@@ -36,9 +36,7 @@ class _FakeTokenizer:
 class _FakeSentenceTransformer(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.transformer = SimpleNamespace(
-            tokenizer=_FakeTokenizer(), auto_model=_FakeSentenceModel()
-        )
+        self.transformer = SimpleNamespace(tokenizer=_FakeTokenizer(), auto_model=_FakeSentenceModel())
 
     def __getitem__(self, index: int) -> Any:
         assert index == 0
@@ -220,9 +218,7 @@ def test_narration_forwards_896_wide_slots_and_preserves_workspace_state() -> No
     model = _FakeQwen()
     workspace = _WorkspaceState(torch.ones(8, 896))
     slots_before = workspace.read_slots().clone()
-    decoder = NarrationDecoder(
-        model=model, tokenizer=_FakeTokenizer(), max_tokens=1, device="cpu"
-    )
+    decoder = NarrationDecoder(model=model, tokenizer=_FakeTokenizer(), max_tokens=1, device="cpu")
 
     text = decoder.narrate(workspace)  # type: ignore[arg-type]
 

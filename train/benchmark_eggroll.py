@@ -74,13 +74,9 @@ class CudaMeasurements(Protocol):
 
     def synchronize(self, device: torch.device | str | int | None = None) -> None: ...
 
-    def reset_peak_memory_stats(
-        self, device: torch.device | str | int | None = None
-    ) -> None: ...
+    def reset_peak_memory_stats(self, device: torch.device | str | int | None = None) -> None: ...
 
-    def max_memory_allocated(
-        self, device: torch.device | str | int | None = None
-    ) -> int: ...
+    def max_memory_allocated(self, device: torch.device | str | int | None = None) -> int: ...
 
 
 @dataclass(frozen=True)
@@ -92,10 +88,7 @@ class PathMeasurements:
 
     @property
     def durations_seconds_per_consumed_example(self) -> tuple[float, ...]:
-        return tuple(
-            duration / self.consumed_examples_per_step
-            for duration in self.durations_seconds
-        )
+        return tuple(duration / self.consumed_examples_per_step for duration in self.durations_seconds)
 
     @property
     def median_seconds_per_consumed_example(self) -> float:
@@ -142,17 +135,11 @@ class _FullModelReferenceTap:
 
 
 def _measurement_order() -> tuple[BenchmarkPath, ...]:
-    return tuple(
-        path
-        for _ in range(MEASURED_RUNS_PER_PATH)
-        for path in PATHS
-    )
+    return tuple(path for _ in range(MEASURED_RUNS_PER_PATH) for path in PATHS)
 
 
 def _equivalence_failure(path: str, detail: str) -> None:
-    raise BenchmarkEquivalenceError(
-        f"numerical equivalence failed at {path}: {detail}"
-    )
+    raise BenchmarkEquivalenceError(f"numerical equivalence failed at {path}: {detail}")
 
 
 def _assert_close(actual: Any, expected: Any, path: str) -> None:
@@ -197,9 +184,7 @@ def _assert_close(actual: Any, expected: Any, path: str) -> None:
     if isinstance(expected, (list, tuple)):
         if not isinstance(actual, type(expected)) or len(actual) != len(expected):
             _equivalence_failure(path, "sequence shape differs")
-        for index, (actual_item, expected_item) in enumerate(
-            zip(actual, expected, strict=True)
-        ):
+        for index, (actual_item, expected_item) in enumerate(zip(actual, expected, strict=True)):
             _assert_close(actual_item, expected_item, f"{path}[{index}]")
         return
     if actual != expected:
@@ -218,9 +203,7 @@ def _assert_exact(actual: Any, expected: Any, path: str) -> None:
     if isinstance(expected, (list, tuple)):
         if not isinstance(actual, type(expected)) or len(actual) != len(expected):
             _equivalence_failure(path, "sequence shape differs")
-        for index, (actual_item, expected_item) in enumerate(
-            zip(actual, expected, strict=True)
-        ):
+        for index, (actual_item, expected_item) in enumerate(zip(actual, expected, strict=True)):
             _assert_exact(actual_item, expected_item, f"{path}[{index}]")
         return
     if actual != expected:
@@ -248,24 +231,16 @@ def assert_complete_step_equivalence(
         diagnostics: list[str] = []
         if reference.fitnesses is not None and optimized.fitnesses is not None:
             diagnostics.append(
-                "fitness_max_abs_difference="
-                f"{(optimized.fitnesses - reference.fitnesses).abs().max().item():.9g}"
+                f"fitness_max_abs_difference={(optimized.fitnesses - reference.fitnesses).abs().max().item():.9g}"
             )
         if reference.gradients and optimized.gradients:
-            gradient_difference = (
-                optimized.gradients[0] - reference.gradients[0]
-            ).abs()
+            gradient_difference = (optimized.gradients[0] - reference.gradients[0]).abs()
             sign_mismatches = (
-                torch.signbit(optimized.gradients[0])
-                != torch.signbit(reference.gradients[0])
-            ).sum().item()
-            diagnostics.append(
-                f"gradient0_max_abs_difference={gradient_difference.max().item():.9g}"
+                (torch.signbit(optimized.gradients[0]) != torch.signbit(reference.gradients[0])).sum().item()
             )
+            diagnostics.append(f"gradient0_max_abs_difference={gradient_difference.max().item():.9g}")
             diagnostics.append(f"gradient0_sign_mismatches={sign_mismatches}")
-        raise BenchmarkEquivalenceError(
-            f"{error}; {'; '.join(diagnostics)}"
-        ) from error
+        raise BenchmarkEquivalenceError(f"{error}; {'; '.join(diagnostics)}") from error
     _assert_close(
         optimized.state.workspace_slots,
         reference.state.workspace_slots,
@@ -299,9 +274,7 @@ def _performance_gate(
     reference = measurements["reference"]
     optimized = measurements["optimized"]
     speedup_ratio = reference.median_seconds / optimized.median_seconds
-    memory_passed = (
-        optimized.peak_allocated_bytes <= reference.peak_allocated_bytes
-    )
+    memory_passed = optimized.peak_allocated_bytes <= reference.peak_allocated_bytes
     speed_passed = speedup_ratio >= MINIMUM_SPEEDUP_RATIO
     if not speed_passed or not memory_passed:
         raise BenchmarkPerformanceError(
@@ -386,21 +359,15 @@ def _execution_path(
     original_linear = trainer_module.factorized_linear
     original_update = trainer_module.apply_factorized_update
     original_adapter = trainer.latent_loop.tap_adapter
-    selected_linear = (
-        materialized_linear if path == "reference" else original_linear
-    )
-    selected_update = (
-        apply_reference_pair_loop_update if path == "reference" else original_update
-    )
+    selected_linear = materialized_linear if path == "reference" else original_linear
+    selected_update = apply_reference_pair_loop_update if path == "reference" else original_update
 
     def traced_update(*args: Any, **kwargs: Any) -> Any:
         if trace is not None:
             trace.fitnesses = torch.as_tensor(kwargs["fitnesses"]).detach().clone()
         gradients = selected_update(*args, **kwargs)
         if trace is not None:
-            trace.gradients = tuple(
-                gradient.detach().clone() for gradient in gradients
-            )
+            trace.gradients = tuple(gradient.detach().clone() for gradient in gradients)
         return gradients
 
     trainer_module.factorized_linear = selected_linear
@@ -432,9 +399,7 @@ def _device_identity(device: torch.device) -> dict[str, Any]:
 
 def _require_cuda_device() -> torch.device:
     if not torch.cuda.is_available() or torch.cuda.device_count() < 1:
-        raise CudaBenchmarkUnavailable(
-            "CUDA benchmark was not run: CUDA device cuda:0 is unavailable"
-        )
+        raise CudaBenchmarkUnavailable("CUDA benchmark was not run: CUDA device cuda:0 is unavailable")
     device = torch.device("cuda:0")
     try:
         torch.cuda.get_device_properties(device)
@@ -493,10 +458,7 @@ def run_cuda_benchmark() -> dict[str, Any]:
     records = dataset.training_records(mode="eggroll", epoch=1)
     batch_records = tuple(records[:DEFAULT_FITNESS_BATCH_SIZE])
     if len(batch_records) != DEFAULT_FITNESS_BATCH_SIZE:
-        raise RuntimeError(
-            "benchmark requires exactly "
-            f"{DEFAULT_FITNESS_BATCH_SIZE} training records"
-        )
+        raise RuntimeError(f"benchmark requires exactly {DEFAULT_FITNESS_BATCH_SIZE} training records")
     fitness_batch = FitnessBatch(
         records=batch_records,
         start_position=0,
@@ -578,15 +540,9 @@ def run_cuda_benchmark() -> dict[str, Any]:
         path_measurements = measurements[path]
         path_results[path] = {
             **asdict(path_measurements),
-            "durations_seconds_per_consumed_example": (
-                path_measurements.durations_seconds_per_consumed_example
-            ),
-            "median_seconds_per_consumed_example": (
-                path_measurements.median_seconds_per_consumed_example
-            ),
-            "peak_allocated_bytes_per_consumed_example": (
-                path_measurements.peak_allocated_bytes_per_consumed_example
-            ),
+            "durations_seconds_per_consumed_example": (path_measurements.durations_seconds_per_consumed_example),
+            "median_seconds_per_consumed_example": (path_measurements.median_seconds_per_consumed_example),
+            "peak_allocated_bytes_per_consumed_example": (path_measurements.peak_allocated_bytes_per_consumed_example),
         }
     return {
         "schema_version": 2,

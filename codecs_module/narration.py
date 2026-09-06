@@ -36,9 +36,7 @@ class NarrationDecoder:
         embedding_layer = self.model.get_input_embeddings()
         actual_width = _embedding_width(embedding_layer)
         if slots.shape[-1] != actual_width:
-            raise ValueError(
-                f"expected slot width {actual_width}, actual slot width {slots.shape[-1]}"
-            )
+            raise ValueError(f"expected slot width {actual_width}, actual slot width {slots.shape[-1]}")
         input_embeds = slots.unsqueeze(0)  # (1, N, hidden_dim)
         eos_token_id = self.tokenizer.eos_token_id
 
@@ -55,9 +53,7 @@ class NarrationDecoder:
 
                 generated_ids.append(next_token_id)
 
-                next_token_tensor = torch.tensor(
-                    [[next_token_id]], device=self.device
-                )
+                next_token_tensor = torch.tensor([[next_token_id]], device=self.device)
                 next_token_embed = embedding_layer(next_token_tensor)  # (1, 1, hidden_dim)
                 input_embeds = torch.cat([input_embeds, next_token_embed], dim=1)
 

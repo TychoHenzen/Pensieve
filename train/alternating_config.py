@@ -32,7 +32,4 @@ def validate_scheduler_config(
         or not math.isfinite(variance_upper_threshold)
         or variance_upper_threshold <= variance_lower_threshold
     ):
-        raise ValueError(
-            "variance thresholds must be finite and satisfy "
-            "0 <= lower < upper"
-        )
+        raise ValueError("variance thresholds must be finite and satisfy 0 <= lower < upper")

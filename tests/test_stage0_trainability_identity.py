@@ -34,9 +34,7 @@ class TestTrainabilityImplementationIdentity:
         identity = canonical_trainability_implementation_identity(repo_root)
 
         source_paths = [path for path, _ in identity.sources]
-        assert source_paths == sorted(source_paths), (
-            "implementation sources must be in canonical sorted order"
-        )
+        assert source_paths == sorted(source_paths), "implementation sources must be in canonical sorted order"
 
     def test_implementation_identity_all_digests_valid(self) -> None:
         """Verify all source digests are valid SHA-256."""
@@ -45,9 +43,7 @@ class TestTrainabilityImplementationIdentity:
 
         for path, digest in identity.sources:
             assert len(digest) == 64, f"digest for {path} must be 64 hex chars"
-            assert all(
-                c in "0123456789abcdef" for c in digest
-            ), f"digest for {path} must be valid hex"
+            assert all(c in "0123456789abcdef" for c in digest), f"digest for {path} must be valid hex"
 
     def test_implementation_identity_includes_trainability_module(self) -> None:
         """Verify implementation identity includes stage0_trainability.py."""
@@ -90,9 +86,7 @@ class TestStabilityReportLoader:
         repo_root = Path(__file__).resolve().parents[1]
         implementation = canonical_trainability_implementation_identity(repo_root)
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             f.write("{ invalid json")
             temp_path = Path(f.name)
 
@@ -118,9 +112,7 @@ class TestStabilityReportLoader:
             "configuration": {},
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data, f)
             temp_path = Path(f.name)
 
@@ -156,16 +148,12 @@ class TestStabilityReportLoader:
             },
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data, f)
             temp_path = Path(f.name)
 
         try:
-            held_out_ids: tuple[tuple[str, str], ...] = (
-                ("test_001", "id_001"),
-            ) * 64
+            held_out_ids: tuple[tuple[str, str], ...] = (("test_001", "id_001"),) * 64
             digest, config = load_and_validate_stability_report(
                 temp_path,
                 implementation,
@@ -199,16 +187,12 @@ class TestStabilityReportLoader:
             },
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data, f)
             temp_path = Path(f.name)
 
         try:
-            held_out_ids: tuple[tuple[str, str], ...] = (
-                ("test_001", "id_001"),
-            ) * 64
+            held_out_ids: tuple[tuple[str, str], ...] = (("test_001", "id_001"),) * 64
 
             with pytest.raises(TrainabilityReportValidationError) as exc_info:
                 load_and_validate_stability_report(
@@ -238,16 +222,12 @@ class TestStabilityReportLoader:
             },
         }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data, f)
             temp_path = Path(f.name)
 
         try:
-            held_out_ids: tuple[tuple[str, str], ...] = (
-                ("test_001", "id_001"),
-            ) * 64
+            held_out_ids: tuple[tuple[str, str], ...] = (("test_001", "id_001"),) * 64
 
             with pytest.raises(TrainabilityReportValidationError) as exc_info:
                 load_and_validate_stability_report(
@@ -281,13 +261,9 @@ class TestReportDigestConsistency:
             },
         }
 
-        held_out_ids: tuple[tuple[str, str], ...] = (
-            ("test_001", "id_001"),
-        ) * 64
+        held_out_ids: tuple[tuple[str, str], ...] = (("test_001", "id_001"),) * 64
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data, f)
             temp_path = Path(f.name)
 
@@ -338,19 +314,13 @@ class TestReportDigestConsistency:
             "extra_field_1": "value2",
         }
 
-        held_out_ids: tuple[tuple[str, str], ...] = (
-            ("test_001", "id_001"),
-        ) * 64
+        held_out_ids: tuple[tuple[str, str], ...] = (("test_001", "id_001"),) * 64
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data1, f)
             temp_path1 = Path(f.name)
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(report_data2, f)
             temp_path2 = Path(f.name)
 

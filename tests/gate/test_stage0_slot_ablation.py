@@ -49,9 +49,7 @@ def _latent_result(
         runs.append(
             {
                 "seed": seed,
-                "items": [
-                    {"correct": item_index < correct} for item_index in range(2)
-                ],
+                "items": [{"correct": item_index < correct} for item_index in range(2)],
                 "correct": correct,
                 "total": 2,
             }
@@ -123,9 +121,7 @@ def test_ablation_prevalidates_all_safe_checkpoints_before_evaluation(
     def load_checkpoint(path: Path) -> SimpleNamespace:
         events.append(f"load:{path.name}")
         count = 1 if path.name == "slot-1.ckpt" else 3
-        return SimpleNamespace(
-            tensors={"model.encoder.slot_queries": torch.zeros(count, 2)}
-        )
+        return SimpleNamespace(tensors={"model.encoder.slot_queries": torch.zeros(count, 2)})
 
     with pytest.raises(ValueError, match=r"slot-4\.ckpt.*requested slot count 4"):
         slot_ablation.run_ablation(
@@ -169,9 +165,7 @@ def test_ablation_reuses_one_current_identity_order_and_backbone(
 
     def load_checkpoint(path: Path) -> SimpleNamespace:
         count = int(path.stem.removeprefix("slot-"))
-        return SimpleNamespace(
-            tensors={"model.encoder.slot_queries": torch.zeros(count, 2)}
-        )
+        return SimpleNamespace(tensors={"model.encoder.slot_queries": torch.zeros(count, 2)})
 
     def run_latent(**kwargs: Any) -> dict[str, Any]:
         events.append(("run", kwargs))
@@ -247,9 +241,7 @@ def test_missing_or_legacy_checkpoint_is_rejected_before_identity_loading(
             checkpoint_dir=checkpoint_dir,
             token_result_path=tmp_path / "token.json",
             records=_records(),
-            baseline_preparer=lambda **_kwargs: pytest.fail(
-                "token identity must not load before checkpoints exist"
-            ),
+            baseline_preparer=lambda **_kwargs: pytest.fail("token identity must not load before checkpoints exist"),
         )
 
 
@@ -274,9 +266,7 @@ def test_inconsistent_latent_result_is_rejected_before_report_write(
             records=records,
             baseline_preparer=lambda **_kwargs: _prepared(records),
             token_reader=lambda *_args, **_kwargs: {"identity": {}},
-            checkpoint_loader=lambda _path: SimpleNamespace(
-                tensors={"model.encoder.slot_queries": torch.zeros(1, 2)}
-            ),
+            checkpoint_loader=lambda _path: SimpleNamespace(tensors={"model.encoder.slot_queries": torch.zeros(1, 2)}),
             latent_runner=lambda **kwargs: _latent_result(
                 slot_count=1,
                 seeds=[1, 0],

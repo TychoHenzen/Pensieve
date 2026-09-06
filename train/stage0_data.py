@@ -52,8 +52,7 @@ class FitnessBatch:
             raise ValueError("each record must provide fitness for the same candidates")
 
         return tuple(
-            sum(fitnesses[candidate_index] for fitnesses in per_record_fitnesses)
-            / self.consumed_record_count
+            sum(fitnesses[candidate_index] for fitnesses in per_record_fitnesses) / self.consumed_record_count
             for candidate_index in range(candidate_count)
         )
 
@@ -70,9 +69,7 @@ def plan_eggroll_fitness_batch(
     """Plan one positive EGGROLL batch without crossing an active boundary."""
     _validate_positive_int("configured_batch_size", configured_batch_size)
     _validate_positive_int("records_until_epoch_boundary", records_until_epoch_boundary)
-    _validate_positive_int(
-        "records_until_observation_boundary", records_until_observation_boundary
-    )
+    _validate_positive_int("records_until_observation_boundary", records_until_observation_boundary)
     _validate_positive_int("records_until_logging_boundary", records_until_logging_boundary)
     if isinstance(cursor, bool) or not isinstance(cursor, int):
         raise TypeError("cursor must be a non-boolean integer")
@@ -100,15 +97,11 @@ class Stage0Dataset:
     train_selection: AsdivSelection
     held_out_selection: AsdivSelection
 
-    def training_records(
-        self, *, mode: TrainingMode | str, epoch: int
-    ) -> tuple[AsdivRecord, ...]:
+    def training_records(self, *, mode: TrainingMode | str, epoch: int) -> tuple[AsdivRecord, ...]:
         self._validate_training_request(mode, epoch)
         return self.train_selection.records
 
-    def training_item_ids(
-        self, *, mode: TrainingMode | str, epoch: int
-    ) -> tuple[str, ...]:
+    def training_item_ids(self, *, mode: TrainingMode | str, epoch: int) -> tuple[str, ...]:
         self._validate_training_request(mode, epoch)
         return self.train_selection.ordered_item_ids
 

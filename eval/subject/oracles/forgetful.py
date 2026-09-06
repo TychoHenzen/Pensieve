@@ -6,7 +6,6 @@ from eval.subject import CostCounters, Subject
 
 
 class ForgetfulOracle(Subject):
-
     def __init__(self) -> None:
         self._last_key: str | None = None
         self._last_value: str = ""

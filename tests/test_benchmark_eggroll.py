@@ -65,9 +65,7 @@ def test_benchmark_protocol_restores_and_alternates_complete_steps() -> None:
     assert results["optimized"].peak_allocated_bytes == 300
     assert results["reference"].consumed_examples_per_step == 8
     assert results["optimized"].consumed_examples_per_step == 8
-    assert results["reference"].durations_seconds_per_consumed_example == (
-        0.125,
-    ) * 5
+    assert results["reference"].durations_seconds_per_consumed_example == (0.125,) * 5
     assert results["optimized"].median_seconds_per_consumed_example == 0.125
     assert results["reference"].peak_allocated_bytes_per_consumed_example == 50.0
     assert results["optimized"].peak_allocated_bytes_per_consumed_example == 37.5

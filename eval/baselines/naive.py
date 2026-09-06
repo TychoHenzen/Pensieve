@@ -89,9 +89,7 @@ class NaiveBaseline(Subject):
         return None
 
     def answer(self, probe: Probe) -> str:
-        features = torch.tensor(
-            _parse_features(probe.query), dtype=torch.float32, device=self._device
-        ).unsqueeze(0)
+        features = torch.tensor(_parse_features(probe.query), dtype=torch.float32, device=self._device).unsqueeze(0)
         self._model.eval()
         with torch.no_grad():
             logits = self._model(features)

@@ -80,13 +80,9 @@ def test_report_types_have_to_dict_method() -> None:
         if next_def_idx < 0:
             next_def_idx = len(code)
 
-        class_body = code[
-            class_idx : min(next_class_idx, next_def_idx)
-        ]
+        class_body = code[class_idx : min(next_class_idx, next_def_idx)]
 
-        assert "def to_dict(self)" in class_body, (
-            f"Class {class_name} should have to_dict method"
-        )
+        assert "def to_dict(self)" in class_body, f"Class {class_name} should have to_dict method"
 
 
 def test_schema_version_constant() -> None:
@@ -220,9 +216,7 @@ def test_report_types_have_post_init_validation() -> None:
         if next_def_idx < 0:
             next_def_idx = len(code)
 
-        class_body = code[
-            class_idx : min(next_class_idx, next_def_idx)
-        ]
+        class_body = code[class_idx : min(next_class_idx, next_def_idx)]
 
         assert "def __post_init__(self)" in class_body or (
             "def __post_init__" in code and class_name in ["TrainabilityAssetIdentity", "TrainabilityConfiguration"]

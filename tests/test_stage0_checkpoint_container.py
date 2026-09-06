@@ -31,9 +31,7 @@ def _checkpoint_module():
     return importlib.import_module("train.stage0_checkpoint")
 
 
-def _metadata_bytes(
-    *, schema_version: int = 2, extra_json: str = ""
-) -> bytes:
+def _metadata_bytes(*, schema_version: int = 2, extra_json: str = "") -> bytes:
     suffix = f",{extra_json}" if extra_json else ""
     return f'{{"schema_version":{schema_version}{suffix}}}'.encode()
 
@@ -251,11 +249,14 @@ def test_reader_rejects_tensor_shape_before_calling_loader(tmp_path: Path) -> No
     _write_archive(path)
     calls: list[bytes] = []
 
-    with patch.object(
-        module,
-        "validate_checkpoint_metadata",
-        return_value=_validated_tiny_metadata(shape=[2]),
-    ), pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"):
+    with (
+        patch.object(
+            module,
+            "validate_checkpoint_metadata",
+            return_value=_validated_tiny_metadata(shape=[2]),
+        ),
+        pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"),
+    ):
         module.read_checkpoint_container(
             path,
             tensor_loader=calls.append,
@@ -298,11 +299,7 @@ def test_reader_rejects_duplicate_member_names_before_tensor_load(
     duplicate_member: str,
 ) -> None:
     path = tmp_path / f"duplicate-{duplicate_member}.ckpt"
-    duplicated_payload = (
-        _metadata_bytes()
-        if duplicate_member == METADATA_MEMBER
-        else _tiny_safetensors_bytes()
-    )
+    duplicated_payload = _metadata_bytes() if duplicate_member == METADATA_MEMBER else _tiny_safetensors_bytes()
     _write_archive(
         path,
         members=[

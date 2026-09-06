@@ -74,10 +74,7 @@ def _records() -> tuple[AsdivRecord, ...]:
 
 
 def _rendered_inputs(item_ids: Sequence[str]) -> list[dict[str, Any]]:
-    return [
-        {"item_id": item_id, "input_ids": [11, index + 20, 31]}
-        for index, item_id in enumerate(item_ids)
-    ]
+    return [{"item_id": item_id, "input_ids": [11, index + 20, 31]} for index, item_id in enumerate(item_ids)]
 
 
 def _rendered_digest(item_ids: Sequence[str]) -> str:
@@ -176,9 +173,7 @@ def _identity(item_ids: Sequence[str], *, latent: bool = False) -> dict[str, Any
     return identity
 
 
-def _items(
-    records: Sequence[AsdivRecord], *, diagnostics: bool = False
-) -> list[dict[str, Any]]:
+def _items(records: Sequence[AsdivRecord], *, diagnostics: bool = False) -> list[dict[str, Any]]:
     items = [
         {
             "item_id": records[0].id,
@@ -274,9 +269,7 @@ def _read_latent(cache: Any, path: Path, records: Sequence[AsdivRecord]) -> Any:
 
 
 # covers: eval/stage0-gate::Result compatibility identity::Matching cached baseline
-def test_matching_token_cache_is_reused_only_after_complete_revalidation(
-    cache: Any, tmp_path: Path
-) -> None:
+def test_matching_token_cache_is_reused_only_after_complete_revalidation(cache: Any, tmp_path: Path) -> None:
     records = _records()
     expected = _token_result(records)
     path = tmp_path / "token_cot.json"
@@ -351,9 +344,7 @@ def test_changed_identity_field_rejects_stale_token_cache(
         "development_only",
     ],
 )
-def test_absent_identity_field_is_never_compatible(
-    cache: Any, tmp_path: Path, field: str
-) -> None:
+def test_absent_identity_field_is_never_compatible(cache: Any, tmp_path: Path, field: str) -> None:
     records = _records()
     result = _token_result(records)
     del result["identity"][field]
@@ -464,9 +455,7 @@ def test_checkpoint_digest_hashes_exact_file_bytes(cache: Any, tmp_path: Path) -
     assert cache.checkpoint_sha256(checkpoint) != CHECKPOINT_DIGEST
 
 
-def test_matching_latent_cache_requires_checkpoint_seed_and_identity_match(
-    cache: Any, tmp_path: Path
-) -> None:
+def test_matching_latent_cache_requires_checkpoint_seed_and_identity_match(cache: Any, tmp_path: Path) -> None:
     records = _records()
     expected = _latent_result(records)
     path = tmp_path / "latent_eval.json"
@@ -476,9 +465,7 @@ def test_matching_latent_cache_requires_checkpoint_seed_and_identity_match(
 
 
 @pytest.mark.parametrize("location", ["root", "identity"])
-def test_changed_checkpoint_digest_rejects_latent_cache(
-    cache: Any, tmp_path: Path, location: str
-) -> None:
+def test_changed_checkpoint_digest_rejects_latent_cache(cache: Any, tmp_path: Path, location: str) -> None:
     records = _records()
     result = _latent_result(records)
     if location == "root":
@@ -493,9 +480,7 @@ def test_changed_checkpoint_digest_rejects_latent_cache(
 
 
 @pytest.mark.parametrize("location", ["root", "identity"])
-def test_changed_or_non_exact_seeds_reject_latent_cache(
-    cache: Any, tmp_path: Path, location: str
-) -> None:
+def test_changed_or_non_exact_seeds_reject_latent_cache(cache: Any, tmp_path: Path, location: str) -> None:
     records = _records()
     result = _latent_result(records)
     if location == "root":
@@ -540,9 +525,7 @@ def test_item_and_run_coverage_must_be_unique_complete_and_ordered(
 
 
 @pytest.mark.parametrize("kind", ["token", "latent"])
-def test_targets_are_reloaded_from_validated_records(
-    cache: Any, tmp_path: Path, kind: str
-) -> None:
+def test_targets_are_reloaded_from_validated_records(cache: Any, tmp_path: Path, kind: str) -> None:
     records = _records()
     result = _token_result(records) if kind == "token" else _latent_result(records)
     item = result["items"][0] if kind == "token" else result["runs"][0]["items"][0]
@@ -558,9 +541,7 @@ def test_targets_are_reloaded_from_validated_records(
 
 @pytest.mark.parametrize("kind", ["token", "latent"])
 @pytest.mark.parametrize("field", ["correct", "total"])
-def test_stored_item_counts_and_aggregates_must_recompute(
-    cache: Any, tmp_path: Path, kind: str, field: str
-) -> None:
+def test_stored_item_counts_and_aggregates_must_recompute(cache: Any, tmp_path: Path, kind: str, field: str) -> None:
     records = _records()
     result = _token_result(records) if kind == "token" else _latent_result(records)
     container = result if kind == "token" else result["runs"][0]
@@ -628,9 +609,7 @@ def test_token_and_latent_roots_are_exact_typed_version_two_schemas(
         (b"{", r"JSON|parse"),
     ],
 )
-def test_unsafe_json_is_rejected_before_schema_use(
-    cache: Any, tmp_path: Path, raw: bytes, expected: str
-) -> None:
+def test_unsafe_json_is_rejected_before_schema_use(cache: Any, tmp_path: Path, raw: bytes, expected: str) -> None:
     path = tmp_path / "token.json"
     path.write_bytes(raw)
 
@@ -659,9 +638,7 @@ def test_nesting_depth_over_eight_is_rejected(cache: Any, tmp_path: Path) -> Non
         _read_token(cache, path, _records())
 
 
-def test_collection_over_three_thousand_items_is_rejected(
-    cache: Any, tmp_path: Path
-) -> None:
+def test_collection_over_three_thousand_items_is_rejected(cache: Any, tmp_path: Path) -> None:
     result = _token_result()
     result["items"] = [copy.deepcopy(result["items"][0]) for _ in range(3_001)]
     path = tmp_path / "wide.json"

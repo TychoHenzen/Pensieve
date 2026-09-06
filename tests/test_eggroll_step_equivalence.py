@@ -54,9 +54,7 @@ class _TinyLanguageModel(nn.Module):
             torch.arange(24, dtype=torch.float32).reshape(6, 4) / 17 - 0.4,
         )
         with torch.no_grad():
-            self.embedding.weight.copy_(
-                torch.arange(24, dtype=torch.float32).reshape(6, 4) / 19 - 0.5
-            )
+            self.embedding.weight.copy_(torch.arange(24, dtype=torch.float32).reshape(6, 4) / 19 - 0.5)
         self.model = _TinyLanguageModelBody(self)
         for parameter in self.parameters():
             parameter.requires_grad_(False)
@@ -105,14 +103,10 @@ class _TinyEncoder(nn.Module):
     def __init__(self) -> None:
         super().__init__()
         self.projection = nn.Linear(3, 4)
-        self.slot_queries = nn.Parameter(
-            torch.arange(8, dtype=torch.float32).reshape(2, 4) / 13 - 0.2
-        )
+        self.slot_queries = nn.Parameter(torch.arange(8, dtype=torch.float32).reshape(2, 4) / 13 - 0.2)
         self.attn_log_temp = nn.Parameter(torch.tensor(-0.17))
         with torch.no_grad():
-            self.projection.weight.copy_(
-                torch.arange(12, dtype=torch.float32).reshape(4, 3) / 23 - 0.3
-            )
+            self.projection.weight.copy_(torch.arange(12, dtype=torch.float32).reshape(4, 3) / 23 - 0.3)
             self.projection.bias.copy_(torch.linspace(-0.2, 0.25, 4))
 
     def _token_embeddings(self, _: str) -> torch.Tensor:
@@ -133,9 +127,7 @@ class _TinyLatentLoop(nn.Module):
         self.num_steps = 1
         self.tap_adapter = _TinyTapAdapter()
         with torch.no_grad():
-            self.projection.weight.copy_(
-                torch.arange(16, dtype=torch.float32).reshape(4, 4) / 29 - 0.25
-            )
+            self.projection.weight.copy_(torch.arange(16, dtype=torch.float32).reshape(4, 4) / 29 - 0.25)
             self.projection.bias.copy_(torch.linspace(0.15, -0.1, 4))
             self.proj_norm.weight.copy_(torch.tensor([0.8, 0.9, 1.1, 1.2]))
             self.proj_norm.bias.copy_(torch.tensor([-0.1, 0.05, 0.02, 0.08]))
@@ -183,9 +175,7 @@ def _make_trainer() -> EggrollTrainer:
         for parameter in all_trainable_params
         if all(parameter is not matrix_parameter for matrix_parameter in trainer.trainable_params)
     ]
-    trainer.optimizer = torch.optim.SGD(
-        trainer.trainable_params, lr=0.009, momentum=0.0
-    )
+    trainer.optimizer = torch.optim.SGD(trainer.trainable_params, lr=0.009, momentum=0.0)
     return trainer
 
 
@@ -402,12 +392,10 @@ def test_complete_optimized_step_matches_materialized_reference(
     assert optimized_trace.normalized is not None
     assert reference_trace.normalized is not None
     optimized_per_problem_fitnesses = [
-        torch.cat(optimized_trace.fitnesses[index : index + 2])
-        for index in range(0, len(optimized_trace.fitnesses), 2)
+        torch.cat(optimized_trace.fitnesses[index : index + 2]) for index in range(0, len(optimized_trace.fitnesses), 2)
     ]
     reference_per_problem_fitnesses = [
-        torch.cat(reference_trace.fitnesses[index : index + 2])
-        for index in range(0, len(reference_trace.fitnesses), 2)
+        torch.cat(reference_trace.fitnesses[index : index + 2]) for index in range(0, len(reference_trace.fitnesses), 2)
     ]
     assert len(optimized_per_problem_fitnesses) == len(fitness_batch.records)
     for optimized_fitnesses, reference_fitnesses in zip(

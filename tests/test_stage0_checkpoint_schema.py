@@ -140,17 +140,12 @@ def _tensor(name: str, shape: list[int], dtype: str, role: str) -> dict[str, Any
 
 
 def _optimizer_manifest(method: str) -> dict[str, Any]:
-    parameter_paths = (
-        EGGROLL_PARAMETER_PATHS if method == "eggroll" else ALLOWED_PARAMETER_PATHS
-    )
+    parameter_paths = EGGROLL_PARAMETER_PATHS if method == "eggroll" else ALLOWED_PARAMETER_PATHS
     tensor_references = {
         path: (
             {}
             if method == "eggroll"
-            else {
-                state_name: f"optimizer.{method}.{path}.{state_name}"
-                for state_name in ("exp_avg", "exp_avg_sq")
-            }
+            else {state_name: f"optimizer.{method}.{path}.{state_name}" for state_name in ("exp_avg", "exp_avg_sq")}
         )
         for path in parameter_paths
     }
@@ -163,20 +158,13 @@ def _optimizer_manifest(method: str) -> dict[str, Any]:
                 "parameter_names": list(parameter_paths),
                 "scalars": {
                     "lr": 1e-4 if method == "gradient" else 1e-3,
-                    **(
-                        {"momentum": 0.0}
-                        if method == "eggroll"
-                        else {"beta1": 0.9, "beta2": 0.999, "eps": 1e-8}
-                    ),
+                    **({"momentum": 0.0} if method == "eggroll" else {"beta1": 0.9, "beta2": 0.999, "eps": 1e-8}),
                     "weight_decay": 0.0,
                     **({} if method == "eggroll" else {"amsgrad": False}),
                 },
             }
         ],
-        "scalar_state": {
-            path: ({} if method == "eggroll" else {"step": 7})
-            for path in parameter_paths
-        },
+        "scalar_state": {path: ({} if method == "eggroll" else {"step": 7}) for path in parameter_paths},
         "tensor_references": tensor_references,
     }
 
@@ -203,15 +191,10 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
     }[mode]
     held_out_ids = ["validation-2", "validation-1"]
     manifest = [
-        _tensor(f"model.{path}", MODEL_SHAPES[path], "float32", "model_parameter")
-        for path in ALLOWED_PARAMETER_PATHS
+        _tensor(f"model.{path}", MODEL_SHAPES[path], "float32", "model_parameter") for path in ALLOWED_PARAMETER_PATHS
     ]
     for method in methods:
-        parameter_paths = (
-            EGGROLL_PARAMETER_PATHS
-            if method == "eggroll"
-            else ALLOWED_PARAMETER_PATHS
-        )
+        parameter_paths = EGGROLL_PARAMETER_PATHS if method == "eggroll" else ALLOWED_PARAMETER_PATHS
         for path in parameter_paths:
             if method == "eggroll":
                 continue
@@ -282,11 +265,7 @@ def _metadata(mode: str = "alternating") -> dict[str, Any]:
                     "consumed_examples": schedule["consumed_examples"],
                     "eggroll_optimizer_calls": schedule["eggroll_optimizer_calls"],
                     **(
-                        {
-                            "gradient_optimizer_calls": schedule[
-                                "gradient_optimizer_calls"
-                            ]
-                        }
+                        {"gradient_optimizer_calls": schedule["gradient_optimizer_calls"]}
                         if mode == "alternating"
                         else {}
                     ),
@@ -333,9 +312,7 @@ def test_valid_v2_metadata_for_every_training_mode_is_typed_and_immutable(
 
     validated = module.validate_checkpoint_metadata(metadata)
 
-    assert set(metadata) == (
-        ALTERNATING_ROOT_FIELDS if mode in {"eggroll", "alternating"} else ROOT_FIELDS
-    )
+    assert set(metadata) == (ALTERNATING_ROOT_FIELDS if mode in {"eggroll", "alternating"} else ROOT_FIELDS)
     assert validated.schema_version == 2
     assert validated.mode == mode
     assert validated.to_dict() == metadata
@@ -349,19 +326,20 @@ def test_public_schema_constants_pin_modes_roles_and_model_names() -> None:
     module = _checkpoint_module()
 
     assert module.CHECKPOINT_SCHEMA_VERSION == 2
-    assert frozenset(
-        {"gradient", "eggroll", "alternating"}
-    ) == module.CHECKPOINT_MODES
+    assert frozenset({"gradient", "eggroll", "alternating"}) == module.CHECKPOINT_MODES
     assert frozenset({"gradient", "eggroll"}) == module.OPTIMIZER_METHODS
-    assert frozenset(
-        {
-            "model_parameter",
-            "optimizer_state",
-            "numpy_rng_state",
-            "pytorch_cpu_rng_state",
-            "pytorch_cuda_rng_state",
-        }
-    ) == module.TENSOR_ROLES
+    assert (
+        frozenset(
+            {
+                "model_parameter",
+                "optimizer_state",
+                "numpy_rng_state",
+                "pytorch_cpu_rng_state",
+                "pytorch_cuda_rng_state",
+            }
+        )
+        == module.TENSOR_ROLES
+    )
     assert module.ALLOWED_MODEL_PARAMETER_PATHS == ALLOWED_PARAMETER_PATHS
 
 
@@ -393,9 +371,7 @@ def test_standalone_root_rejects_alternating_run_config() -> None:
             "$.run_config.eggroll_population.sigma",
         ),
         (
-            lambda config: config["eggroll_population"].update(
-                {"prompt_alignment_weight": -0.1}
-            ),
+            lambda config: config["eggroll_population"].update({"prompt_alignment_weight": -0.1}),
             "$.run_config.eggroll_population.prompt_alignment_weight",
         ),
         (
@@ -403,9 +379,7 @@ def test_standalone_root_rejects_alternating_run_config() -> None:
             "$.run_config.eggroll_population.use_amp",
         ),
         (
-            lambda config: config["eggroll_population"].update(
-                {"variance_lower_threshold": 0.02}
-            ),
+            lambda config: config["eggroll_population"].update({"variance_lower_threshold": 0.02}),
             "$.run_config.eggroll_population.variance_lower_threshold",
         ),
         (
@@ -511,20 +485,14 @@ def test_model_manifest_requires_every_allowed_trainable_name_exactly_once() -> 
 def test_model_manifest_rejects_a_missing_allowed_trainable_parameter() -> None:
     metadata = _metadata()
     missing_name = "model.encoder.projection.bias"
-    metadata["tensor_manifest"] = [
-        item for item in metadata["tensor_manifest"] if item["name"] != missing_name
-    ]
+    metadata["tensor_manifest"] = [item for item in metadata["tensor_manifest"] if item["name"] != missing_name]
 
     _reject(metadata, f"$.tensor_manifest.{missing_name}")
 
 
 def test_optimizer_tensor_names_follow_method_parameter_and_state_paths() -> None:
     metadata = _metadata("gradient")
-    item = next(
-        item
-        for item in metadata["tensor_manifest"]
-        if item["role"] == "optimizer_state"
-    )
+    item = next(item for item in metadata["tensor_manifest"] if item["role"] == "optimizer_state")
     item["name"] = "optimizer.gradient.exp_avg.encoder.projection.weight"
 
     _reject(metadata, "$.tensor_manifest")
@@ -656,9 +624,7 @@ def test_rng_metadata_rejects_each_missing_source(source: str) -> None:
         ),
         (
             "$.rng.pytorch_cpu.state_tensor",
-            lambda rng: rng["pytorch_cpu"].__setitem__(
-                "state_tensor", "rng.numpy.state"
-            ),
+            lambda rng: rng["pytorch_cpu"].__setitem__("state_tensor", "rng.numpy.state"),
         ),
     ],
 )
@@ -681,9 +647,7 @@ def test_rng_metadata_rejects_duplicate_or_unordered_cuda_topology() -> None:
 
 def test_rng_references_require_uint8_tensors_with_matching_roles() -> None:
     metadata = _metadata()
-    cpu_tensor = next(
-        item for item in metadata["tensor_manifest"] if item["name"] == "rng.pytorch.cpu"
-    )
+    cpu_tensor = next(item for item in metadata["tensor_manifest"] if item["name"] == "rng.pytorch.cpu")
     cpu_tensor["dtype"] = "float32"
     cpu_tensor["role"] = "optimizer_state"
 

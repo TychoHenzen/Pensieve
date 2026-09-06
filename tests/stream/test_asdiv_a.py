@@ -108,12 +108,8 @@ def test_partition_counts_and_measured_gate_population_are_fixed() -> None:
 
     records = load_asdiv_records(source)
 
-    assert {split: len(items) for split, items in records.items()} == dict(
-        ASDIV_PARTITION_COUNTS
-    )
-    assert [record.id for record in records["test"]] == [
-        row["id"] for row in expected[:520]
-    ]
+    assert {split: len(items) for split, items in records.items()} == dict(ASDIV_PARTITION_COUNTS)
+    assert [record.id for record in records["test"]] == [row["id"] for row in expected[:520]]
 
 
 def test_duplicate_id_or_question_target_across_partitions_is_rejected() -> None:
@@ -132,12 +128,8 @@ def test_duplicate_id_or_question_target_across_partitions_is_rejected() -> None
 
 def test_selection_is_repeatable_and_binds_every_identity_input() -> None:
     records = _records()
-    baseline = select_asdiv_a_records(
-        records, split="test", seed=17, problem_count=3
-    )
-    repeated = select_asdiv_a_records(
-        records, split="test", seed=17, problem_count=3
-    )
+    baseline = select_asdiv_a_records(records, split="test", seed=17, problem_count=3)
+    repeated = select_asdiv_a_records(records, split="test", seed=17, problem_count=3)
     changed_revision = asdiv_a_selection_identity(
         records=baseline.records,
         split="test",
@@ -187,9 +179,7 @@ def test_generator_emits_one_public_question_then_one_numerical_probe() -> None:
 
 def test_truth_remains_isolated_from_model_facing_text() -> None:
     records = _records()
-    selection = select_asdiv_a_records(
-        records, split="test", seed=17, problem_count=1
-    )
+    selection = select_asdiv_a_records(records, split="test", seed=17, problem_count=1)
     record = selection.records[0]
 
     items = list(

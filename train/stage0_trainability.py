@@ -79,19 +79,13 @@ class TrainabilityAssetIdentity:
 
     def __post_init__(self) -> None:
         if not _is_sha256(self.stability_report_digest):
-            raise ValueError(
-                "trainability asset identity requires a SHA-256 digest for the report"
-            )
+            raise ValueError("trainability asset identity requires a SHA-256 digest for the report")
         if not self.held_out_record_identifiers:
             raise ValueError("trainability asset identity requires held-out records")
         if not self.training_record_identifiers_overfit:
-            raise ValueError(
-                "trainability asset identity requires overfit training records"
-            )
+            raise ValueError("trainability asset identity requires overfit training records")
         if not self.training_record_identifiers_32:
-            raise ValueError(
-                "trainability asset identity requires 32-record training records"
-            )
+            raise ValueError("trainability asset identity requires 32-record training records")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -125,9 +119,7 @@ class TrainabilityConfiguration:
             "implementation": self.implementation.to_dict(),
             "overfit_learning_rates": list(self.overfit_learning_rates),
             "overfit_checkpoints": list(self.overfit_checkpoints),
-            "held_out_evaluation_checkpoints": list(
-                self.held_out_evaluation_checkpoints
-            ),
+            "held_out_evaluation_checkpoints": list(self.held_out_evaluation_checkpoints),
             "min_separation_ratio": self.min_separation_ratio,
             "max_update_relative_matrix_rms": self.max_update_relative_matrix_rms,
             "max_loss_reduction_ratio": self.max_loss_reduction_ratio,
@@ -153,19 +145,13 @@ class OverfitAttempt:
             if not self.checkpoints:
                 raise ValueError("passed overfit attempt must have checkpoints")
         if self.status == "non_finite" and not self.failed_reason:
-            raise ValueError(
-                "non_finite overfit attempt must specify the failed field"
-            )
+            raise ValueError("non_finite overfit attempt must specify the failed field")
 
     def to_dict(self) -> dict[str, Any]:
         result = {
             "learning_rate": self.learning_rate,
             "status": self.status,
-            "baseline_metrics": (
-                self.baseline_metrics.to_dict()
-                if self.baseline_metrics
-                else None
-            ),
+            "baseline_metrics": (self.baseline_metrics.to_dict() if self.baseline_metrics else None),
             "checkpoints": [
                 {
                     "optimizer_call_count": count,
@@ -189,9 +175,7 @@ class OverfitProbeResult:
     failed_conditions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if self.status == "passed" and not any(
-            attempt.status == "passed" for attempt in self.attempts
-        ):
+        if self.status == "passed" and not any(attempt.status == "passed" for attempt in self.attempts):
             raise ValueError("passed overfit probe must have a passing attempt")
         if self.status == "inconclusive" and not self.failed_conditions:
             raise ValueError("inconclusive probe must specify failed conditions")
@@ -236,10 +220,7 @@ class CausalProbeResult:
             predicted = self.predicted_objective_delta
             observed = self.observed_objective_delta
             if not (
-                predicted is not None
-                and observed is not None
-                and math.isfinite(predicted)
-                and math.isfinite(observed)
+                predicted is not None and observed is not None and math.isfinite(predicted) and math.isfinite(observed)
             ):
                 raise ValueError("causal probe deltas must be finite")
         if self.status == "inconclusive" and not self.failed_conditions:
@@ -252,9 +233,7 @@ class CausalProbeResult:
             "baseline_objective": self.baseline_objective,
             "predicted_objective_delta": self.predicted_objective_delta,
             "observed_objective_delta": self.observed_objective_delta,
-            "max_update_relative_matrix_rms": (
-                self.max_update_relative_matrix_rms
-            ),
+            "max_update_relative_matrix_rms": (self.max_update_relative_matrix_rms),
             "baseline_separation": self.baseline_separation,
             "post_update_separation": self.post_update_separation,
         }
@@ -284,9 +263,7 @@ class ArmCheckpoint:
             "metrics": self.metrics.to_dict(),
         }
         if self.max_update_relative_matrix_rms is not None:
-            result["max_update_relative_matrix_rms"] = (
-                self.max_update_relative_matrix_rms
-            )
+            result["max_update_relative_matrix_rms"] = self.max_update_relative_matrix_rms
         _require_finite(result, "arm checkpoint")
         return result
 
@@ -298,8 +275,14 @@ class ArmResult:
     arm: ArmKind
     method: MethodName | None
     status: Literal[
-        "passed", "viable", "no_improvement", "loss_behavior_conflict",
-        "direction_mismatch", "unsafe_update", "non_finite", "inconclusive"
+        "passed",
+        "viable",
+        "no_improvement",
+        "loss_behavior_conflict",
+        "direction_mismatch",
+        "unsafe_update",
+        "non_finite",
+        "inconclusive",
     ]
     baseline_checkpoint: ArmCheckpoint
     checkpoints: tuple[ArmCheckpoint, ...]
@@ -316,9 +299,7 @@ class ArmResult:
             if self.method not in ("gradient", "eggroll"):
                 raise ValueError("updated arm must specify gradient or eggroll")
             if self.status in ("direction_mismatch",) and not self.recalibration_eligible:
-                raise ValueError(
-                    "direction_mismatch arm cannot be recalibration_eligible"
-                )
+                raise ValueError("direction_mismatch arm cannot be recalibration_eligible")
         if self.status == "inconclusive" and not self.failed_conditions:
             raise ValueError("inconclusive arm must specify failed conditions")
 
@@ -362,9 +343,7 @@ class TrainabilityReport:
 
     def __post_init__(self) -> None:
         if self.schema_version != TRAINABILITY_SCHEMA_VERSION:
-            raise ValueError(
-                f"trainability report requires schema version {TRAINABILITY_SCHEMA_VERSION}"
-            )
+            raise ValueError(f"trainability report requires schema version {TRAINABILITY_SCHEMA_VERSION}")
         if not _is_sha256(self.asset_identity_digest):
             raise ValueError("trainability report requires SHA-256 asset identity")
         if not _is_sha256(self.initial_state_digest):
@@ -425,18 +404,14 @@ class TrainabilityProgressRecord:
 
     def __post_init__(self) -> None:
         if self.schema_version != TRAINABILITY_SCHEMA_VERSION:
-            raise ValueError(
-                f"trainability progress requires schema version {TRAINABILITY_SCHEMA_VERSION}"
-            )
+            raise ValueError(f"trainability progress requires schema version {TRAINABILITY_SCHEMA_VERSION}")
         if self.sequence_number < 0:
             raise ValueError("progress sequence_number must be non-negative")
         if not math.isfinite(self.consumed_examples) or self.consumed_examples < 0:
             raise ValueError("consumed_examples must be finite and non-negative")
         if not math.isfinite(self.elapsed_seconds) or self.elapsed_seconds < 0:
             raise ValueError("elapsed_seconds must be finite and non-negative")
-        if self.eta_seconds is not None and (
-            not math.isfinite(self.eta_seconds) or self.eta_seconds < 0
-        ):
+        if self.eta_seconds is not None and (not math.isfinite(self.eta_seconds) or self.eta_seconds < 0):
             raise ValueError("eta_seconds must be finite and non-negative or None")
 
     def to_dict(self) -> dict[str, Any]:
@@ -480,9 +455,7 @@ def canonical_trainability_implementation_identity(
         if root not in path.parents or not path.is_file():
             raise ValueError(f"guarded trainability source is invalid: {relative}")
         sources.append((relative.replace("\\", "/"), hashlib.sha256(path.read_bytes()).hexdigest()))
-    combined = hashlib.sha256(
-        canonical_json_bytes(dict(sources))
-    ).hexdigest()
+    combined = hashlib.sha256(canonical_json_bytes(dict(sources))).hexdigest()
     return ImplementationIdentity(combined, tuple(sources))
 
 
@@ -542,8 +515,7 @@ def load_and_validate_stability_report(
             impl_sha = impl_config.get("sha256")
             if impl_sha != current_implementation.sha256:
                 issues.append(
-                    f"implementation mismatch: report has {impl_sha!r}, "
-                    f"current is {current_implementation.sha256!r}"
+                    f"implementation mismatch: report has {impl_sha!r}, current is {current_implementation.sha256!r}"
                 )
 
     asset_config = config.get("asset_identity", {})
@@ -686,13 +658,10 @@ def evaluate_single_record_loss(
             teacher_state=teacher_state,
         )
         lm_loss = answer_objective.language_model_loss.mean()
-        total_objective = lm_loss + (
-            trainer.prompt_alignment_weight
-            * answer_objective.prompt_alignment_loss.mean()
-        )
+        total_objective = lm_loss + (trainer.prompt_alignment_weight * answer_objective.prompt_alignment_loss.mean())
 
         return lm_loss.item(), total_objective.item()
-    except Exception:
+    except Exception:  # noqa: BLE001 - diagnostic failures become non-finite evidence
         return float("nan"), float("nan")
 
 
@@ -748,10 +717,7 @@ def run_overfit_attempt(
             for _ in range(steps_to_run):
                 try:
                     result = trainer.train_step(question, answer)
-                    if (
-                        math.isnan(result.language_model_loss)
-                        or math.isnan(result.total_objective)
-                    ):
+                    if math.isnan(result.language_model_loss) or math.isnan(result.total_objective):
                         return {
                             "learning_rate": learning_rate,
                             "status": "non_finite",
@@ -760,7 +726,7 @@ def run_overfit_attempt(
                             "failed_reason": f"Non-finite loss at step {current_step + 1}",
                         }
                     current_step += 1
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - retain failed attempt evidence
                     return {
                         "learning_rate": learning_rate,
                         "status": "non_finite",
@@ -802,7 +768,7 @@ def run_overfit_attempt(
                     "passed_loss_ratio": loss_ratio,
                 }
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - retain fatal attempt evidence
         return {
             "learning_rate": learning_rate,
             "status": "non_finite",
@@ -866,11 +832,7 @@ def classify_overfit_probe(
             first_token_accuracy = checkpoint_metrics.first_token_accuracy
             current_loss = checkpoint_metrics.language_model_loss
 
-            if (
-                exact_accuracy == 1.0
-                and first_token_accuracy == 1.0
-                and current_loss <= loss_threshold
-            ):
+            if exact_accuracy == 1.0 and first_token_accuracy == 1.0 and current_loss <= loss_threshold:
                 return OverfitProbeResult(
                     status="passed",
                     attempts=tuple(attempts),
@@ -894,9 +856,7 @@ class CausalProbeEvaluation:
         if not self.training_records:
             raise ValueError("causal probe evaluation requires at least one record")
         if len(self.training_records) != 8:
-            raise ValueError(
-                f"causal probe evaluation requires exactly 8 records, got {len(self.training_records)}"
-            )
+            raise ValueError(f"causal probe evaluation requires exactly 8 records, got {len(self.training_records)}")
         if self.pre_update_metrics is None:
             raise ValueError("pre-update metrics must be provided")
 
@@ -904,11 +864,7 @@ class CausalProbeEvaluation:
         result = {
             "training_record_count": len(self.training_records),
             "pre_update_metrics": self.pre_update_metrics.to_dict(),
-            "post_update_metrics": (
-                self.post_update_metrics.to_dict()
-                if self.post_update_metrics
-                else None
-            ),
+            "post_update_metrics": (self.post_update_metrics.to_dict() if self.post_update_metrics else None),
         }
         _require_finite(result, "causal probe evaluation")
         return result
@@ -937,10 +893,7 @@ def evaluate_objective_on_training_records(
         raise ValueError("training records are required for causal evaluation")
 
     if len(training_records) < max_records:
-        raise ValueError(
-            f"causal evaluation requires at least {max_records} records, "
-            f"got {len(training_records)}"
-        )
+        raise ValueError(f"causal evaluation requires at least {max_records} records, got {len(training_records)}")
 
     selected_records = training_records[:max_records]
 
@@ -960,9 +913,7 @@ def evaluate_objective_on_training_records(
 
     metric_components = []
     for question, answer in selected_records:
-        lm_loss, total_obj = evaluate_single_record_loss(
-            trainer, question, answer
-        )
+        lm_loss, total_obj = evaluate_single_record_loss(trainer, question, answer)
         if not math.isnan(lm_loss):
             metric_components.append((lm_loss, total_obj))
 
@@ -1179,9 +1130,7 @@ def validate_causal_safety_checks(
 
     separation_ratio = post_update_separation / baseline_separation
     if separation_ratio < min_separation_ratio:
-        failed_conditions.append(
-            f"separation_retention_below_floor: {separation_ratio:.4f} < {min_separation_ratio}"
-        )
+        failed_conditions.append(f"separation_retention_below_floor: {separation_ratio:.4f} < {min_separation_ratio}")
 
     if max_update_relative_matrix_rms > max_rms_change:
         failed_conditions.append(
@@ -1264,10 +1213,7 @@ def classify_overall_trainability(
         failed_conditions.append("no_method_status")
         return "inconclusive", failed_conditions
 
-    viable_methods = [
-        method for method, status in method_statuses.items()
-        if status == "viable"
-    ]
+    viable_methods = [method for method, status in method_statuses.items() if status == "viable"]
 
     if len(viable_methods) >= 1:
         return "bounded_trainability_observed", []
@@ -1326,22 +1272,14 @@ def classify_method_status(
         failed_conditions.append("baseline_loss_non_finite")
         return "non_finite", failed_conditions, False
 
-    loss_improved = (
-        final_metrics.language_model_loss
-        < baseline_metrics.language_model_loss
-    )
+    loss_improved = final_metrics.language_model_loss < baseline_metrics.language_model_loss
 
     if not loss_improved:
         failed_conditions.append("loss_not_improved")
         return "no_improvement", failed_conditions, False
 
-    exact_improved = (
-        final_metrics.exact_accuracy >= baseline_metrics.exact_accuracy
-    )
-    first_token_improved = (
-        final_metrics.first_token_accuracy
-        >= baseline_metrics.first_token_accuracy
-    )
+    exact_improved = final_metrics.exact_accuracy >= baseline_metrics.exact_accuracy
+    first_token_improved = final_metrics.first_token_accuracy >= baseline_metrics.first_token_accuracy
 
     if not exact_improved or not first_token_improved:
         failed_conditions.append("no_decoded_improvement")
@@ -1360,15 +1298,12 @@ def classify_method_status(
         else 0.0
     )
     if separation_ratio < MIN_SEPARATION_RATIO:
-        failed_conditions.append(
-            f"separation_retention_ratio_{separation_ratio:.4f}"
-        )
+        failed_conditions.append(f"separation_retention_ratio_{separation_ratio:.4f}")
         return "unsafe_update", failed_conditions, False
 
     if len(final_checkpoint.metrics.parameter_rms) > 0:
         rms_values = [
-            item.rms if isinstance(item, ParameterRms) else 0.0
-            for item in final_checkpoint.metrics.parameter_rms
+            item.rms if isinstance(item, ParameterRms) else 0.0 for item in final_checkpoint.metrics.parameter_rms
         ]
         max_rms = max(rms_values) if rms_values else 0.0
         if max_rms > MAX_UPDATE_RELATIVE_MATRIX_RMS:
@@ -1385,9 +1320,7 @@ def classify_method_status(
         failed_conditions.append("causal_non_finite")
         return "non_finite", failed_conditions, False
 
-    recalibration_eligible = (
-        causal_status == "passed" if causal_status else False
-    )
+    recalibration_eligible = causal_status == "passed" if causal_status else False
 
     return "viable", [], recalibration_eligible
 
@@ -1403,20 +1336,14 @@ class FreshStateManifest:
         if not self.training_records:
             raise ValueError("fresh state manifest requires training records")
         if len(self.training_records) < 32:
-            raise ValueError(
-                f"fresh state manifest requires at least 32 records, "
-                f"got {len(self.training_records)}"
-            )
+            raise ValueError(f"fresh state manifest requires at least 32 records, got {len(self.training_records)}")
         if not self.checkpoint_example_counts:
             raise ValueError("fresh state manifest requires checkpoint counts")
         sorted_checkpoints = sorted(self.checkpoint_example_counts)
         if sorted_checkpoints != list(self.checkpoint_example_counts):
             raise ValueError("checkpoint example counts must be sorted")
         if sorted_checkpoints[-1] > 32:
-            raise ValueError(
-                f"checkpoint counts must not exceed 32 records, "
-                f"got max {sorted_checkpoints[-1]}"
-            )
+            raise ValueError(f"checkpoint counts must not exceed 32 records, got max {sorted_checkpoints[-1]}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1539,32 +1466,21 @@ def check_arm_evaluation_safety(
     if baseline_separation > 0:
         separation_ratio = metrics.separation_retention / baseline_separation
         if separation_ratio < min_separation_ratio:
-            failed_reasons.append(
-                f"separation_ratio_{separation_ratio:.4f}"
-            )
+            failed_reasons.append(f"separation_ratio_{separation_ratio:.4f}")
             return ArmSafetyCheck(
                 status="stopped",
-                stop_reason=(
-                    f"Separation retention below floor: "
-                    f"{separation_ratio:.4f} < {min_separation_ratio}"
-                ),
+                stop_reason=(f"Separation retention below floor: {separation_ratio:.4f} < {min_separation_ratio}"),
                 separation_floor_violated=True,
             )
 
     if len(metrics.parameter_rms) > 0:
-        rms_values = [
-            item.rms if isinstance(item, ParameterRms) else 0.0
-            for item in metrics.parameter_rms
-        ]
+        rms_values = [item.rms if isinstance(item, ParameterRms) else 0.0 for item in metrics.parameter_rms]
         max_param_rms = max(rms_values) if rms_values else 0.0
         if max_param_rms > max_rms_ceiling:
             failed_reasons.append(f"rms_ceiling_{max_param_rms:.4f}")
             return ArmSafetyCheck(
                 status="stopped",
-                stop_reason=(
-                    f"Parameter RMS above ceiling: "
-                    f"{max_param_rms:.4f} > {max_rms_ceiling}"
-                ),
+                stop_reason=(f"Parameter RMS above ceiling: {max_param_rms:.4f} > {max_rms_ceiling}"),
                 rms_ceiling_violated=True,
             )
 
@@ -1585,10 +1501,7 @@ class MethodArm:
         if not self.training_records:
             raise ValueError("method arm requires training records")
         if len(self.training_records) < 32:
-            raise ValueError(
-                f"method arm requires at least 32 records, "
-                f"got {len(self.training_records)}"
-            )
+            raise ValueError(f"method arm requires at least 32 records, got {len(self.training_records)}")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -1621,10 +1534,7 @@ def _run_arm_with_updates(
         MethodArm with evaluations at each checkpoint
     """
     if len(manifest.training_records) < 32:
-        raise ValueError(
-            f"{arm_kind} arm requires at least 32 records, "
-            f"got {len(manifest.training_records)}"
-        )
+        raise ValueError(f"{arm_kind} arm requires at least 32 records, got {len(manifest.training_records)}")
 
     trainer = LatentCoreTrainer(lr=learning_rate, device=device)
     evaluations: list[ArmEvaluation] = []
@@ -1699,32 +1609,22 @@ def _compute_state_hash(trainer: Any) -> str:
             return hashlib.sha256(b"empty").hexdigest()
         combined = b"".join(params_list)
         return hashlib.sha256(combined).hexdigest()
-    except Exception:
+    except Exception:  # noqa: BLE001 - a missing digest invalidates the control arm
         return ""
 
 
-def _compute_metrics_drift(
-    baseline: StabilityMetrics, final: StabilityMetrics
-) -> dict[str, float]:
+def _compute_metrics_drift(baseline: StabilityMetrics, final: StabilityMetrics) -> dict[str, float]:
     """Compute the drift between baseline and final metrics."""
     drift = {}
     if baseline.language_model_loss > 0:
-        drift["lm_loss_ratio"] = (
-            final.language_model_loss / baseline.language_model_loss
-        )
+        drift["lm_loss_ratio"] = final.language_model_loss / baseline.language_model_loss
     else:
         drift["lm_loss_ratio"] = 0.0
 
-    drift["exact_accuracy_delta"] = (
-        final.exact_accuracy - baseline.exact_accuracy
-    )
-    drift["first_token_accuracy_delta"] = (
-        final.first_token_accuracy - baseline.first_token_accuracy
-    )
+    drift["exact_accuracy_delta"] = final.exact_accuracy - baseline.exact_accuracy
+    drift["first_token_accuracy_delta"] = final.first_token_accuracy - baseline.first_token_accuracy
     drift["separation_retention_ratio"] = (
-        final.separation_retention / baseline.separation_retention
-        if baseline.separation_retention > 0
-        else 0.0
+        final.separation_retention / baseline.separation_retention if baseline.separation_retention > 0 else 0.0
     )
 
     return drift

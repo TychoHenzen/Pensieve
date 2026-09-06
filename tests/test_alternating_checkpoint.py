@@ -42,9 +42,7 @@ def test_checkpoint_round_trips_resumption_state(tmp_path) -> None:
     assert all(loaded.tensors[name].equal(value) for name, value in tensors.items())
 
 
-def test_typed_builder_captures_real_model_optimizer_and_rng_state(
-    tmp_path, monkeypatch
-) -> None:
+def test_typed_builder_captures_real_model_optimizer_and_rng_state(tmp_path, monkeypatch) -> None:
     parameters = {
         name: nn.Parameter(torch.tensor([float(index)]))
         for index, name in enumerate(alternating_checkpoint.stage0_parameter_paths())
@@ -90,13 +88,9 @@ def test_typed_builder_captures_real_model_optimizer_and_rng_state(
     assert loaded.metadata["schema_version"] == 2
     assert loaded.metadata["schedule"]["next_dataset_position"] == 2
     assert set(loaded.metadata["optimizer_manifests"][0]["tensor_references"]) == set(parameters)
+    assert all(loaded.metadata["optimizer_manifests"][0]["tensor_references"][name] for name in parameters)
     assert all(
-        loaded.metadata["optimizer_manifests"][0]["tensor_references"][name]
-        for name in parameters
-    )
-    assert all(
-        torch.equal(loaded.tensors[f"model.{name}"], parameter.detach())
-        for name, parameter in parameters.items()
+        torch.equal(loaded.tensors[f"model.{name}"], parameter.detach()) for name, parameter in parameters.items()
     )
 
 
@@ -160,16 +154,12 @@ def test_alternating_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) -
 
     eggroll_manifest = checkpoint.metadata["optimizer_manifests"][1]
     assert eggroll_manifest["optimizer_type"] == "SGD"
-    assert list(eggroll_manifest["parameter_names"]) == list(
-        EGGROLL_MODEL_PARAMETER_PATHS
-    )
+    assert list(eggroll_manifest["parameter_names"]) == list(EGGROLL_MODEL_PARAMETER_PATHS)
     assert eggroll_manifest["parameter_groups"][0]["scalars"]["momentum"] == 0.0
     assert checkpoint.metadata["schedule"]["consumed_examples"] == 3
     assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 1
     assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 1
-    assert checkpoint.metadata["run_config"]["eggroll_population"][
-        "fitness_batch_size"
-    ] == 8
+    assert checkpoint.metadata["run_config"]["eggroll_population"]["fitness_batch_size"] == 8
     assert checkpoint.metadata["run_config"]["stability_report_identity"] == "c" * 64
 
 
@@ -225,9 +215,7 @@ def test_standalone_checkpoint_saves_stabilized_eggroll_identity(monkeypatch) ->
     assert checkpoint.metadata["schedule"]["consumed_examples"] == 3
     assert checkpoint.metadata["schedule"]["eggroll_optimizer_calls"] == 1
     assert checkpoint.metadata["metrics"]["eggroll_optimizer_calls"] == 1
-    assert checkpoint.metadata["run_config"]["eggroll_population"][
-        "fitness_batch_size"
-    ] == 8
+    assert checkpoint.metadata["run_config"]["eggroll_population"]["fitness_batch_size"] == 8
     assert checkpoint.metadata["run_config"]["stability_report_identity"] == "c" * 64
 
 
@@ -307,9 +295,7 @@ def test_epoch_boundary_resume_starts_next_epoch_with_unfinished_phase_budget(tm
         ("held_out_selection", {"split": "test", "count": 64}),
     ],
 )
-def test_resume_rejects_each_changed_schedule_setting_before_training(
-    setting: str, override: object
-) -> None:
+def test_resume_rejects_each_changed_schedule_setting_before_training(setting: str, override: object) -> None:
     resume_config = dict(SCHEDULE_CONFIG)
     resume_config[setting] = override
     training_updates: list[str] = []
@@ -354,9 +340,7 @@ def test_resume_error_uses_canonical_paths_for_every_incompatible_or_missing_set
     resume_config["dataset_selection"]["revision"] = "changed"
     resume_config["gradient_optimizer"]["type"] = "SGD"
     resume_config["eggroll_optimizer"]["type"] = "Adam"
-    resume_config["eggroll_optimizer"]["parameter_paths"] = [
-        "encoder.projection.weight"
-    ]
+    resume_config["eggroll_optimizer"]["parameter_paths"] = ["encoder.projection.weight"]
     resume_config["eggroll_population"]["fitness_batch_size"] = 4
     resume_config["stability_report_identity"] = "d" * 64
     resume_config["held_out_selection"]["count"] = 1
@@ -407,9 +391,7 @@ def test_latest_checkpoint_returns_none_for_empty_directory(tmp_path) -> None:
     assert latest_checkpoint(tmp_path) is None
 
 
-def test_coincident_boundaries_serialize_once_and_expose_both_names(
-    tmp_path, monkeypatch
-) -> None:
+def test_coincident_boundaries_serialize_once_and_expose_both_names(tmp_path, monkeypatch) -> None:
     checkpoint = _checkpoint(global_step=9, epoch=3)
     save_calls = 0
     real_save = alternating_checkpoint.save_checkpoint
@@ -443,9 +425,7 @@ def _checkpoint(*, global_step: int, epoch: int) -> AlternatingCheckpoint:
     metadata["schedule"]["epoch"] = epoch
     next_position = global_step % 3
     metadata["schedule"]["next_dataset_position"] = next_position
-    metadata["schedule"]["completed_phase_steps"] = (
-        global_step % metadata["schedule"]["phase_steps"]
-    )
+    metadata["schedule"]["completed_phase_steps"] = global_step % metadata["schedule"]["phase_steps"]
     metadata["schedule"]["gradient_optimizer_calls"] = 0
     metadata["schedule"]["eggroll_optimizer_calls"] = max(1, global_step)
     metadata["metrics"].update(
@@ -458,9 +438,7 @@ def _checkpoint(*, global_step: int, epoch: int) -> AlternatingCheckpoint:
     return capture_checkpoint(metadata=metadata, tensors=_tensor_values(metadata))
 
 
-def _validate_then_update(
-    resume_config: dict[str, object], *, completed_epochs: int, updates: list[str]
-) -> None:
+def _validate_then_update(resume_config: dict[str, object], *, completed_epochs: int, updates: list[str]) -> None:
     validate_resume_config = getattr(
         alternating_checkpoint,
         "validate_resume_config",
@@ -512,9 +490,7 @@ class FakeResumableScheduler:
         elif next_position == len(examples):
             next_epoch += 1
             next_position = 0
-        self.resume_positions.append(
-            (next_epoch, next_position, schedule.completed_phase_steps)
-        )
+        self.resume_positions.append((next_epoch, next_position, schedule.completed_phase_steps))
         self.calls.append(
             (
                 examples[next_position],

@@ -34,9 +34,11 @@ class TrainingEngine[ResultT](Protocol):
     @property
     def max_consumed_records(self) -> int:
         """Largest contiguous record batch this engine can consume per call."""
+        ...
 
     def train_step(self, example: object, position: ExperimentPosition) -> ResultT:
         """Apply one update and return its method-specific result."""
+        ...
 
 
 class PhaseEvaluator[EvaluationT](Protocol):
@@ -44,6 +46,7 @@ class PhaseEvaluator[EvaluationT](Protocol):
 
     def evaluate(self, position: ExperimentPosition) -> EvaluationT:
         """Return the evaluation labeled with the completed phase position."""
+        ...
 
 
 class VarianceHysteresisScheduler[ResultT, EvaluationT]:
@@ -173,11 +176,7 @@ class VarianceHysteresisScheduler[ResultT, EvaluationT]:
         records_until_logging_boundary: int | None = None,
     ) -> ResultT:
         update_method = self._active_phase
-        engine = (
-            self._eggroll_engine
-            if update_method == "eggroll"
-            else self._gradient_engine
-        )
+        engine = self._eggroll_engine if update_method == "eggroll" else self._gradient_engine
         max_consumed_records = getattr(engine, "max_consumed_records", 1)
         if (
             isinstance(max_consumed_records, bool)
@@ -223,24 +222,16 @@ class VarianceHysteresisScheduler[ResultT, EvaluationT]:
             or not isinstance(consumed_record_count, int)
             or consumed_record_count != record_count
         ):
-            raise ValueError(
-                "training result consumed_record_count must match the scheduled batch"
-            )
+            raise ValueError("training result consumed_record_count must match the scheduled batch")
         self._completed_steps = global_step
         self._completed_phase_steps = phase_step
         self._optimizer_call_counts[update_method] = optimizer_call_count
         self._phase_variance_sum += float(variance) * consumed_record_count
         if phase_step == self._phase_steps:
             average_variance = self._phase_variance_sum / self._phase_steps
-            if (
-                self._active_phase == "eggroll"
-                and average_variance >= self._variance_upper_threshold
-            ):
+            if self._active_phase == "eggroll" and average_variance >= self._variance_upper_threshold:
                 self._active_phase = "gradient"
-            elif (
-                self._active_phase == "gradient"
-                and average_variance <= self._variance_lower_threshold
-            ):
+            elif self._active_phase == "gradient" and average_variance <= self._variance_lower_threshold:
                 self._active_phase = "eggroll"
             self._completed_phase_steps = 0
             self._phase_variance_sum = 0.0

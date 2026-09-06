@@ -41,6 +41,7 @@ _PARAMS = {
 def _corpus_dir(monkeypatch):
     monkeypatch.setenv("PENSIVE_CORPUS_DIR", str(_FIXTURE_DIR))
 
+
 _SUBPROCESS_SCRIPT = """
 import json
 from pathlib import Path
@@ -72,9 +73,7 @@ def _config(seed_params=None):
 
 def _run_subprocess(seed: int, pythonhashseed: str | None) -> dict:
     """Run the assoc generator in a fresh interpreter and return its hash and sequence."""
-    script = _SUBPROCESS_SCRIPT.format(
-        fixture_path=str(_FIXTURE_PATH), params=_PARAMS, seed=seed
-    )
+    script = _SUBPROCESS_SCRIPT.format(fixture_path=str(_FIXTURE_PATH), params=_PARAMS, seed=seed)
     env = dict(os.environ)
     if pythonhashseed is None:
         env.pop("PYTHONHASHSEED", None)

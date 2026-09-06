@@ -59,9 +59,7 @@ def _format_duration(seconds: float) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run the strict Stage 0 Calc-ASDiv_A/Qwen gate evaluation."
-    )
+    parser = argparse.ArgumentParser(description="Run the strict Stage 0 Calc-ASDiv_A/Qwen gate evaluation.")
     parser.add_argument(
         "--checkpoint",
         type=Path,
@@ -70,9 +68,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
-    parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
-    )
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--development-limit",
         "--problem-count",
@@ -116,16 +112,12 @@ def _run_baseline(
     selection = prepared.selection
     results_path = args.results_dir / "token_cot.json"
     if results_path.exists():
-
         result = read_token_result(
             results_path,
             expected_identity=prepared.identity,
             records=selection.records,
         )
-        _log(
-            f"reused validated token cache: {_accuracy(result):.4f} "
-            f"({result['correct']}/{result['total']})"
-        )
+        _log(f"reused validated token cache: {_accuracy(result):.4f} ({result['correct']}/{result['total']})")
         return result
 
     phase_start = time.monotonic()
@@ -211,16 +203,10 @@ def _run_latent_eval(
     phase_start = time.monotonic()
 
     def on_item(progress: LatentProgress) -> None:
-        if (
-            progress.item_index % LATENT_LOG_EVERY != 0
-            and progress.item_index != progress.item_count
-        ):
+        if progress.item_index % LATENT_LOG_EVERY != 0 and progress.item_index != progress.item_count:
             return
         elapsed = time.monotonic() - phase_start
-        remaining = (
-            (elapsed / progress.global_done)
-            * (progress.global_count - progress.global_done)
-        )
+        remaining = (elapsed / progress.global_done) * (progress.global_count - progress.global_done)
         _log(
             f"  latent seed {progress.seed_index}/{progress.seed_count} "
             f"({progress.seed}) [{progress.item_index}/{progress.item_count}] "
@@ -274,10 +260,7 @@ def _run_verdict(
     token = report["results"]["token_cot"]
     latent_result = report["results"]["latent_eval"]
     _log(f"  token-CoT baseline:    {token['accuracy']:.4f}")
-    _log(
-        f"  latent mean (5 seeds): {latent_result['mean']:.4f} "
-        f"(std={latent_result['std']:.4f})"
-    )
+    _log(f"  latent mean (5 seeds): {latent_result['mean']:.4f} (std={latent_result['std']:.4f})")
     for name, passed in report["criteria"].items():
         _log(f"  {name}: {'PASS' if passed else 'FAIL'}")
     _log(f"  GATE: {'PASS' if report['pass'] else 'FAIL'}")
@@ -295,10 +278,7 @@ def main() -> None:
         _log("gate seeds must be exactly 0,1,2,3,4 in that order")
         sys.exit(1)
     if args.slot_count != DEFAULT_SLOT_COUNT or args.num_steps != DEFAULT_NUM_STEPS:
-        _log(
-            f"official gate geometry requires slots={DEFAULT_SLOT_COUNT} "
-            f"and latent steps={DEFAULT_NUM_STEPS}"
-        )
+        _log(f"official gate geometry requires slots={DEFAULT_SLOT_COUNT} and latent steps={DEFAULT_NUM_STEPS}")
         sys.exit(1)
     source = _records()
     args.results_dir.mkdir(parents=True, exist_ok=True)
@@ -311,10 +291,7 @@ def main() -> None:
     )
     baseline = _run_baseline(args, source, prepared)
     if _accuracy(baseline) < MIN_MEANINGFUL_ACCURACY:
-        _log(
-            f"baseline accuracy {_accuracy(baseline):.4f} is below the "
-            f"documented {MIN_MEANINGFUL_ACCURACY:.0%} floor"
-        )
+        _log(f"baseline accuracy {_accuracy(baseline):.4f} is below the documented {MIN_MEANINGFUL_ACCURACY:.0%} floor")
         _log("GATE: INVALID - select a simpler dataset before latent evaluation")
         sys.exit(1)
     latent = _run_latent_eval(args, seeds, baseline, source, prepared)
