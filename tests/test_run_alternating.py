@@ -117,9 +117,10 @@ def test_evaluation_progress_record_has_sorted_boundaries_and_exact_metrics() ->
 
 
 def test_checkpoint_progress_record_has_exact_paths() -> None:
-    assert run_alternating._checkpoint_record([Path("runs/phase-27.pt"), Path("runs/epoch-2.pt")]) == {
+    paths = [Path("runs/phase-27.pt"), Path("runs/epoch-2.pt")]
+    assert run_alternating._checkpoint_record(paths) == {
         "record_type": "checkpoint",
-        "paths": ["runs\\phase-27.pt", "runs\\epoch-2.pt"],
+        "paths": [str(path) for path in paths],
     }
 
 
