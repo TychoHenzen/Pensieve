@@ -26,10 +26,7 @@ import urllib.request
 from collections.abc import Iterator
 from pathlib import Path
 
-SOURCE_URL = (
-    "https://huggingface.co/datasets/monology/pile-uncopyrighted/"
-    "resolve/main/val.jsonl.zst"
-)
+SOURCE_URL = "https://huggingface.co/datasets/monology/pile-uncopyrighted/resolve/main/val.jsonl.zst"
 DEFAULT_MAX_WORDS = 5_000_000
 DEFAULT_OUT = Path("data/corpus/pile-val.jsonl")
 READ_CHUNK_BYTES = 1 << 16
@@ -43,11 +40,10 @@ def _iter_documents(url: str) -> Iterator[dict]:
     bytes as soon as the caller stops iterating.
     """
     try:
-        import zstandard
+        import zstandard  # noqa: PLC0415
     except ImportError as exc:
         raise SystemExit(
-            "zstandard is required to decompress the corpus stream. "
-            "Install it with: pip install -e .[corpus]"
+            "zstandard is required to decompress the corpus stream. Install it with: pip install -e .[corpus]"
         ) from exc
 
     with urllib.request.urlopen(url) as response:
@@ -60,8 +56,8 @@ def _iter_documents(url: str) -> Iterator[dict]:
                     break
                 buffer += chunk
                 *lines, buffer = buffer.split(b"\n")
-                for line in lines:
-                    line = line.strip()
+                for raw_line in lines:
+                    line = raw_line.strip()
                     if not line:
                         continue
                     yield json.loads(line)

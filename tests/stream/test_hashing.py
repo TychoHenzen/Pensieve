@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 
 from eval.stream.config import StreamConfig
+from eval.stream.events import Observe, Probe
 from eval.stream.hashing import canonical_json, stream_hash
-from eval.stream.serialize import items_to_canonical_json, items_to_plain
+from eval.stream.serialize import items_to_plain
+from eval.stream.truth import ProbeTruth, StreamItem
 
 
 def _config(**params) -> StreamConfig:
@@ -19,59 +21,45 @@ def _config(**params) -> StreamConfig:
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::identical inputs repeat
 def test_same_config_seed_and_version_repeats_the_hash():
     config = _config(pairs=10, distance=100)
-    assert stream_hash(config, 0, "1.0", "1", "corpus-a") == stream_hash(
-        config, 0, "1.0", "1", "corpus-a"
-    )
+    assert stream_hash(config, 0, "1.0", "1", "corpus-a") == stream_hash(config, 0, "1.0", "1", "corpus-a")
 
 
 # covers: eval/config::StreamConfig params are canonically hashable::key order does not affect the hash
 def test_key_insertion_order_does_not_affect_the_hash():
     first = StreamConfig(generator="assoc", params={"a": 1, "b": 2})
     second = StreamConfig(generator="assoc", params={"b": 2, "a": 1})
-    assert stream_hash(first, 0, "1.0", "1", "corpus-a") == stream_hash(
-        second, 0, "1.0", "1", "corpus-a"
-    )
+    assert stream_hash(first, 0, "1.0", "1", "corpus-a") == stream_hash(second, 0, "1.0", "1", "corpus-a")
 
 
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::any one input changing changes the hash
 def test_changing_a_config_parameter_changes_the_hash():
     base = _config(pairs=10, distance=100)
     changed = _config(pairs=11, distance=100)
-    assert stream_hash(base, 0, "1.0", "1", "corpus-a") != stream_hash(
-        changed, 0, "1.0", "1", "corpus-a"
-    )
+    assert stream_hash(base, 0, "1.0", "1", "corpus-a") != stream_hash(changed, 0, "1.0", "1", "corpus-a")
 
 
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::any one input changing changes the hash
 def test_changing_the_seed_changes_the_hash():
     config = _config(pairs=10, distance=100)
-    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(
-        config, 1, "1.0", "1", "corpus-a"
-    )
+    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(config, 1, "1.0", "1", "corpus-a")
 
 
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::any one input changing changes the hash
 def test_changing_the_generator_version_changes_the_hash():
     config = _config(pairs=10, distance=100)
-    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(
-        config, 0, "1.1", "1", "corpus-a"
-    )
+    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(config, 0, "1.1", "1", "corpus-a")
 
 
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::any one input changing changes the hash
 def test_changing_the_render_version_changes_the_hash():
     config = _config(pairs=10, distance=100)
-    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(
-        config, 0, "1.0", "2", "corpus-a"
-    )
+    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(config, 0, "1.0", "2", "corpus-a")
 
 
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::any one input changing changes the hash
 def test_changing_the_corpus_id_changes_the_hash():
     config = _config(pairs=10, distance=100)
-    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(
-        config, 0, "1.0", "1", "corpus-b"
-    )
+    assert stream_hash(config, 0, "1.0", "1", "corpus-a") != stream_hash(config, 0, "1.0", "1", "corpus-b")
 
 
 # covers: eval/serialize::stream_hash is a reproducible function of exactly five inputs::digest format
@@ -94,9 +82,7 @@ def test_hashing_a_nested_config_structure_works():
         generator="split-classify",
         params={"tasks": [{"name": "a", "weight": 0.5}, {"name": "b", "weight": 0.5}]},
     )
-    assert stream_hash(config, 0, "1.0", "1", "corpus-a") == stream_hash(
-        config, 0, "1.0", "1", "corpus-a"
-    )
+    assert stream_hash(config, 0, "1.0", "1", "corpus-a") == stream_hash(config, 0, "1.0", "1", "corpus-a")
 
 
 # covers: eval/serialize::stream_hash reproduces a pinned digest::golden value reproduces
@@ -275,7 +261,8 @@ print(items_to_canonical_json(items))
 
 
 def _run_canonical_json_subprocess(
-    seed: int, pythonhashseed: str,
+    seed: int,
+    pythonhashseed: str,
 ) -> str:
     script = _CANONICAL_JSON_SCRIPT.format(
         corpus_dir=str(_FIXTURE_DIR),
@@ -325,9 +312,6 @@ def test_canonical_json_key_order_does_not_affect_output():
 
 # covers: eval/serialize::items_to_plain output shape is not externally pinned::plain shape is self-consistent
 def test_items_to_plain_round_trip_stability():
-    from eval.stream.events import Observe, Probe
-    from eval.stream.truth import ProbeTruth, StreamItem
-
     items = [
         StreamItem(
             event=Observe(position=0, payload={"key": "value"}),

@@ -1,23 +1,32 @@
-"""CLI entry point: trains the latent-core subject's learned parameters on GSM8K.
+"""Gradient training on filtered Calc-ASDiv_A with the frozen Qwen backbone.
 
-Loads the GSM8K train split (~7.5k problems), runs `LatentCoreTrainer` for a
-configurable number of epochs, and after each epoch logs the average loss,
-trainable parameter count, and the workspace's collapse-detection stats
-(variance/covariance, see `Workspace.collapse_stats`). A checkpoint of the
-trainable state dicts is saved after every epoch.
+Loads all 570 records in the pinned Calc-ASDiv_A train order. The
+trainer uses the frozen Qwen/Qwen2.5-0.5B-Instruct backbone and frozen MiniLM.
 """
 
 from __future__ import annotations
 
 import argparse
-import glob
 import os
-import re
 import time
+from typing import Any
 
 import torch
 
-from eval.stream.generators.gsm8k import _extract_answer, _load_split
+from eval.stage0_identity import training_identity
+from train.stage0_data import load_stage0_dataset, training_examples
+from train.standalone_checkpoint import (
+    build_checkpoint,
+    checkpoint_epoch,
+    configure_deterministic_runtime,
+    latest_epoch_checkpoint,
+    load_checkpoint,
+    restore_checkpoint,
+    runtime_identity,
+    save_checkpoint,
+    selection_metadata,
+    validate_compatibility,
+)
 from train.trainer import DEFAULT_LR, DEFAULT_NUM_STEPS, LatentCoreTrainer, StepResult
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
@@ -42,7 +51,12 @@ def _format_duration(seconds: float) -> str:
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train the latent-core subject on GSM8K.")
+    parser = argparse.ArgumentParser(
+        description=(
+            "Train the latent-core subject on filtered Calc-ASDiv_A with the "
+            "frozen Qwen/Qwen2.5-0.5B-Instruct backbone."
+        )
+    )
     parser.add_argument("--epochs", type=int, default=10)
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
@@ -57,7 +71,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Number of GSM8K train problems to use; default uses the full split.",
+        help="Limit Calc-ASDiv_A training records. Default uses all 570 train records.",
     )
     parser.add_argument(
         "--log-every",
@@ -76,77 +90,107 @@ def _parse_args() -> argparse.Namespace:
 
 def _find_latest_checkpoint(save_dir: str) -> str | None:
     """Find the checkpoint with the highest epoch number in save_dir."""
-    pattern = os.path.join(save_dir, "epoch-*.pt")
-    files = glob.glob(pattern)
-    if not files:
-        return None
-    epoch_re = re.compile(r"epoch-(\d+)\.pt$")
-    best_epoch = -1
-    best_path = None
-    for path in files:
-        m = epoch_re.search(path)
-        if m:
-            epoch = int(m.group(1))
-            if epoch > best_epoch:
-                best_epoch = epoch
-                best_path = path
-    return best_path
+    path = latest_epoch_checkpoint(save_dir)
+    return str(path) if path is not None else None
 
 
-def _load_checkpoint(trainer: LatentCoreTrainer, path: str, device: str) -> int:
-    """Load a checkpoint into the trainer. Returns the epoch it was saved at."""
+def _load_checkpoint(
+    path: str,
+    *,
+    identity: dict[str, Any],
+    selections: dict[str, Any],
+    learning_rate: float,
+):
+    """Validate a safe checkpoint before constructing a trainer."""
     _log(f"loading checkpoint: {path}")
-    state = torch.load(path, map_location=device, weights_only=False)
-    trainer.encoder.projection.load_state_dict(state["encoder_projection"])
-    if "encoder_cross_attention" in state:
-        trainer.encoder.cross_attention.load_state_dict(state["encoder_cross_attention"])
-    with torch.no_grad():
-        trainer.encoder.slot_queries.copy_(state["encoder_slot_queries"])
-    trainer.latent_loop.projection.load_state_dict(state["latent_loop_projection"])
-    if "latent_loop_layer_norm" in state:
-        trainer.latent_loop.layer_norm.load_state_dict(state["latent_loop_layer_norm"])
-    trainer.optimizer.load_state_dict(state["optimizer"])
-    epoch = state["epoch"]
+    checkpoint = load_checkpoint(path, expected_mode="gradient")
+    validate_compatibility(
+        checkpoint,
+        identity=identity,
+        selections=selections,
+        learning_rate=learning_rate,
+    )
+    epoch = checkpoint_epoch(path)
     _log(f"resumed from epoch {epoch}")
-    return epoch
+    return checkpoint, epoch
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
-    _log("loading GSM8K train split...")
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
-    problems = _load_split("train")
-    if problem_count is not None:
-        problems = problems[:problem_count]
-    dataset = [(item["question"], _extract_answer(item["answer"])) for item in problems]
+    stage0_dataset = load_stage0_dataset()
+    dataset = training_examples(
+        stage0_dataset,
+        mode="gradient",
+        epoch=1,
+        problem_count=problem_count,
+    )
     _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
     return dataset
 
 
-def _save_checkpoint(trainer: LatentCoreTrainer, save_dir: str, epoch: int) -> str:
+def _load_dataset_context(
+    problem_count: int | None,
+) -> tuple[list[tuple[str, str]], dict[str, Any], dict[str, Any]]:
+    _log("loading pinned Calc-ASDiv_A partitions...")
+    t0 = time.monotonic()
+    stage0_dataset = load_stage0_dataset()
+    dataset = training_examples(stage0_dataset, mode="gradient", epoch=1, problem_count=problem_count)
+    train = selection_metadata(stage0_dataset.train_selection, problem_count)
+    held_out = selection_metadata(stage0_dataset.held_out_selection, None)
+    selections = {"train": train, "held_out": held_out}
+    identity = training_identity(runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"])
+    _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
+    return dataset, identity, selections
+
+
+def _save_checkpoint(
+    trainer: LatentCoreTrainer,
+    save_dir: str,
+    epoch: int,
+    *,
+    identity: dict[str, Any],
+    selections: dict[str, Any],
+    metrics: dict[str, Any],
+) -> str:
     os.makedirs(save_dir, exist_ok=True)
-    checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.pt")
-    state = {
-        "encoder_projection": trainer.encoder.projection.state_dict(),
-        "encoder_slot_queries": trainer.encoder.slot_queries,
-        "latent_loop_projection": trainer.latent_loop.projection.state_dict(),
-        "latent_loop_layer_norm": trainer.latent_loop.layer_norm.state_dict(),
-        "optimizer": trainer.optimizer.state_dict(),
-        "epoch": epoch,
-    }
-    torch.save(state, checkpoint_path)
+    checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.ckpt")
+    checkpoint = build_checkpoint(
+        mode="gradient",
+        identity=identity,
+        selections=selections,
+        model_state=trainer.state.trainable_params,
+        optimizer=trainer.optimizer,
+        metrics=metrics,
+    )
+    save_checkpoint(checkpoint_path, checkpoint)
     return checkpoint_path
 
 
 def main() -> None:
+    configure_deterministic_runtime()
     args = _parse_args()
 
     _log(f"device={args.device}")
-    _log(f"config: epochs={args.epochs} slots={args.slot_count} "
-         f"steps={args.num_steps} lr={args.lr}")
+    _log(f"config: epochs={args.epochs} slots={args.slot_count} steps={args.num_steps} lr={args.lr}")
 
-    dataset = _load_dataset(args.problem_count)
+    dataset, checkpoint_identity, selections = _load_dataset_context(args.problem_count)
 
-    _log("building trainer (loading Pythia-160M + MiniLM)...")
+    resumed = None
+    start_epoch = 0
+    if args.resume is not None:
+        path = _find_latest_checkpoint(args.save_dir) if args.resume == "latest" else args.resume
+        if path is None:
+            _log(f"no checkpoints found in {args.save_dir}, starting from scratch")
+        else:
+            resumed, start_epoch = _load_checkpoint(
+                path,
+                identity=checkpoint_identity,
+                selections=selections,
+                learning_rate=args.lr,
+            )
+
+    _log("building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct + frozen MiniLM)...")
     t0 = time.monotonic()
     trainer = LatentCoreTrainer(
         slot_count=args.slot_count,
@@ -154,19 +198,17 @@ def main() -> None:
         lr=args.lr,
         device=args.device,
     )
-    _log(f"trainer ready ({_format_duration(time.monotonic() - t0)}), "
-         f"trainable_params={trainer.trainable_param_count():,}")
+    _log(
+        f"trainer ready ({_format_duration(time.monotonic() - t0)}), "
+        f"trainable_params={trainer.trainable_param_count():,}"
+    )
 
-    start_epoch = 0
-    if args.resume is not None:
-        if args.resume == "latest":
-            path = _find_latest_checkpoint(args.save_dir)
-            if path is None:
-                _log(f"no checkpoints found in {args.save_dir}, starting from scratch")
-            else:
-                start_epoch = _load_checkpoint(trainer, path, args.device)
-        else:
-            start_epoch = _load_checkpoint(trainer, args.resume, args.device)
+    if resumed is not None:
+        restore_checkpoint(
+            resumed,
+            model_parameters=trainer.state.trainable_params,
+            optimizer=trainer.optimizer,
+        )
 
     remaining_epochs = args.epochs - start_epoch
     if remaining_epochs <= 0:
@@ -174,8 +216,7 @@ def main() -> None:
         return
 
     _log(f"{'=' * 60}")
-    _log(f"  epochs {start_epoch + 1} to {args.epochs} ({remaining_epochs} remaining) "
-         f"x {len(dataset)} examples")
+    _log(f"  epochs {start_epoch + 1} to {args.epochs} ({remaining_epochs} remaining) x {len(dataset)} examples")
     _log(f"{'=' * 60}")
 
     epoch_losses: list[float] = []
@@ -186,35 +227,67 @@ def main() -> None:
         recent_losses: list[float] = []
         recent_vars: list[float] = []
 
-        def _on_step(step: int, total: int, result: StepResult) -> None:
-            recent_losses.append(result.loss)
-            recent_vars.append(result.variance)
+        def _on_step(
+            step: int,
+            total: int,
+            result: StepResult,
+            _recent_losses: list[float] = recent_losses,
+            _recent_vars: list[float] = recent_vars,
+            _epoch_start: float = epoch_start,
+            _epoch: int = epoch,
+        ) -> None:
+            loss = getattr(result, "total_objective", getattr(result, "loss", None))
+            variance = getattr(result, "shared_variance", getattr(result, "variance", None))
+            if not isinstance(loss, (int, float)) or isinstance(loss, bool):
+                raise TypeError("gradient trainer result must expose a numeric objective")
+            if not isinstance(variance, (int, float)) or isinstance(variance, bool):
+                raise TypeError("gradient trainer result must expose numeric variance")
+            loss = float(loss)
+            variance = float(variance)
+            _recent_losses.append(loss)
+            _recent_vars.append(variance)
             if (step + 1) % args.log_every == 0 or step + 1 == total:
-                elapsed = time.monotonic() - epoch_start
+                elapsed = time.monotonic() - _epoch_start
                 per_example = elapsed / (step + 1)
                 remaining = per_example * (total - step - 1)
-                avg_loss = sum(recent_losses) / len(recent_losses)
-                avg_var = sum(recent_vars) / len(recent_vars)
-                _log(f"  epoch {epoch}/{args.epochs} "
-                     f"[{step + 1}/{total}] "
-                     f"loss={result.loss:.4f} avg={avg_loss:.4f} "
-                     f"var={result.variance:.6f} avg_var={avg_var:.6f} "
-                     f"ETA {_format_duration(remaining)}")
+                avg_loss = sum(_recent_losses) / len(_recent_losses)
+                avg_var = sum(_recent_vars) / len(_recent_vars)
+                _log(
+                    f"  epoch {_epoch}/{args.epochs} "
+                    f"[{step + 1}/{total}] "
+                    f"loss={loss:.4f} avg={avg_loss:.4f} "
+                    f"var={variance:.6f} avg_var={avg_var:.6f} "
+                    f"ETA {_format_duration(remaining)}"
+                )
 
         stats = trainer.train_epoch(dataset, on_step=_on_step)
         epoch_dt = time.monotonic() - epoch_start
         epoch_losses.append(stats.avg_loss)
 
-        _log(f"epoch {epoch}/{args.epochs} done ({_format_duration(epoch_dt)}) "
-             f"loss={stats.avg_loss:.4f} "
-             f"variance={stats.avg_variance:.6f} [{stats.min_variance:.6f}, {stats.max_variance:.6f}] "
-             f"covariance={stats.avg_covariance:.6f}")
+        _log(
+            f"epoch {epoch}/{args.epochs} done ({_format_duration(epoch_dt)}) "
+            f"loss={stats.avg_loss:.4f} "
+            f"variance={stats.avg_variance:.6f} [{stats.min_variance:.6f}, {stats.max_variance:.6f}] "
+            f"covariance={stats.avg_covariance:.6f}"
+        )
 
         if stats.avg_variance <= 1e-8:
-            _log(f"WARNING: slots are collapsing. "
-                 f"avg_variance={stats.avg_variance:.8f} across {stats.steps} steps")
+            _log(f"WARNING: slots are collapsing. avg_variance={stats.avg_variance:.8f} across {stats.steps} steps")
 
-        checkpoint_path = _save_checkpoint(trainer, args.save_dir, epoch)
+        checkpoint_path = _save_checkpoint(
+            trainer,
+            args.save_dir,
+            epoch,
+            identity=checkpoint_identity,
+            selections=selections,
+            metrics={
+                "avg_loss": stats.avg_loss,
+                "avg_variance": stats.avg_variance,
+                "min_variance": stats.min_variance,
+                "max_variance": stats.max_variance,
+                "avg_covariance": stats.avg_covariance,
+            },
+        )
         _log(f"saved: {checkpoint_path}")
 
         epochs_done = epoch - start_epoch
@@ -222,8 +295,7 @@ def main() -> None:
             total_elapsed = time.monotonic() - training_start
             per_epoch = total_elapsed / epochs_done
             epochs_left = args.epochs - epoch
-            _log(f"  training progress: {epoch}/{args.epochs} epochs, "
-                 f"ETA {_format_duration(per_epoch * epochs_left)}")
+            _log(f"  training progress: {epoch}/{args.epochs} epochs, ETA {_format_duration(per_epoch * epochs_left)}")
 
     _log(f"{'=' * 60}")
     if epoch_losses:
@@ -233,8 +305,7 @@ def main() -> None:
         _log(f"  last_epoch_loss={epoch_losses[-1]:.4f}")
         delta = epoch_losses[-1] - epoch_losses[0]
         sign = "+" if delta >= 0 else ""
-        _log(f"  delta={sign}{delta:.4f} "
-             f"decreased={'yes' if delta < 0 else 'no'}")
+        _log(f"  delta={sign}{delta:.4f} decreased={'yes' if delta < 0 else 'no'}")
     _log(f"{'=' * 60}")
 
 

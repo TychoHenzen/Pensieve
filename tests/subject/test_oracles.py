@@ -20,12 +20,10 @@ def _assoc_stream():
         events.append(Observe(position=pos, payload={"key": key, "value": value}))
         pos += 1
     probes = []
-    for key, value in pairs:
-        probes.append(
-            Probe(position=pos, probe_id=f"p-{key}", task_id="assoc", query=key)
-        )
+    for key, _value in pairs:
+        probes.append(Probe(position=pos, probe_id=f"p-{key}", task_id="assoc", query=key))
         pos += 1
-    return events, probes, {k: v for k, v in pairs}
+    return events, probes, dict(pairs)
 
 
 # covers: eval/subject::PerfectMemoryOracle recalls all observations::recalls everything
@@ -99,9 +97,7 @@ def test_chance_near_chance_rate():
 
     correct = 0
     for i in range(n_probes):
-        probe = Probe(
-            position=i, probe_id=f"p{i}", task_id="t", query=VOCAB[i % vocab_size]
-        )
+        probe = Probe(position=i, probe_id=f"p{i}", task_id="t", query=VOCAB[i % vocab_size])
         answer = oracle.answer(probe)
         if answer == VOCAB[i % vocab_size]:
             correct += 1
@@ -110,7 +106,7 @@ def test_chance_near_chance_rate():
     sigma = math.sqrt(n_probes * expected_rate * (1 - expected_rate))
     z = abs(correct - mu) / sigma if sigma > 0 else 0
     assert z < 3.0, (
-        f"chance oracle accuracy {correct}/{n_probes} = {correct/n_probes:.4f} "
+        f"chance oracle accuracy {correct}/{n_probes} = {correct / n_probes:.4f} "
         f"is more than 3 sigma from expected p={expected_rate:.4f} (z={z:.2f})"
     )
 
@@ -126,10 +122,7 @@ def test_chance_answers_are_from_vocab():
 # covers: eval/subject::ChanceOracle answers randomly from VOCAB::answers vary across probes
 def test_chance_answers_vary_across_probes():
     oracle = ChanceOracle(seed=1)
-    answers = {
-        oracle.answer(Probe(position=i, probe_id=f"p{i}", task_id="t", query="x"))
-        for i in range(100)
-    }
+    answers = {oracle.answer(Probe(position=i, probe_id=f"p{i}", task_id="t", query="x")) for i in range(100)}
     assert len(answers) >= 2
 
 

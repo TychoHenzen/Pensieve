@@ -23,24 +23,16 @@ def test_check_tolerance_false_beyond_bound() -> None:
 
 
 def test_compare_raises_when_parameters_mismatch_beyond_tolerance() -> None:
-    subject_report = ArchReport(
-        name="subject", param_count=100_000, depth=2, width=400, optimizer="adam"
-    )
-    baseline_report = ArchReport(
-        name="baseline", param_count=500_000, depth=2, width=400, optimizer="adam"
-    )
+    subject_report = ArchReport(name="subject", param_count=100_000, depth=2, width=400, optimizer="adam")
+    baseline_report = ArchReport(name="baseline", param_count=500_000, depth=2, width=400, optimizer="adam")
 
     with pytest.raises(ValueError):
         compare(subject_report, baseline_report, tolerance=0.1)
 
 
 def test_compare_returns_matched_report_within_tolerance() -> None:
-    subject_report = ArchReport(
-        name="subject", param_count=100_000, depth=2, width=400, optimizer="adam"
-    )
-    baseline_report = ArchReport(
-        name="baseline", param_count=105_000, depth=2, width=400, optimizer="adam"
-    )
+    subject_report = ArchReport(name="subject", param_count=100_000, depth=2, width=400, optimizer="adam")
+    baseline_report = ArchReport(name="baseline", param_count=105_000, depth=2, width=400, optimizer="adam")
 
     result = compare(subject_report, baseline_report, tolerance=0.1)
 
@@ -50,9 +42,7 @@ def test_compare_returns_matched_report_within_tolerance() -> None:
 
 
 def test_arch_report_contains_all_expected_fields() -> None:
-    report = ArchReport(
-        name="subject", param_count=123, depth=2, width=400, optimizer="adam"
-    )
+    report = ArchReport(name="subject", param_count=123, depth=2, width=400, optimizer="adam")
 
     assert report.name == "subject"
     assert report.param_count == 123

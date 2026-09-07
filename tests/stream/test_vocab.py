@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from eval.stream.vocab import VOCAB, chance_rate, sample
+from eval.stream.vocab import VOCAB, VOCAB_VERSION, chance_rate, sample
 
 
 # covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::vocabulary size and shape
@@ -12,7 +12,6 @@ def test_vocab_is_a_tuple():
 
 # covers: eval/vocab::VOCAB_VERSION tracks vocabulary changes::vocabulary content changes
 def test_vocab_version_is_a_non_empty_string():
-    from eval.stream.vocab import VOCAB_VERSION
     assert isinstance(VOCAB_VERSION, str)
     assert len(VOCAB_VERSION) >= 1
 
@@ -97,7 +96,7 @@ def test_vocab_no_duplicates():
 
 # covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::vocabulary is sorted
 def test_vocab_sorted_order():
-    assert VOCAB == tuple(sorted(VOCAB))
+    assert tuple(sorted(VOCAB)) == VOCAB
 
 
 # covers: eval/vocab::VOCAB pool size, uniqueness, order, and shape::every entry is lowercase alphabetic

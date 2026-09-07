@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 
+from eval.run import PROBE_LOG_FILENAME
 from eval.run.config import RunConfig
 from eval.run.runner import run
-from eval.run import PROBE_LOG_FILENAME
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
 from eval.stream.truth import ProbeTruth, StreamItem
@@ -106,3 +106,32 @@ def test_run_resume_produces_same_probe_log(tmp_path):
     resumed_log = _read_log(killed_dir / PROBE_LOG_FILENAME)
 
     assert resumed_log == unbroken_log
+
+
+# covers: eval/metrics :: Probe log schema :: row completeness
+def test_probe_log_rows_carry_all_six_fields_non_null(tmp_path):
+    subject = PerfectMemoryOracle()
+    config = _make_config(tmp_path)
+    items = _make_items(4)
+
+    run_dir = run(subject, items, config, run_dir=tmp_path / "run-complete")
+    entries = _read_log(run_dir / PROBE_LOG_FILENAME)
+
+    assert len(entries) == 4
+    for entry in entries:
+        assert set(entry) == {
+            "position",
+            "probe_id",
+            "task_id",
+            "teaching_position",
+            "correct",
+            "cost_counters",
+        }
+        for field in ("position", "probe_id", "task_id", "teaching_position", "correct", "cost_counters"):
+            assert entry[field] is not None
+        assert isinstance(entry["position"], int)
+        assert isinstance(entry["probe_id"], str)
+        assert isinstance(entry["task_id"], str)
+        assert isinstance(entry["teaching_position"], int)
+        assert isinstance(entry["correct"], bool)
+        assert isinstance(entry["cost_counters"], dict)

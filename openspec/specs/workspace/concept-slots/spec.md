@@ -5,17 +5,17 @@ Manages a fixed-size set of concept vectors that serve as the persistent workspa
 ## Requirements
 ### Requirement: Workspace holds a configurable number of concept slots
 
-The workspace MUST hold a set of concept slots, where each slot is a dense vector of the base model's hidden dimension (768 for Pythia-160M). The default slot count MUST be 16. The slot count MUST be configurable to support ablation over {1, 4, 8, 16, 32, 64}.
+The workspace MUST hold a set of concept slots, where each slot is a dense vector of the base model's hidden dimension, 896 for Qwen2.5-0.5B-Instruct. The default slot count MUST be 16. The slot count MUST be configurable to support ablation over {1, 4, 8, 16, 32, 64}.
 
 #### Scenario: default slot count
 
 - **WHEN** a workspace is constructed with no explicit slot count
-- **THEN** it contains 16 slots, each of dimension 768
+- **THEN** it contains 16 slots, each of dimension 896
 
 #### Scenario: configurable slot count
 
 - **WHEN** a workspace is constructed with slot count 8
-- **THEN** it contains 8 slots, each of dimension 768
+- **THEN** it contains 8 slots, each of dimension 896
 
 #### Scenario: ablation sweep values accepted
 
@@ -58,4 +58,3 @@ The workspace MUST support a single-vector mode (slot count 1) so the multi-slot
 
 - **WHEN** a workspace is constructed with slot count 1
 - **THEN** it holds one slot and uses the same read/write interface as the multi-slot workspace
-

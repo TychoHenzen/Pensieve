@@ -1,0 +1,519 @@
+# Cleanup Ledger
+
+State file for the incremental cleanup autopilot (see CLEANUP_PROMPT.md).
+Statuses: unchecked | scanned | in-progress | fixed | blocked | clean | conflict
+Baselines recorded 2026-08-27 at cycle 0.
+
+## Pytest baseline (cycle 1)
+
+- Full suite: 1362 passed, 2 failed, 2 skipped, 474s. (Cycle 0 recorded 487
+  passed / 127s; that run must have been partial. This is the real baseline.)
+- torchvision failure RESOLVED cycle 1: installed torchvision==0.26.0+cpu
+  pinned to torch 2.11.0+cpu; tests/stream/test_mnist_binding.py all pass.
+- device_topology failures RESOLVED cycle 2: _thaw_value in
+  train/eggroll_stability.py turned the frozen empty tuple back into {} instead
+  of []; on CPU-only hosts device_topology is [] so report validation failed.
+  Fixed the thaw, added regression test
+  test_report_with_empty_device_topology_round_trips_as_array.
+- Access-violation crash MITIGATED cycle 4: threaded safetensors
+  materialization in transformers killed 2 of 3 full-suite runs (Windows
+  access violation in torch/storage.py __getitem__, different tests each
+  time). Root conftest.py now sets HF_DEACTIVATE_ASYNC_LOAD=1 so weights
+  load serially (knob verified in transformers/core_model_loading.py).
+- Full suite at cycle 7: 1365 passed, 2 skipped, 0 failed, 471s.
+- Full suite at cycle 10: 1365 passed, 2 skipped, 0 failed, 579s.
+- Full suite at cycle 11: 1365 passed, 2 skipped, 0 failed, 474s.
+- Full suite at cycle 12: 1365 passed, 2 skipped, 0 failed, 493s.
+- Full suite at cycle 13: 1365 passed, 2 skipped, 0 failed, 499s.
+- Full suite at cycle 14: 1365 passed, 2 skipped, 0 failed, 494s.
+- Full suite at cycle 18: 1365 passed, 2 skipped, 0 failed, 485s.
+- Full suite at cycle 20: 1365 passed, 2 skipped, 0 failed, 465s.
+- Full suite at cycle 20 (post-fixes): 1365 passed, 2 skipped, 0 failed, 493s.
+- Full suite at cycle 21 (after 5 test-file manual fixes): 1365 passed, 2 skipped, 0 failed, 481s.
+- Full suite at cycle 22 (after removing sentence_transformers stubs from 3 test files): 1365 passed, 2 skipped, 0 failed, 483s.
+- Full suite at cycle 23 (after 5 train/ manual fixes): 1365 passed, 2 skipped, 0 failed, 489s.
+- Full suite at cycle 24 (after 5 manual-fix items incl. safetensors import hoist): 1365 passed, 2 skipped, 0 failed, 495s.
+- Full suite at cycle 26 (start of cycle, post cycle-25 code fixes): 1365 passed, 2 skipped, 0 failed, 737s.
+- Full suite at cycle 32: 1365 passed, 2 skipped, 0 failed, 762s.
+- Access-violation crash RECURRED cycle 32: 2 of 3 full-suite runs died at ~89% in
+  tests/test_stage0_trainability_reports.py arm tests (different test each time),
+  torch/storage.py __getitem__ -> transformers _materialize_copy (the SERIAL path,
+  so HF_DEACTIVATE_ASYNC_LOAD=1 is not a complete fix; the crash is in the
+  memory-mapped safetensors slice itself, not the thread pool). Third run passed.
+  Still intermittent, still environment-blocked, not a code failure.
+- Last full-suite run: cycle 33 (passed, time not recorded).
+- Full suite at cycle 39 (after 4 test-file additions): 1379 passed, 2 skipped, 0 failed, 1169s.
+
+## Ruff baseline (cycle 0)
+
+- 558 findings across 111 files with the [tool.ruff] config in pyproject.toml.
+- 174 safely autofixable. Top offender: tests/test_stage0_trainability_reports.py (210).
+
+## Openspec validation baseline (cycle 0)
+
+`openspec validate --all --strict --no-interactive`: 27 passed, 12 failed at cycle 0; 39 passed, 0 failed at cycle 19 (all resolved).
+Failing at cycle 0 (any NEW failure beyond these is a regression to fix):
+- spec/eval/corpus | fixed cycle 19 | SHOULD -> MUST in "load_corpus rejects a wordless snapshot"; strict validation now passes
+- spec/eval/events | fixed cycle 19 | SHOULD -> MUST in "narration and hostile flags exist for future stages"
+- spec/eval/generators/assoc | fixed cycle 19 | SHOULD -> MUST in "Interleaving puts other pairs' events between a teaching and its probe"
+- spec/eval/generators/split-classify | fixed cycle 19 | SHOULD -> MUST in "Class clusters stay separable"
+- spec/eval/serialize | fixed cycle 19 | SHOULD -> MUST in "canonical_json forbids NaN and Infinity" + "items_to_plain output shape"
+- spec/eval/subject-protocol | fixed cycle 19 | added MUST to 4 oracle requirements (Perfect-memory, Forgetful, Task-wiper, Cheater)
+- spec/eval/vocab | fixed cycle 19 | SHOULD -> MUST in "VOCAB_VERSION tracks vocabulary changes"
+- change/stage-1-persistent-state | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-2-fast-weight-hippocampus | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-3-idle-consolidation | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-4-bottlenecked-dual | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+- change/stage-5-always-on-runtime | fixed cycle 19 | added skip_specs: true (planning-pass change, no deltas)
+
+Fixing one of these baseline failures is valid work under priority 5: run
+`openspec validate <name> --type spec` (or `--type change`) to see the details,
+fix the spec/change file, and check the item off this list. The stage-1
+through stage-5 changes are future-stage plans; fix their format, never
+their intent.
+
+## Delete candidates
+
+Format: path | decision (proposed/approved/rejected) | reason
+- training-hysteresis.jsonl | proposed | training run output at repo root
+- training-hysteresis2.jsonl | proposed | training run output at repo root
+- training-hysteresis.log | proposed | training run log at repo root
+- training-hysteresis2.log | proposed | training run log at repo root
+- training.log | proposed | training run log at repo root
+- training2.log | proposed | training run log at repo root
+- training3.log | proposed | training run log at repo root
+- training4.log | proposed | training run log at repo root
+- eval.log | proposed | run log at repo root
+- gate.log | proposed | run log at repo root
+- checkpoints/alternating-hysteresis | proposed | old checkpoint dir, confirm unused
+- checkpoints/alternating-hysteresis2 | proposed | old checkpoint dir, confirm unused
+- checkpoints/epoch-1.pt | proposed | loose checkpoint, confirm unused
+
+## Spec coverage
+
+Format: spec dir | status | scenarios total / covered | notes
+- openspec/specs/codecs | scanned | 17 / 11 | decoder+encoder+narration (re-scanned cycle 38). Covered: encoder "text encoded to slots" + "variable-length input accepted" (test_stage0_shapes.py), "frozen encoder weights" (test_codecs_freezing.py), "observe writes encoded input to workspace" (cycle 38 seam test: encoder.encode_to_workspace called with rendered text + workspace); decoder "slots decoded to text" + "different slot states produce different text" + "incompatible slot width" (test_stage0_shapes.py), "answer returns decoded text" (cycle 38 seam test: answer == decoder.decode output), "frozen decoder weights" (cycle 39: test_decoder_model_params_frozen in test_codecs_freezing.py); narration "workspace state narrated" + "different states produce different narrations" (test_narration.py + test_stage0_shapes.py). Uncovered (no test): "pretrained weights loaded" (no test distinguishes pretrained SentenceTransformer from random init). Conflict: "answer does not mutate workspace" - answer() runs latent_loop.run which mutates workspace in place, contradicting the decoder spec and overlapping core "answer runs latent loop then decoder". Gaps (narration not wired to run record): "narration field populated", "narration field absent when disabled", "off by default", "enabled via config" - narration is only a LatentCoreSubject constructor arg (default False); eval/run/runner.py discards observe's return and never writes event.narration, and no run-config toggle exists
+- openspec/specs/core | scanned | 15 / 15 | latent-loop. Cycle 37 covered "different step counts produce different compute" (test_different_step_counts_produce_proportional_cost) and "flops counter reflects forward passes" (test_flops_counter_reflects_forward_passes) in tests/test_latent_loop.py. Cycle 38 covered the last 3 (subject protocol): "all protocol methods present" + "observe runs encoder then latent loop" + "answer runs latent loop then decoder" in tests/test_latent_core_subject.py (recording fakes, no model load)
+- openspec/specs/eval/baselines | scanned | 10 / 6 | five baselines + param matching + MNIST binding. Covered: "each baseline is a valid subject" (test_baselines_smoke.py protocol+snapshot-restore), "mismatched parameters rejected" + "report includes architecture metadata" (test_param_match.py), "real MNIST features in payload" + "hash changes with data source" (test_mnist_binding.py), "catastrophic forgetting visible" (cycle 41: test_naive_forgetting.py test_naive_forgets_early_task_after_later_tasks asserts task-0 accuracy is 100% right after training and drops to 0 after all 5 tasks). Uncovered: "high accuracy on all tasks" (joint), "accuracy at initialization level" (frozen), "EWC collapses in class-incremental setting", "replay retains old task accuracy". BLOCKER (cycle 41): split-classify class centers are task-independent (center depends on class_index only), so all 5 tasks reuse the same 2 feature clusters and differ only in label strings; a feature-only model cannot separate task 0 from task 1, so joint/replay accuracy scenarios are unreachable on this stream and frozen/EWC "near chance" would pass for the wrong reason (task blindness). Frozen measured at 1/output_dim (0.10), below the harness chance_rate (0.50). These 4 need task-distinct features (a generator change), not a test.
+- openspec/specs/eval/config | scanned | 11 / 11 | StreamConfig immutability + canonical hashability + frozen dataclass. All covered by tests/stream/test_hashing.py (each test carries a "covers: eval/config::" comment)
+- openspec/specs/eval/corpus | scanned | 22 / 22 | resolve/load_corpus/Corpus.walk/next_span contract. All covered by tests/stream/test_corpus.py (each test carries a "covers: eval/corpus::" comment). Note: spec's wordless-snapshot requirement still says "No test exercises this path" but test_load_corpus_rejects_wordless_snapshot does - stale spec observation, not a gap
+- openspec/specs/eval/events | scanned | 41 / 41 | event immutability/required fields/defaults, BoundaryKind values, Event union, StreamItem truth pairing, ProbeTruth, subject_view/harness_view, narration/hostile hooks. All covered by tests/stream/test_events.py + tests/stream/test_truth.py (each test carries a "covers: eval/events::" comment)
+- openspec/specs/eval/generator | scanned | 17 / 17 | derive independence, StreamGenerator protocol, chance_rate, registry build/names, cross-process determinism. All covered by tests/stream/test_generator.py + test_registry.py + test_chance.py (each test carries a "covers: eval/generator::" comment)
+- openspec/specs/eval/generators/asdiv-a | scanned | 8 / 8 | all 8 scenarios covered. "Default filtered splits load" (test_partition_counts_and_measured_gate_population_are_fixed + test_asdiv_stage0_contract), "Dataset revision unavailable" (test_stage0_identity.py), "Valid row normalization", "Malformed row rejected", "Observe and probe pair", "Repeated selection", "Truth remains isolated" (cycle 34: test_truth_remains_isolated_from_model_facing_text), "Selection input changes" (cycle 34: test_selection_is_repeatable_and_binds_every_identity_input now asserts split/seed/problem_count changes alter identity)
+- openspec/specs/eval/generators/assoc | scanned | 40 / 40 | all scenarios covered by tests/stream/test_assoc.py (each test carries a "covers:" comment); chance_rate measurement also in test_chance.py, cross-process determinism in test_replay.py
+- openspec/specs/eval/generators/difficulty-mix | scanned | 36 / 36 | all scenarios covered by tests/stream/test_difficulty_mix.py (each test carries a "covers:" comment); chance_rate measurement also in test_chance.py
+- openspec/specs/eval/generators/gsm8k | scanned | 8 / 7 | Uncovered: "stream items are valid" (no v1 stream-schema validator exists to run). Covered: "deterministic stream", "chance rate reported", "subset mode" (test_each_problem_yields_one_observe_then_one_probe, problem_count=5 -> 10 items), "full dataset default" (cycle 39: test_default_config_uses_all_available_problems monkeypatches _load_split to 7 problems and asserts problem_count=None yields all 7, none truncated or duplicated), "observe events contain word problems" (cycle 36: test_observe_events_render_word_problems, renamed from test_observe_events_have_text_payload, now asserts rendered Observe has alphabetic text + a digit + multiple words), "probe events ask for numerical answers" (cycle 36: test_probe_events_ask_for_numerical_answers, renamed from test_probe_events_have_query_string, now asserts rendered Probe ends with "?" and names answer + problem), "truth on side channel only" (cycle 36: test_rendered_probe_text_leaks_no_answer_probe_id_or_task_id, renamed from test_rendered_probe_text_contains_no_answer, now also asserts probe_id and task_id never leak into rendered text). Note: 7 of 11 covers comments still reference pre-restructure requirement names - stale linkage; the 4 touched tests' covers comments now name the current scenarios
+- openspec/specs/eval/generators/split-classify | conflict | 37 / 37 | every scenario has a matching test, but spec/impl conflict: spec pins version "2" ("version is pinned" + "version is 2" scenarios) while SplitClassifyGenerator.version = "3" and tests assert "3". Secondary: spec's "Boundaries between tasks" requirement describes only TASK_SWITCH, but the impl also emits a TASK_TRAINED Boundary after each task (test_task_trained_boundaries_one_per_task, test_task_trained_sits_between_examples_and_probes), so "exactly 2 Boundary events" for num_tasks=3 is false against the impl (5 emitted). Covered via tests/stream/test_split_classify.py + test_mnist_binding.py (MNIST data binding + stream-hash scenarios)
+- openspec/specs/eval/instrumentation | conflict | 3 / 2 | "default construction" (CostCounters) covered by tests/subject/test_protocol.py (test_cost_counters_defaults/steps/flops/wall_seconds/frozen; note CostCounters lives in eval/subject/__init__.py, not eval/instrumentation.py); "positive correlation" covered by tests/instrumentation/test_difficulty_correlation.py (asserts Spearman > 0.95 AND a seeded permutation p-value < 0.01, so the "statistically significant" clause is now tested). Uncovered: "fields present but empty in a Stage -1 run". CONFLICT: spec requires the run record to include the 4 optional instrumentation fields, but ProbeLogEntry (eval/metrics/__init__.py) carries only cost_counters; InstrumentationFields is defined but never attached to any run record (only referenced by workspace/concept_slots.py). test_defaults_are_none checks the dataclass defaults, not a run record.
+- openspec/specs/eval/metrics | conflict | 11 / 10 | per-metric unit tests + oracle integration. Covered: "perfect-memory oracle scores 1.0 on every task" (test_accuracy + test_oracle_integration), "perfect-memory retention is all ones", "task-wiper backward transfer strongly negative", "perfect-memory backward transfer zero", "chance oracle forward transfer zero", "first use equals distance to next probe", "cut-off share zero", "forgetful oracle retention drops to chance beyond window", "three distinct counters" (cycle 34: tests/metrics/test_compute.py pins steps/flops/wall_seconds independently derived from consecutive probe differences), "row completeness" (cycle 36: tests/run/test_runner.py test_probe_log_rows_carry_all_six_fields_non_null asserts every probe-log row has exactly the six schema fields and none null). CONFLICT: "task-wiper diagonal ones and below-diagonal at chance" - running the real TaskWiperOracle on a split-classify stream yields an all-zero retention matrix (verified cycle 38: R[i][i]=0.0, not 1.0), because the oracle stores exact feature strings while split-classify probes carry fresh noisy features, and its unrecalled guess draws from VOCAB (299 words) rather than the class labels, so chance is ~0 not 1/classes_per_task; the existing test_retention.py test models the oracle with a synthetic lambda, not the real subject
+- openspec/specs/eval/package | scanned | 4 / 4 | eval.stream importability + STREAM_SCHEMA_VERSION. All covered by tests/stream/test_package.py (each test carries a "covers: eval/package::" comment)
+- openspec/specs/eval/persistence | conflict | 7 / 6 | Covered: "same config produces same run id" (test_config.py), "checkpoint at configured interval" (test_runner.py test_run_writes_checkpoints_at_position_intervals), "incomplete checkpoint does not overwrite last good" (test_checkpoint.py test_interrupted_write_leaves_prior_checkpoint_intact), "resumed run matches unbroken run" (test_runner.py + test_resume.py), "default retention keeps last plus every Nth" (test_retention_policy.py), "two runs with same seed produce same probe log" (test_resume.py). Uncovered/CONFLICT: "directory contents after a completed run" - spec requires the run dir to hold config, revision, stream hash, environment, probe log, and metric summary; eval/run/__init__.py's RunRecord names those six filenames but is a pure data holder, and runner.run() writes only probes.ndjson + checkpoints, so no code writes config.json/revision.txt/stream_hash.txt/environment.json/metrics.json. Also note: "Seeded reproducibility" requirement's deterministic-CUDA-kernels recording has no test, only the same-seed-same-log scenario is covered
+- openspec/specs/eval/render | scanned | 50 / 50 | render_event, carries_text, format_features, rendered_subject_view, token-counter resolution, and token-distance. All covered by tests/stream/test_render.py (each test carries a "covers: eval/render::" comment)
+- openspec/specs/eval/reproduction-gate | scanned | 6 / 4 | gate runner is scripts/run_gate.py (complete: 5 seeds, tolerance/qualitative/ordering/reproducibility criteria, gate_report.json). Covered: "exact repeat" (tests/run/test_resume.py same-config+seed -> identical probe log + scripts/run_gate.py criterion_5; the deterministic-CUDA-recording half is only in the stage0-gate token baseline, not here); "tolerance is declared" (cycle 42: test_pass_condition_declares_a_numerical_tolerance_per_method pins PASS_BANDS has a numerical (lo,hi) band per method); "five seeds" (cycle 42: test_min_seeds_requires_at_least_five + test_seed_count_criterion_* pin MIN_SEEDS>=5 and criterion_4 rejects <5 seeds or <5 accuracies per method); "ordering check" (cycle 42: test_ordering_criterion_requires_replay_above_ewc_and_naive pins criterion_3 = replay>ewc and replay>naive). Partial: "all three methods run on the same stream" (test_gate_smoke.py runs naive/EWC/replay on identical tiny synthetic split-classify streams, not the class-incremental Split-MNIST the GIVEN requires). Uncovered: "paper code as subject" (no paper-code wrapping; archived-change task 6.4 documented as skipped)
+- openspec/specs/eval/serialize | scanned | 16 / 16 | all 16 scenarios covered by tests/stream/test_hashing.py + tests/stream/test_replay.py (each test carries a "covers: eval/serialize::" comment). Note: spec's "canonical_json forbids NaN and Infinity" still carries "[OBSERVED] No test exercises this path" but test_canonical_json_rejects_nan + test_canonical_json_rejects_infinity do - stale spec observation. The items_to_plain "[OBSERVED]" note is accurate (test_items_to_plain_round_trip_stability only checks self-consistency, which is exactly what the scenario asks)
+- openspec/specs/eval/stage0-gate | scanned | 12 / 12 | all 12 scenarios covered across tests/gate/: test_stage0_token_baseline.py (Full token baseline, Official prompt format), test_numerical_answer_scoring.py (Equivalent fraction and decimal, Repeating decimal tolerance, Non-finite answer), test_stage0_latent_evaluation.py (Full/Limited evaluation identity), test_stage0_result_cache.py (Matching/Stale cached baseline), test_stage0_gate_report.py (Baseline below floor, Too few latent seeds, Latent result meets baseline). Each test carries a "covers: eval/stage0-gate::" comment
+- openspec/specs/eval/subject-protocol | scanned | 15 / 13 | summary spec; its scenarios are covered by the finer-grained specs' tests. Covered: interface completeness + monotonicity + state unchanged after isolated probe + cheater detected + honest subject passes (tests/subject/test_protocol.py + test_isolation.py), noise erased by restore (test_snapshot_restore.py), perfect-memory/forgetful/chance/cheater oracle scenarios (test_oracles.py + test_chance.py). Uncovered: "read-only equivalence check" (no subject implements a read_only flag; grep of eval/ and tests/ finds zero matches). Partial: "current task correct, previous task at chance" (test_task_wiper_current_task_correct + test_task_wiper_drops_on_boundary assert the wiper forgets, but no test measures the forgotten-task accuracy is at chance). Note: spec lists five required methods (observe/answer/idle/snapshot/restore) and omits cost() from the interface list, but Subject ABC also requires cost() (see eval/subject/protocol spec)
+- openspec/specs/eval/subject/isolation | scanned | 4 / 4 | isolated_answer + CheaterOracle. All scenarios covered by tests/subject/test_isolation.py
+- openspec/specs/eval/subject/oracles | scanned | 15 / 15 | all 15 scenarios covered by tests/subject/test_oracles.py (each test carries a "covers: eval/subject::" comment). Conflict: "TaskWiperOracle drops on boundary" scenario says every answer MUST be "" after a TASK_SWITCH, but TaskWiperOracle.answer returns a random VOCAB guess for unrecalled keys (eval/subject/oracles/task_wiper.py:34); test_task_wiper_drops_on_boundary asserts the weaker observed contract (answer != "1") with an ASSUMPTION comment documenting the mismatch. This also makes the subject-protocol spec's "previous task at chance" wording closer to reality than this spec's "every answer is ''"
+- openspec/specs/eval/subject/protocol | scanned | 12 / 12 | Subject ABC (4) + CostCounters frozen zero-defaults (5) + cost monotonicity (3). All covered by tests/subject/test_protocol.py (each test carries a "covers: eval/subject::" comment naming the scenario)
+- openspec/specs/eval/subject/snapshot | scanned | 2 / 2 | snapshot/restore contract. Both scenarios covered by tests/subject/test_snapshot_restore.py
+- openspec/specs/eval/vocab | scanned | 16 / 16 | VOCAB shape (7) + sample determinism/bounds (5) + chance_rate (3) + VOCAB_VERSION (1). All covered by tests/stream/test_vocab.py (each test carries a "covers: eval/vocab::" comment). Notes: "negative draw rejected" test asserts ValueError only, not the exact message "n must be non-negative, got -1" (code raises it); "vocabulary content changes" proxied by test_vocab_version_is_a_non_empty_string (change-detection not testable against a fixed snapshot)
+- openspec/specs/train/alternating-cycle | scanned | 32 / 29 | hysteresis control (4), traversal (4), comparable metrics (2), evaluation (3), resume (3), standalone compat (2), throttled output (10), graph export (2). Covered via tests/test_alternating_{scheduler,config,checkpoint,evaluation}.py + test_run_alternating.py + test_run_eggroll.py + test_run_training.py + test_plot_training.py. Partial (3): "Switch from Eggroll to gradient training" + "Return to Eggroll" (shared params + separate optimizer state tested by test_main_builds_shared_production_run_and_executes_schedule / test_typed_builder_captures_real_model_optimizer_and_rng_state / test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state, but no end-to-end switch test asserts the handoff of final-step parameter values); "Default training progress interval" (default log_every=50 asserted in test_alternating_command_defaults, interval emission only verified at N=3/4). "Epoch boundary progress records" covered cycle 39 by test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record (pure epoch-only boundary at global_step 2 emits exactly one evaluation record with boundaries ["epoch"] + one non-empty checkpoint record naming epoch-1.pt). "Non-progress output remains independent" covered cycle 34 by test_progress_filter_leaves_non_structured_output_untouched (structured stream = JSON records only, human stream survives the filter)
+- openspec/specs/train/eggroll-execution | scanned | 12 / 12 | factorized perturbations (3), low-rank assembly (3), optimized/reference equivalence (3), CUDA benchmark (3). Covered via tests/test_eggroll_{factorized,perturbations,updates,step_equivalence,resume_equivalence}.py + test_benchmark_eggroll.py. "Performance gate passes" pass branch covered cycle 39 by test_performance_gate_passes_at_three_x_speedup_and_no_memory_growth (asserts _performance_gate returns passed=True with speed_passed/memory_passed True when speedup >= 3x and memory <= reference; the two rejection conditions remain asserted by test_performance_gate_rejects_insufficient_speedup / test_performance_gate_rejects_peak_memory_increase)
+- openspec/specs/train/stage0-training | scanned | 9 / 9 | dataset contract (2), frozen Qwen backbone (2), decoder-aligned objective (3), identity/legacy rejection (2). Covered via tests/test_stage0_dataset_contract.py + test_frozen_qwen_backbone.py + test_answer_objective.py + test_stage0_identity.py + test_stage0_checkpoint_{schema,container}.py. "Legacy artifact rejected" covered by test_reader_rejects_legacy_pickle_without_calling_torch_load + test_legacy_eggroll_optimizer_state_is_rejected_before_tensor_loading + test_schema_version_must_be_the_integer_two
+- openspec/specs/workspace | scanned | 8 / 8 | concept-slots. All scenarios covered
+
+## Archived changes audit
+
+Format: change | status | notes
+- 2026-08-16-spec-test-coverage-alignment | scanned | clean. Test+spec alignment pass, no production code. 5 new specs (eval/package, eval/subject/{protocol,snapshot,isolation,oracles}) all exist under openspec/specs/eval/ and are coverage-scanned (4/4, 12/12, 2/2, 4/4, 15/15). 19/20 claimed tests present under exact names; 1 renamed: test_default_token_counter_name_is_regex_whitespace_v1 -> test_default_token_counter_name_equals_regex_whitespace_v1 (test_render.py:420, same scenario, still asserts name == "regex-whitespace-v1"). No TODO/FIXME/stub/pass in touched files. No defect found.
+- 2026-08-16-split-compound-requirements | scanned | clean. Spec-only restructure of 15 eval specs (events, config, vocab, generator, corpus, render, serialize, assoc, split-classify, difficulty-mix, package, subject/{protocol,snapshot,isolation,oracles}); no code changes. All 15 exist and are coverage-scanned in the ledger (one scenario per obligation confirmed, e.g. events 41 scenarios). Task 9.2 (spec-test generation) marked skipped in the change - acceptable, 9.3 full pytest passed. check-spec-hygiene.mjs no longer in repo (tool removed after use). No TODO/FIXME in eval specs. No defect found.
+- 2026-08-16-wire-unwired-scenarios | scanned | clean. Test-only: generated # covers: tests for 238 unwired scenarios across 16 files (stream/*, subject/*). 340 covers: markers present in those files; no pass/assert True/pytest.skip/vacuous bodies found in stream or subject test files (only tuple[...] ellipsis annotations). Task 5.2 (dod-guard cover --all) left unchecked in the change but is a verification gate, not a defect. Full suite passes. No defect found.
+- 2026-08-17-stage-minus-1-remainder | scanned | mostly shipped, 2 known gaps. Shipped: Subject ABC + CostCounters + isolation + 6 oracles; metrics (ProbeLogEntry/accuracy/retention/transfer/compute/first_use); RunRecord/config/checkpoint/runner/retention_policy; 5 baselines + param_match + MNIST data binding in split_classify; scripts/run_gate.py (complete reproduction gate, 5 criteria); v1 freeze versions + STAGE-MINUS-1-CONTRACT.md. All `pass` bodies are legitimate `idle()` no-ops (no stub observe/answer); no TODO/FIXME/NotImplemented in eval/{subject,metrics,run,baselines}/instrumentation/scripts. GAPS: (1) task 3.1 - InstrumentationFields (halting_steps/memory_write_magnitude/channel_bandwidth/consolidation_gain) defined in eval/instrumentation.py but never attached to ProbeLogEntry or RunRecord (only workspace/concept_slots.py reads it) - matches ledger eval/instrumentation conflict. (2) task 4.1/4.4 - RunRecord names config/revision/stream-hash/environment/probe-log/metric-summary but runner.run() writes only probes.ndjson + checkpoints - matches ledger eval/persistence conflict. (3) task 6.4 paper-code wrapping skipped (documented). Note: scripts/run_gate.py existence contradicts the eval/reproduction-gate coverage note "runner does not exist in current code" - that note is inaccurate.
+- 2026-08-18-stage-0-latent-core | scanned | mostly shipped, 1 known gap. Shipped: workspace (concept slots, snapshot/restore, variance/covariance reporting); gsm8k generator; core/latent_loop (Pythia-160M); codecs (encoder/decoder/narration); LatentCoreSubject (all 6 protocol methods); train/ (training loop + VICReg guards); gate eval + cycling sweep. No TODO/FIXME/pass/NotImplemented in workspace/, codecs_module/, core/, eval/subjects/, eval/stream/generators/gsm8k.py, or train/. GAP: narration decoder exists (codecs_module/narration.py) and is constructed by LatentCoreSubject when `narration=True` (constructor arg, default False), but eval/run/runner.py never writes event.narration and there is no run-config toggle - tasks 7.1 ("toggled via run config") and 7.2 ("writes to the narration field on the run record") only partially shipped. Matches ledger codecs coverage conflict.
+- 2026-08-20-add-fixed-budget-training-cycle | scanned | clean. Shipped: shared model state (train/training_state.py), canonical shared variance (train/eggroll_stability.py), separate gradient+Eggroll optimizers, common step/eval records, fixed-budget scheduler (train/alternating_scheduler.py), config, checkpoint/resume, held-out evaluation (train/alternating_evaluation.py), run_alternating command (train/run_alternating.py, 967 lines). All files substantial; no TODO/FIXME/pass/NotImplemented in train/ (whole dir grepped). Coverage recorded in ledger (train/alternating-cycle 32 scenarios, 27 covered, 4 partial, 1 uncovered). No defect found.
+- 2026-08-20-throttle-alternating-progress-logging | scanned | clean. Shipped: default log_every=50 (train/alternating_config.py:15 + run_alternating.py:345/597), non-positive rejection (alternating_config.py:27 ValueError), training-record filter at global_step % log_every == 0 (run_alternating.py:423), boundary eval/checkpoint records retained. No algorithm/behavior changes. No defect found.
+- 2026-08-22-implement-hardware-efficient-eggroll | scanned | clean. Shipped: factorized perturbations (train/eggroll_perturbations.py, 118 ln), factorized eval/assembly (train/eggroll_factorized.py 120 ln, eggroll_updates.py 156 ln), layer-12 Qwen tap (core/qwen_tap.py 521 ln), benchmark gate (train/benchmark_eggroll.py 632 ln), reference equivalence tests (tests/eggroll_reference.py + test_eggroll_*). No TODO/FIXME/pass/NotImplemented in train/ or core/. Reference path kept test-only. Coverage recorded (train/eggroll-execution 12 scenarios, 11 covered, 1 partial: no test asserts the benchmark pass branch). No defect found.
+- 2026-08-22-replace-stage0-dataset-and-backbone | scanned | clean. Shipped: Calc-ASDiv_A generator (eval/stream/generators/asdiv_a.py) + shared Stage 0 identity (eval/stage0_identity.py: QWEN_MODEL=Qwen/Qwen2.5-0.5B-Instruct, FrozenQwenBackbone); 896-dim workspace (workspace/concept_slots.py SLOT_DIM=896, encoder 384->896); numerical answer scorer (eval/gate/answer_scoring.py); v2 safetensors checkpoint (train/stage0_checkpoint.py); gate cache/report updates. No TODO/FIXME/pass/NotImplemented in eval/gate or touched files. Naming drift: proposal/tasks call the capability eval/generators/calc-mawps but the shipped spec dir and generator are named asdiv-a (same arithmetic word-problem dataset family). No defect found.
+
+## Files
+
+Format: path | status | ruff findings at cycle 0 | notes
+- codecs_module/__init__.py | fixed | 1 | autofix cycle 3, ruff clean
+- codecs_module/decoder.py | clean | 0 | -
+- codecs_module/encoder.py | clean | 0 | -
+- codecs_module/narration.py | clean | 0 | -
+- conftest.py | clean | 0 | added cycle 35 (repo-wide ruff rescan found no findings; was missing from ledger since cycle 4)
+- core/__init__.py | clean | 0 | -
+- core/latent_loop.py | fixed | 1 | autofix cycle 3, ruff clean
+- core/qwen_tap.py | fixed | 2 | cycle 10 manual TRY004 x2 (ValueError -> TypeError), ruff clean
+- eval/__init__.py | clean | 0 | -
+- eval/baselines/__init__.py | clean | 0 | -
+- eval/baselines/ewc.py | fixed | 2 | cycle 10 manual: PLC0206 (use items(), no value mutation) + PLW0127 (removed no-op self-assignment); ruff clean
+- eval/baselines/frozen.py | clean | 0 | -
+- eval/baselines/joint.py | fixed | 1 | cycle 10 manual: PLW0127 removed no-op self-assignment; ruff clean
+- eval/baselines/model.py | clean | 0 | -
+- eval/baselines/naive.py | fixed | 2 | autofix cycle 3 + PLW0127 removed cycle 10; ruff clean
+- eval/baselines/param_match.py | clean | 0 | -
+- eval/baselines/replay.py | clean | 0 | -
+- eval/gate/__init__.py | clean | 0 | -
+- eval/gate/answer_scoring.py | fixed | 1 | autofix cycle 3, ruff clean
+- eval/gate/cycling_sweep.py | clean | 0 | -
+- eval/gate/gate_report.py | fixed | 4 | autofix cycle 3; cycle 11 manual: PLC0415 x3 (deferred imports hoisted to module refs); ruff clean
+- eval/gate/latent_eval.py | fixed | 9 | cycle 11 manual: TRY004 x7 (ValueError->TypeError on isinstance checks) + PLC0415 x2 (hoisted deferred imports to module refs result_cache.*/token_cot_baseline.*); ruff clean
+- eval/gate/result_cache.py | fixed | 1 | autofix cycle 3, ruff clean
+- eval/gate/run_gate.py | fixed | 3 | autofix cycle 5, ruff clean (stale in-function import removed)
+- eval/gate/slot_ablation.py | fixed | 4 | autofix cycle 5; cycle 11 manual: TRY004 x3 (ValueError->TypeError on isinstance checks); ruff clean
+- eval/gate/token_cot_baseline.py | fixed | 3 | autofix cycle 5; cycle 11 manual: TRY004 x1 + PLC0415 x1 (deferred import -> result_cache module ref); ruff clean
+- eval/instrumentation.py | clean | 0 | -
+- eval/metrics/__init__.py | fixed | 2 | cycle 12 manual: E402 x2 (imports hoisted above METRICS_VERSION); ruff clean
+- eval/metrics/accuracy.py | clean | 0 | -
+- eval/metrics/compute.py | clean | 0 | -
+- eval/metrics/first_use.py | fixed | 1 | cycle 12 manual: PLW2901 (loop var distance renamed to raw_distance); ruff clean
+- eval/metrics/retention.py | clean | 0 | -
+- eval/metrics/transfer.py | clean | 0 | -
+- eval/run/__init__.py | clean | 0 | -
+- eval/run/checkpoint.py | clean | 0 | -
+- eval/run/config.py | clean | 0 | -
+- eval/run/retention_policy.py | clean | 0 | -
+- eval/run/runner.py | fixed | 1 | autofix cycle 5, ruff clean
+- eval/stage0_identity.py | fixed | 10 | autofix cycle 5; cycle 13 manual: PLC0415 x7 (hoisted huggingface_hub/transformers/sentence_transformers/datasets imports to top) + TRY301 x2 (digest-mismatch raise extracted to _require_digest_match); ruff clean
+- eval/stream/__init__.py | clean | 0 | -
+- eval/stream/config.py | clean | 0 | -
+- eval/stream/corpus.py | fixed | 1 | cycle 12 manual: PLW2901 (loop var line renamed to raw_line); ruff clean
+- eval/stream/corpus_walk.py | clean | 0 | -
+- eval/stream/events.py | fixed | 1 | cycle 11 manual: UP007 (Union -> X | Y); ruff clean
+- eval/stream/generator.py | fixed | 1 | autofix cycle 5, ruff clean
+- eval/stream/generators/__init__.py | clean | 0 | -
+- eval/stream/generators/asdiv_a.py | fixed | 4 | autofix cycle 5; cycle 13 manual: TRY301 (is_finite raise extracted to _require_finite_decimal) + TRY004 (removed redundant bool isinstance guard; Decimal(str(bool)) already raises InvalidOperation); ruff clean
+- eval/stream/generators/assoc.py | clean | 0 | -
+- eval/stream/generators/difficulty_mix.py | fixed | 1 | cycle 13 manual: B905 (zip strict=True; both sequences derive from num_items); ruff clean
+- eval/stream/generators/gsm8k.py | fixed | 1 | cycle 13 manual: PLC0415 (hoisted datasets import to top); ruff clean
+- eval/stream/generators/split_classify.py | blocked | 2 | autofix cycle 5; 1 left: PLC0415 (torchvision import intentionally lazy - keeps the synthetic stream path free of the optional `baselines` extra; documented in _MnistData docstring)
+- eval/stream/hashing.py | clean | 0 | -
+- eval/stream/registry.py | fixed | 1 | autofix cycle 5, ruff clean
+- eval/stream/render.py | blocked | 1 | TRY004 conflicts with spec: openspec/specs/eval/render/spec.md:102 requires render_event to raise ValueError for Idle (tests assert it); TypeError would violate the spec
+- eval/stream/serialize.py | clean | 0 | -
+- eval/stream/truth.py | clean | 0 | -
+- eval/stream/vocab.py | clean | 0 | -
+- eval/subject/__init__.py | fixed | 3 | cycle 12 manual: E402 x3 (imports hoisted above SUBJECT_PROTOCOL_VERSION); ruff clean
+- eval/subject/isolation.py | clean | 0 | -
+- eval/subject/oracles/__init__.py | clean | 0 | -
+- eval/subject/oracles/chance.py | clean | 0 | -
+- eval/subject/oracles/cheater.py | clean | 0 | -
+- eval/subject/oracles/forgetful.py | fixed | 1 | cycle 12 manual: PLC0415 (format_features import hoisted to top); ruff clean
+- eval/subject/oracles/perfect_memory.py | fixed | 1 | cycle 14 manual: PLC0415 (format_features import hoisted to top); ruff clean
+- eval/subject/oracles/task_wiper.py | fixed | 1 | cycle 14 manual: PLC0415 (format_features import hoisted to top); ruff clean
+- eval/subject/oracles/variable_compute.py | clean | 0 | -
+- eval/subjects/__init__.py | clean | 0 | -
+- eval/subjects/latent_core.py | fixed | 1 | autofix cycle 6, ruff clean
+- main.py | clean | 0 | -
+- scripts/fetch_corpus.py | blocked | 2 | cycle 14 manual: PLW2901 fixed (no-tests); 1 left: PLC0415 (zstandard import intentionally lazy - optional [corpus] extra, preserves friendly SystemExit message)
+- scripts/run_gate.py | fixed | 3 | cycle 14 manual: PLW2901 (loop var renamed) + UP031 (percent format -> f-string); ruff clean (no-tests: script drives eval.run.runner.run, exercised indirectly via tests/gate/test_gate_smoke.py)
+- scripts/show_gate.py | fixed | 8 | autofix cycle 6, ruff clean (F541 x8)
+- scripts/show_stream.py | clean | 0 | -
+- tests/baselines/__init__.py | clean | 0 | -
+- tests/baselines/test_baselines_smoke.py | fixed | 1 | cycle 8, ruff clean (SIM114+SIM101 merged by hand)
+- tests/baselines/test_naive_forgetting.py | clean | 0 | added cycle 41 (naive catastrophic-forgetting test; 5-task stream, small MLP 200 iters/task, deterministic via torch.manual_seed)
+- tests/baselines/test_param_match.py | clean | 0 | -
+- tests/eggroll_reference.py | fixed | 2 | cycle 15 manual: UP047 (PEP 695 type param) + SIM108 (ternary); ruff clean
+- tests/eggroll_stability_fixtures.py | clean | 0 | -
+- tests/gate/__init__.py | clean | 0 | -
+- tests/gate/test_gate_smoke.py | clean | 0 | -
+- tests/gate/test_numerical_answer_scoring.py | clean | 0 | -
+- tests/gate/test_reproduction_gate_contract.py | clean | 0 | added cycle 42 (reproduction-gate pass-condition contract: PASS_BANDS, MIN_SEEDS, criterion_3/criterion_4 pinned; no gate run, no MNIST)
+- tests/gate/test_stage0_gate_report.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_latent_evaluation.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_result_cache.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_run_gate.py | fixed | 2 | autofix cycle 8, ruff clean
+- tests/gate/test_stage0_slot_ablation.py | clean | 0 | -
+- tests/gate/test_stage0_token_baseline.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/instrumentation/__init__.py | clean | 0 | -
+- tests/instrumentation/test_difficulty_correlation.py | fixed | 1 | cycle 16 manual: B905 zip strict=True (rx/ry same length); ruff clean
+- tests/instrumentation/test_instrumentation_fields.py | clean | 0 | -
+- tests/metrics/__init__.py | clean | 0 | -
+- tests/metrics/test_accuracy.py | clean | 0 | -
+- tests/metrics/test_compute.py | clean | 0 | added cycle 34 (compute_per_input three-counter contract)
+- tests/metrics/test_first_use.py | clean | 0 | -
+- tests/metrics/test_oracle_integration.py | fixed | 1 | cycle 16 manual: B905 zip strict=True (equal lengths); ruff clean
+- tests/metrics/test_retention.py | clean | 0 | -
+- tests/metrics/test_transfer.py | clean | 0 | -
+- tests/run/test_checkpoint.py | fixed | 1 | cycle 16 manual: SIM117 combined nested with (patch + pytest.raises); ruff clean
+- tests/run/test_config.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/run/test_resume.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/run/test_retention_policy.py | clean | 0 | -
+- tests/run/test_runner.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/stream/test_asdiv_a.py | fixed | 1 | autofix cycle 8, ruff clean
+- tests/stream/test_assoc.py | fixed | 4 | cycle 16 manual: B905 zip strict=True, SIM102 combined nested if, ISC004 x2 parenthesized implicit concat; ruff clean
+- tests/stream/test_chance.py | clean | 0 | -
+- tests/stream/test_corpus.py | fixed | 1 | cycle 16 manual: RUF043 match=re.escape(...); ruff clean
+- tests/stream/test_difficulty_mix.py | clean | 0 | -
+- tests/stream/test_events.py | fixed | 1 | autofix cycle 9, ruff clean
+- tests/stream/test_generator.py | clean | 0 | -
+- tests/stream/test_gsm8k.py | clean | 0 | -
+- tests/stream/test_hashing.py | fixed | 3 | autofix cycle 9; cycle 17 manual PLC0415 x2 (hoisted events/truth imports to top); ruff clean
+- tests/stream/test_mnist_binding.py | clean | 0 | -
+- tests/stream/test_package.py | clean | 0 | -
+- tests/stream/test_registry.py | fixed | 1 | cycle 17 manual PLW1510 (explicit check=False; test asserts returncode itself); ruff clean
+- tests/stream/test_render.py | clean | 0 | -
+- tests/stream/test_replay.py | clean | 0 | -
+- tests/stream/test_split_classify.py | fixed | 5 | autofix cycle 9; cycle 17 manual B905 x2 (zip strict=True) + PLC0415 x2 (hoisted math/_class_center/FEATURE_NOISE_STD imports to top); ruff clean
+- tests/stream/test_truth.py | fixed | 7 | cycle 17 manual RUF007 (itertools.pairwise, also clears B905) + PLC0415 x5 (hoisted Path/StreamConfig/generator imports to top); ruff clean
+- tests/stream/test_vocab.py | fixed | 2 | autofix cycle 9; cycle 17 manual PLC0415 (hoisted VOCAB_VERSION import to top); ruff clean
+- tests/subject/test_isolation.py | clean | 0 | -
+- tests/subject/test_oracles.py | fixed | 2 | cycle 18 manual: B007 (value->_value) + C416 (dict comprehension -> dict()); ruff clean
+- tests/subject/test_protocol.py | fixed | 1 | cycle 18 manual: PLC0415 (import abc hoisted to top); ruff clean
+- tests/subject/test_snapshot_restore.py | clean | 0 | -
+- tests/test_alternating_checkpoint.py | fixed | 5 | cycle 21 manual: F841 (dropped unused `schedule =`); ruff clean
+- tests/test_alternating_config.py | fixed | 1 | cycle 18 manual: RUF043 (match pattern -> raw string); ruff clean
+- tests/test_alternating_evaluation.py | fixed | 2 | cycle 21 manual: B905 (zip strict=True); ruff clean
+- tests/test_alternating_scheduler.py | clean | 0 | -
+- tests/test_answer_objective.py | clean | 0 | -
+- tests/test_asdiv_stage0_contract.py | clean | 0 | -
+- tests/test_benchmark_eggroll.py | fixed | 1 | cycle 18 manual: RUF043 (match -> re.escape); ruff clean
+- tests/test_codecs_freezing.py | clean | 0 | -
+- tests/test_eggroll_factorized.py | clean | 0 | -
+- tests/test_eggroll_perturbations.py | clean | 0 | -
+- tests/test_eggroll_reference.py | clean | 0 | -
+- tests/test_eggroll_resume_equivalence.py | fixed | 2 | autofix cycle 9, ruff clean
+- tests/test_eggroll_stability.py | fixed | 2 | ruff clean cycle 2; regression test added
+- tests/test_eggroll_step_equivalence.py | fixed | 1 | autofix cycle 9, ruff clean
+- tests/test_eggroll_training.py | fixed | 10 | cycle 22 manual: removed sentence_transformers stub (E402 x6; import-speed opt only, tests don't instantiate it) + hoisted trainer_module import + dropped redundant AsdivRecord import (PLC0415 x2); ruff clean
+- tests/test_eggroll_updates.py | clean | 0 | -
+- tests/test_eggroll_workflow_guards.py | fixed | 1 | autofix cycle 9, ruff clean
+- tests/test_frozen_qwen_backbone.py | clean | 0 | -
+- tests/test_gradient_training.py | fixed | 3 | cycle 22 manual: removed sentence_transformers stub (E402 x2); ruff clean
+- tests/test_latent_core_subject.py | clean | 0 | added cycle 38 (3 ordering/interface tests with recording fakes)
+- tests/test_latent_eval.py | clean | 0 | -
+- tests/test_latent_loop.py | clean | 0 | -
+- tests/test_narration.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_plot_training.py | clean | 0 | -
+- tests/test_probe_isolation.py | clean | 0 | -
+- tests/test_qwen_latent_loop.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_qwen_tap_equivalence.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_run_alternating.py | fixed | 2 | cycle 21 manual: B007 (loop var _expected_message); ruff clean
+- tests/test_run_eggroll.py | fixed | 2 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_run_eggroll_stability.py | clean | 0 | -
+- tests/test_run_stage0_trainability.py | fixed | 10 | cycle 22 manual: PLC0415 x7 (hoisted train.stage0_trainability imports to top); ruff clean
+- tests/test_run_training.py | fixed | 1 | PLC0415 run_training import hoisted, ruff clean
+- tests/test_search_alignment_weight.py | fixed | 1 | autofix (prior cycle-10 commit), ruff clean
+- tests/test_stage0_checkpoint_container.py | fixed | 9 | cycle 24 manual: PLW0108 x2 (lambda -> calls.append) + SIM117 x3 (nested with -> single with); ruff clean
+- tests/test_stage0_checkpoint_resume.py | fixed | 2 | cycle 21 manual: PLW0108 (lambda -> exposed.append); ruff clean
+- tests/test_stage0_checkpoint_schema.py | fixed | 4 | autofix cycle 10, ruff clean
+- tests/test_stage0_cli_runtime_order.py | clean | 0 | -
+- tests/test_stage0_dataset_contract.py | fixed | 1 | autofix cycle 10, ruff clean
+- tests/test_stage0_identity.py | fixed | 1 | autofix cycle 10, ruff clean
+- tests/test_stage0_shapes.py | fixed | 1 | autofix cycle 10, ruff clean
+- tests/test_stage0_trainability_identity.py | fixed | 13 | cycle 22 manual: PLC0415 x13 (hoisted train.stage0_trainability imports to top); ruff clean
+- tests/test_stage0_trainability_reports.py | fixed | 210 | cycle 26 manual: hoisted 142 in-function imports to top (PLC0415 x138 incl. 4 plain `import inspect`/`import math`), C408 x25 (tuple() -> ()), F841 (removed unused held_out_record_ids, renamed unpack to _held_out_64_ids), RUF059 (status, _), SIM102 (combined nested if), SIM222 x2 (vacuous assert -> True), BLE001 x3 (dropped try/except Exception -> pytest.fail, exceptions now propagate); ruff clean
+- tests/test_standalone_checkpoint.py | fixed | 7 | cycle 21 manual: B905 (zip strict=True in _same_state); ruff clean
+- tests/test_trainability_types_verification.py | clean | 0 | -
+- tests/test_training_results.py | clean | 0 | -
+- tests/test_training_state.py | fixed | 4 | cycle 22 manual: removed sentence_transformers stub (E402 x3); ruff clean
+- tests/test_vicreg.py | clean | 0 | -
+- tests/test_workspace.py | clean | 0 | -
+- train/__init__.py | clean | 0 | -
+- train/alternating_checkpoint.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted ALLOWED_MODEL_PARAMETER_PATHS import); ruff clean
+- train/alternating_config.py | fixed | 1 | autofix cycle 6, ruff clean
+- train/alternating_evaluation.py | fixed | 2 | B905 zip strict=True + PLC0415 SlotDecoder import hoisted, ruff clean
+- train/alternating_scheduler.py | fixed | 3 | cycle 23 manual: UP046 x2 (PEP 695 type params on EvaluationRecord, TrainingEngine, PhaseEvaluator, VarianceHysteresisScheduler; dropped Generic/TypeVar imports); ruff clean
+- train/answer_objective.py | fixed | 3 | cycle 23 manual: TRY004 x2 (callable type guards raise TypeError, not ValueError); ruff clean
+- train/benchmark_eggroll.py | clean | 0 | -
+- train/eggroll_factorized.py | clean | 0 | -
+- train/eggroll_perturbations.py | clean | 0 | -
+- train/eggroll_stability.py | fixed | 6 | ruff clean cycle 2; empty-tuple thaw bug fixed
+- train/eggroll_stability_evaluation.py | clean | 0 | -
+- train/eggroll_stability_guard.py | fixed | 1 | cycle 18 manual: ISC004 (parenthesized implicit concat inside tuple arg); ruff clean
+- train/eggroll_trainer.py | fixed | 7 | cycle 23 manual: E731 (lambda -> def) + PLC0415 (removed redundant deferred AsdivRecord import, already top-level); ruff clean
+- train/eggroll_updates.py | fixed | 1 | cycle 19 manual: SIM108 ternary conversion; ruff clean
+- train/plot_training.py | fixed | 8 | cycle 24 manual: TRY004 x2 (type checks -> TypeError), SIM108 (ternary), E731 x2 (lambda -> def), RUF046 (drop redundant int()); ruff clean
+- train/run_alternating.py | fixed | 4 | cycle 23 manual: B905 (zip strict=True) + PLC0415 (hoisted numpy import to top); ruff clean
+- train/run_eggroll.py | fixed | 9 | cycle 24 manual: B023 x8 (bound _on_step loop captures as default args, same as run_training); ruff clean
+- train/run_eggroll_stability.py | fixed | 1 | autofix cycle 7, ruff clean
+- train/run_stage0_trainability.py | blocked | 27 | cycle 24 manual: PLC0415 x2 (hoisted time import), F841 (removed dead start_time), BLE001 x3 (removed unreachable try/except; narrowed write/investigation excepts to OSError); 1 left: TRY004 at _validate_args root-object check - conflicts with test_command_rejects_non_object_stability_report which asserts ValueError (a data-validation error, not a type error)
+- train/run_training.py | fixed | 8 | cycle 22 manual: B023 x8 (bound _on_step loop captures as default args); ruff clean
+- train/search_alignment_weight.py | fixed | 5 | SIM102 combined nested if, ruff clean
+- train/stage0_checkpoint.py | fixed | 6 | cycle 24 manual: SIM102 x2 (nested if -> and), SIM105 (contextlib.suppress), PLC0415 (hoisted safetensors.torch.load); ruff clean
+- train/stage0_data.py | fixed | 1 | autofix cycle 7, ruff clean
+- train/stage0_trainability.py | blocked | 27 | cycle 25 manual: 20 of 24 fixed (SIM102, C416, B904 x2, PLC0415 x5, RUF059 x2, B007, C408, RUF015, TRY300, SIM105, BLE001 x3 removed/narrowed); 4 left: BLE001 x4 - deliberate catch-all graceful degradation (evaluate_single_record_loss -> NaN, run_overfit_attempt train_step + outer fatal, _compute_state_hash -> "")
+- train/standalone_checkpoint.py | fixed | 4 | B905 zip strict=True x2, ruff clean
+- train/trainer.py | fixed | 5 | autofix cycle 7, ruff clean (4 stale imports removed)
+- train/training_results.py | clean | 0 | -
+- train/training_state.py | clean | 0 | -
+- train/vicreg.py | fixed | 1 | B905 zip strict=True, ruff clean
+- workspace/__init__.py | fixed | 1 | autofix cycle 7, ruff clean
+- workspace/concept_slots.py | clean | 0 | -
+
+## Additional notes:
+- tests taking >10 minutes is not acceptable, optimize performance to get it down to preferably <1 minute, but at least <5
+- SPEC/IMPL CONFLICT (found cycle 35, active change validate-stage0-trainability): compute_recalibration_eligibility (train/stage0_trainability.py:1197) is dead code - only tests call it; production sets recalibration_eligible inside classify_method_status, which requires causal_status == "passed". The helper instead treats causal_status "direction_mismatch" as eligible, contradicting the spec: scenario "Update moves against its prediction" says direction_mismatch makes the method ineligible, and requirement "Recalibration eligibility is method-specific and limited" says eligibility requires the causal probe to pass. Two tests enshrine the wrong behavior: test_eligibility_table's ("passed","viable","direction_mismatch",True) row and test_eligible_direction_mismatch_with_causal. Left for a human/spec decision; do not change the assertions without first deciding the direction_mismatch contract.
+
+## Cycle log
+
+Format: cycle N | item | outcome
+- cycle 0 | setup: ruff config, prompt, ledger | baselines recorded
+- cycle 1 | install torchvision 0.26.0+cpu, rerun full suite | mnist test fixed; found 2 real failures in test_search_alignment_weight.py (device_topology)
+- cycle 2 | fix empty-tuple thaw bug in train/eggroll_stability.py + clear its ruff findings | 2 failing tests now pass; regression test added; 94 related tests green
+- cycle 3 | ruff autofix batch: codecs_module/__init__, core/latent_loop, eval/baselines/naive, eval/gate/{answer_scoring,gate_report,result_cache} | 6 findings fixed, 177 covering tests pass
+- cycle 4 | add conftest.py with HF_DEACTIVATE_ASYNC_LOAD=1 | full suite green: 1365 passed, 2 skipped, 511s
+- cycle 5 | ruff autofix batch: eval/gate/{run_gate,slot_ablation,token_cot_baseline}, eval/run/runner, eval/stage0_identity, eval/stream/{generator,registry}, eval/stream/generators/{asdiv_a,split_classify} | 12 findings fixed, 129 covering tests pass
+- cycle 6 | ruff autofix batch: eval/subjects/latent_core, scripts/{run_gate,show_gate}, train/{alternating_checkpoint,alternating_config,alternating_scheduler,answer_objective,eggroll_trainer,plot_training,run_alternating} | 26 findings fixed, 107 covering tests pass
+- cycle 7 | ruff autofix batch: train/{run_eggroll,run_eggroll_stability,run_stage0_trainability,search_alignment_weight,stage0_checkpoint,stage0_data,stage0_trainability,standalone_checkpoint,trainer}, workspace/__init__ | 39 findings fixed, 429 covering tests pass
+- cycle 8 | ruff autofix batch: tests/baselines/test_baselines_smoke, tests/gate/{gate_report,latent_evaluation,result_cache,run_gate,token_baseline}, tests/run/{config,resume,runner}, tests/stream/test_asdiv_a | 12 findings fixed, all 10 files clean, 185 tests pass
+- cycle 9 | ruff autofix batch: tests/stream/{events,hashing,split_classify,vocab}, tests/test_{alternating_checkpoint,alternating_evaluation,eggroll_resume_equivalence,eggroll_step_equivalence,eggroll_training,eggroll_workflow_guards} | 15 findings fixed, 176 tests pass
+- cycle 10 | ruff autofix batch: tests/test_stage0_{checkpoint_schema,dataset_contract,identity,shapes,trainability_reports}, tests/test_{standalone_checkpoint,training_state} | 49 findings fixed, 4 files clean, 302 covering tests pass; full suite re-run: 1365 passed, 2 skipped
+- cycle 10 | manual TRY004 fixes in core/qwen_tap.py | ruff clean, 22 covering tests pass
+- cycle 10 | manual PLC0206+PLW0127 fixes in eval/baselines/ewc.py | ruff clean, 29 covering tests pass
+- cycle 10 | manual PLW0127 fix in eval/baselines/joint.py | ruff clean, 20 covering tests pass
+- cycle 10 | manual PLW0127 fix in eval/baselines/naive.py | ruff clean, 20 covering tests pass
+- cycle 10 | healed ledger drift: prior commit 4f13aff autofixed 10 test files without a ledger entry; verified current ruff state and corrected those 10 rows
+- cycle 11 | full suite verification (manual fixes landed after cycle-10 run) | 1365 passed, 2 skipped, 0 failed, 474s
+- cycle 11 | manual fixes in eval/gate/latent_eval.py: TRY004 x7 + PLC0415 x2 | ruff clean, 28 covering tests pass
+- cycle 11 | manual fixes in eval/gate/slot_ablation.py: TRY004 x3 | ruff clean, 13 covering tests pass
+- cycle 11 | manual fixes in eval/gate/token_cot_baseline.py: TRY004 x1 + PLC0415 x1 | ruff clean, 22 covering tests pass
+- cycle 11 | manual fixes in eval/gate/gate_report.py: PLC0415 x3 | ruff clean, 22 covering tests pass
+- cycle 11 | manual fix in eval/stream/events.py: UP007 | ruff clean, 38 covering tests pass
+- cycle 11 | end-of-cycle full suite (after 5 files incl. import hoisting) | 1365 passed, 2 skipped, 0 failed, 480s
+- cycle 12 | manual E402 x2 in eval/metrics/__init__.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual E402 x3 in eval/subject/__init__.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual PLW2901 in eval/stream/corpus.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual PLW2901 in eval/metrics/first_use.py | ruff clean, 78 covering tests pass
+- cycle 12 | manual PLC0415 in eval/subject/oracles/forgetful.py | ruff clean, 17 covering tests pass
+- cycle 12 | end-of-cycle full suite (5 files incl. 2 __init__ import reorders) | 1365 passed, 2 skipped, 0 failed, 493s
+- cycle 13 | manual PLC0415 x7 + TRY301 x2 in eval/stage0_identity.py | ruff clean, 273 covering tests pass (1 skipped)
+- cycle 13 | manual TRY301 + TRY004 in eval/stream/generators/asdiv_a.py | ruff clean, 18 covering tests pass
+- cycle 13 | manual B905 in eval/stream/generators/difficulty_mix.py | ruff clean, 30 covering tests pass
+- cycle 13 | manual PLC0415 in eval/stream/generators/gsm8k.py | ruff clean, 17 covering tests pass
+- cycle 13 | split_classify.py PLC0415 marked blocked | torchvision import is an intentional optional-dependency boundary (pyproject `baselines` extra); hoisting would break the documented synthetic-only import path
+- cycle 13 | end-of-cycle full suite (4 source files incl. stage0_identity import hoisting) | 1365 passed, 2 skipped, 0 failed, 499s
+- cycle 14 | eval/stream/render.py TRY004 marked blocked | spec render/spec.md:102 requires ValueError for Idle; TypeError would violate spec + break tests
+- cycle 14 | manual PLC0415 in eval/subject/oracles/perfect_memory.py | ruff clean, 17 covering tests pass
+- cycle 14 | manual PLC0415 in eval/subject/oracles/task_wiper.py | ruff clean, 17 covering tests pass
+- cycle 14 | scripts/fetch_corpus.py PLW2901 fixed; PLC0415 marked blocked | zstandard import is an optional [corpus] extra; hoisting would drop the friendly SystemExit message
+- cycle 14 | manual PLW2901 + UP031 in scripts/run_gate.py | ruff clean (no direct script test; py_compile ok)
+- cycle 14 | end-of-cycle full suite (4 source files: 2 oracle import hoists + 2 script fixes) | 1365 passed, 2 skipped, 0 failed, 494s
+- cycle 15 | manual UP047 (PEP 695 type param) + SIM108 (ternary) in tests/eggroll_reference.py | ruff clean, 27 covering tests pass (1 skipped)
+- cycle 16 | manual B905 (zip strict=True) in tests/instrumentation/test_difficulty_correlation.py | ruff clean, 1 test passes
+- cycle 16 | manual B905 (zip strict=True) in tests/metrics/test_oracle_integration.py | ruff clean, 5 tests pass
+- cycle 16 | manual SIM117 (combine nested with) in tests/run/test_checkpoint.py | ruff clean, 7 tests pass
+- cycle 16 | manual B905 + SIM102 + ISC004 x2 in tests/stream/test_assoc.py | ruff clean, 49 tests pass
+- cycle 16 | manual RUF043 (re.escape) in tests/stream/test_corpus.py | ruff clean, 24 tests pass
+- cycle 17 | manual PLC0415 x2 (hoisted events/truth imports to top) in tests/stream/test_hashing.py | ruff clean, 33 tests pass
+- cycle 17 | manual PLW1510 (explicit check=False) in tests/stream/test_registry.py | ruff clean, 18 tests pass
+- cycle 17 | manual B905 x2 + PLC0415 x2 in tests/stream/test_split_classify.py | ruff clean, 36 tests pass
+- cycle 17 | manual RUF007 + PLC0415 x5 in tests/stream/test_truth.py | ruff clean, 27 tests pass
+- cycle 17 | manual PLC0415 in tests/stream/test_vocab.py | ruff clean, 23 tests pass
+- cycle 18 | full suite verification (code fixes landed since cycle 14) | 1365 passed, 2 skipped, 0 failed, 485s
+- cycle 18 | manual B007 + C416 in tests/subject/test_oracles.py | ruff clean, 17 tests pass
+- cycle 18 | manual PLC0415 (import abc hoisted) in tests/subject/test_protocol.py | ruff clean, 12 tests pass
+- cycle 18 | manual RUF043 (raw match pattern) in tests/test_alternating_config.py | ruff clean, 12 tests pass
+- cycle 18 | manual RUF043 (match -> re.escape) in tests/test_benchmark_eggroll.py | ruff clean, 7 tests pass
+- cycle 18 | manual ISC004 (parenthesized implicit concat) in train/eggroll_stability_guard.py | ruff clean, 16 covering tests pass
+- cycle 19 | manual SIM108 (ternary) in train/eggroll_updates.py | ruff clean, 5 covering tests pass
+- cycle 19 | spec validation: eval/corpus SHOULD -> MUST (wordless-snapshot requirement) | openspec validate --strict now passes
+- cycle 19 | spec validation batch: SHOULD -> MUST in eval/{events,generators/assoc,generators/split-classify,serialize,subject-protocol,vocab} | all strict-valid
+- cycle 19 | spec validation batch: skip_specs: true for change/stage-1..5 (planning-pass changes) | openspec validate --all --strict: 39 passed, 0 failed
+- cycle 19 | spec coverage scan: openspec/specs/core (latent-loop) | 15 scenarios, 10 covered, 5 uncovered (recorded above)
+- cycle 19 | spec coverage scan: openspec/specs/workspace (concept-slots) | 8 scenarios, 8 covered
+- cycle 20 | full suite + repo-wide ruff re-scan (rule 11) | 1365 passed, 2 skipped; 291 findings across 31 files, no clean/fixed drift
+- cycle 20 | manual B905 (zip strict=True) in train/vicreg.py | ruff clean, 3 tests pass
+- cycle 20 | manual B905 + PLC0415 (hoisted SlotDecoder import) in train/alternating_evaluation.py | ruff clean, 7 tests pass
+- cycle 20 | manual PLC0415 (hoisted run_training import) in tests/test_run_training.py | ruff clean, 2 tests pass
+- cycle 20 | manual SIM102 (combined nested if) in train/search_alignment_weight.py | ruff clean, 16 tests pass
+- cycle 20 | manual B905 (zip strict=True) x2 in train/standalone_checkpoint.py | ruff clean, 9 tests pass
+- cycle 20 | end-of-cycle full suite (5 files fixed) | 1365 passed, 2 skipped, 0 failed, 493s
+- cycle 21 | manual F841 (dropped unused `schedule =`) in tests/test_alternating_checkpoint.py | ruff clean, 21 tests pass
+- cycle 21 | manual B905 (zip strict=True) in tests/test_alternating_evaluation.py | ruff clean, 7 tests pass
+- cycle 21 | manual B007 (loop var _expected_message) in tests/test_run_alternating.py | ruff clean, 30 tests pass
+- cycle 21 | manual B905 (zip strict=True in _same_state) in tests/test_standalone_checkpoint.py | ruff clean, 9 tests pass
+- cycle 21 | manual PLW0108 (lambda -> exposed.append) in tests/test_stage0_checkpoint_resume.py | ruff clean, 9 tests pass
+- cycle 21 | end-of-cycle full suite (5 test files fixed) | 1365 passed, 2 skipped, 0 failed, 481s
+- cycle 22 | manual PLC0415 x13 (hoisted imports to top) in tests/test_stage0_trainability_identity.py | ruff clean, 13 tests pass
+- cycle 22 | manual B023 x8 (closure loop-capture -> default args) in train/run_training.py | ruff clean, 2 tests pass
+- cycle 22 | removed sentence_transformers stub from tests/test_{eggroll_training,gradient_training,training_state}.py (E402 x11) + PLC0415 x2 in eggroll_training | ruff clean, full suite 1365 passed, 2 skipped, 0 failed, 483s
+- cycle 22 | manual PLC0415 x7 (hoisted stage0_trainability imports to top) in tests/test_run_stage0_trainability.py | ruff clean, 23 tests pass
+- cycle 23 | manual UP046 x2 (PEP 695 type params) in train/alternating_scheduler.py | ruff clean, 7 tests pass
+- cycle 23 | manual TRY004 x2 (callable guards -> TypeError) in train/answer_objective.py | ruff clean, 10 tests pass
+- cycle 23 | manual B905 + PLC0415 in train/alternating_checkpoint.py | ruff clean, 21 tests pass
+- cycle 23 | manual B905 + PLC0415 (numpy hoist) in train/run_alternating.py | ruff clean, 30 tests pass
+- cycle 23 | manual E731 + PLC0415 in train/eggroll_trainer.py | ruff clean, 11 covering tests pass (test_eggroll_training + test_run_eggroll + test_eggroll_step_equivalence)
+- cycle 23 | end-of-cycle full suite (5 train/ files fixed) | 1365 passed, 2 skipped, 0 failed, 489s
+- cycle 24 | manual PLW0108 x2 + SIM117 x3 in tests/test_stage0_checkpoint_container.py | ruff clean, 34 tests pass
+- cycle 24 | manual SIM102 x2 + SIM105 + PLC0415 in train/stage0_checkpoint.py | ruff clean, 140 checkpoint tests pass
+- cycle 24 | manual TRY004 x2 + SIM108 + E731 x2 + RUF046 in train/plot_training.py | ruff clean, 3 tests pass
+- cycle 24 | manual B023 x8 in train/run_eggroll.py | ruff clean, 10 tests pass
+- cycle 24 | manual PLC0415 x2 + F841 + BLE001 x3 in train/run_stage0_trainability.py | 1 left: TRY004 blocked (test asserts ValueError); 23 tests pass
+- cycle 24 | end-of-cycle full suite (5 items incl. stage0_checkpoint safetensors hoist) | 1365 passed, 2 skipped, 0 failed, 495s
+- cycle 25 | manual fixes in train/stage0_trainability.py: 20 of 24 findings fixed | ruff: 4 BLE001 left (blocked); 204 covering tests pass (identity 12 + types 2 + run_stage0 23 + reports 156; reports 377s)
+- cycle 25 | spec coverage scan: openspec/specs/codecs (decoder+encoder+narration) | 17 scenarios, 10 covered, 7 uncovered (recorded above)
+- cycle 26 | full suite verification (cycle 25 landed stage0_trainability code fixes) | 1365 passed, 2 skipped, 0 failed, 737s
+- cycle 26 | manual fixes in tests/test_stage0_trainability_reports.py: hoisted 138 PLC0415 + C408 x25 + F841 + RUF059 + SIM102 + SIM222 x2 + BLE001 x3 | ruff clean, 156 tests pass (538s)
+- cycle 26 | finding: 3 recalibration tests are vacuous placeholders (test_trainability_cannot_authorize_full_gradient/eggroll, test_trainability_recalibration_eligibility_not_full_training) - docstrings claim authorization limits compute_recalibration_eligibility never models; SIM222 exposed the vacuous asserts, fixed to `assert True` to preserve behavior, real assertions left for a later item
+- cycle 26 | repo-wide ruff re-scan (rule 11: no unchecked/scanned rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons; no clean/fixed drift
+- cycle 26 | spec coverage scan: openspec/specs/eval/subject/snapshot | 2 scenarios, 2 covered (both via tests/subject/test_snapshot_restore.py). Also split the coarse eval/train spec-coverage rows into 27 per-capability rows
+- cycle 26 | spec coverage scan: openspec/specs/eval/subject/isolation | 4 scenarios, 4 covered (all via tests/subject/test_isolation.py)
+- cycle 27 | spec coverage scan: openspec/specs/eval/baselines | 10 scenarios, 5 covered, 5 uncovered (accuracy/forgetting behaviors of the five baselines have no test)
+- cycle 27 | spec coverage scan: openspec/specs/eval/config | 11 scenarios, 11 covered (all via tests/stream/test_hashing.py)
+- cycle 27 | spec coverage scan: openspec/specs/eval/corpus | 22 scenarios, 22 covered (all via tests/stream/test_corpus.py)
+- cycle 27 | spec coverage scan: openspec/specs/eval/events | 41 scenarios, 41 covered (all via tests/stream/test_events.py + test_truth.py)
+- cycle 27 | spec coverage scan: openspec/specs/eval/generator | 17 scenarios, 17 covered (all via tests/stream/test_generator.py + test_registry.py + test_chance.py)
+- cycle 28 | spec coverage scan: openspec/specs/eval/generators/asdiv-a | 8 scenarios, 6 covered, 2 uncovered/partial (recorded above)
+- cycle 28 | spec coverage scan: openspec/specs/eval/generators/assoc | 40 scenarios, 40 covered (all via tests/stream/test_assoc.py)
+- cycle 28 | spec coverage scan: openspec/specs/eval/generators/difficulty-mix | 36 scenarios, 36 covered (all via tests/stream/test_difficulty_mix.py)
+- cycle 28 | spec coverage scan: openspec/specs/eval/generators/gsm8k | 8 scenarios, 3 covered, 2 uncovered, 3 partial (recorded above)
+- cycle 28 | spec coverage scan: openspec/specs/eval/generators/split-classify | 37 scenarios, 37 tested, CONFLICT: version "2" in spec vs "3" in code+tests (recorded above)
+- cycle 29 | spec coverage scan: openspec/specs/eval/instrumentation | 3 scenarios, 2 covered, 1 uncovered; CONFLICT: run record (ProbeLogEntry) lacks the 4 optional instrumentation fields the spec requires (recorded above)
+- cycle 29 | spec coverage scan: openspec/specs/eval/metrics | 11 scenarios, 8 covered, 3 partial (row completeness, task-wiper near-chance, three distinct counters - recorded above)
+- cycle 29 | spec coverage scan: openspec/specs/eval/package | 4 scenarios, 4 covered (all via tests/stream/test_package.py)
+- cycle 29 | spec coverage scan: openspec/specs/eval/persistence | 7 scenarios, 6 covered, 1 conflict (run dir lacks config/revision/stream-hash/environment/metric-summary files - recorded above)
+- cycle 29 | spec coverage scan: openspec/specs/eval/render | 50 scenarios, 50 covered (all via tests/stream/test_render.py)
+- cycle 30 | spec coverage scan: openspec/specs/eval/reproduction-gate | 6 scenarios, 1 covered, 1 partial, 4 uncovered (runner does not exist; only baselines + smoke test remain - recorded above)
+- cycle 30 | spec coverage scan: openspec/specs/eval/serialize | 16 scenarios, 16 covered (test_hashing.py + test_replay.py); stale NaN [OBSERVED] note in spec (now covered)
+- cycle 30 | spec coverage scan: openspec/specs/eval/stage0-gate | 12 scenarios, 12 covered (5 test files under tests/gate/)
+- cycle 30 | spec coverage scan: openspec/specs/eval/subject-protocol | 15 scenarios, 13 covered, 1 uncovered (read-only flag never implemented), 1 partial (task-wiper at-chance not measured - recorded above)
+- cycle 30 | spec coverage scan: openspec/specs/eval/subject/oracles | 15 scenarios, 15 covered (test_oracles.py); conflict: TaskWiperOracle returns random VOCAB guess not "" after TASK_SWITCH (recorded above)
+- cycle 31 | spec coverage scan: openspec/specs/eval/subject/protocol | 12 scenarios, 12 covered (all via tests/subject/test_protocol.py)
+- cycle 31 | spec coverage scan: openspec/specs/eval/vocab | 16 scenarios, 16 covered (all via tests/stream/test_vocab.py)
+- cycle 31 | spec coverage scan: openspec/specs/train/alternating-cycle | 32 scenarios, 27 covered, 4 partial, 1 uncovered (recorded above)
+- cycle 31 | spec coverage scan: openspec/specs/train/eggroll-execution | 12 scenarios, 11 covered, 1 partial (recorded above)
+- cycle 31 | spec coverage scan: openspec/specs/train/stage0-training | 9 scenarios, 9 covered (recorded above)
+- cycle 32 | full suite verification (rule 2: last run was cycle 26, code fixes landed since) | 1365 passed, 2 skipped, 0 failed, 762s; access-violation crash recurred 2x before passing (noted in Pytest baseline)
+- cycle 32 | archived-changes audit: 2026-08-16-spec-test-coverage-alignment | clean: 5 specs + 19/20 tests shipped, 1 renamed; no defect (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-16-split-compound-requirements | clean: 15 eval specs split, no code changes, no defect (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-16-wire-unwired-scenarios | clean: 238 scenarios bound, no vacuous tests, no defect (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-17-stage-minus-1-remainder | mostly shipped; 2 gaps (instrumentation fields unwired, RunRecord paths unwritten) already tracked as ledger conflicts; corrected stale reproduction-gate note (scripts/run_gate.py exists)
+- cycle 32 | archived-changes audit: 2026-08-18-stage-0-latent-core | mostly shipped; narration not wired to run record/config (task 7.1/7.2 partial), matches codecs conflict; no stubs
+- cycle 32 | archived-changes audit: 2026-08-20-add-fixed-budget-training-cycle | clean: alternating scheduler/checkpoint/eval/command all shipped, no stubs (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-20-throttle-alternating-progress-logging | clean: interval validation + filtering shipped (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-22-implement-hardware-efficient-eggroll | clean: factorized eggroll + qwen tap + benchmark shipped, no stubs (recorded above)
+- cycle 32 | archived-changes audit: 2026-08-22-replace-stage0-dataset-and-backbone | clean: Calc-ASDiv_A + frozen Qwen + 896-dim shipped; capability renamed calc-mawps -> asdiv-a (recorded above)
+- cycle 32 | repo-wide ruff re-scan (rule 11: all archived changes + file rows exhausted) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
+- cycle 33 | delete approved stale file training3.log~ (editor backup) | deleted; file was untracked+gitignored (*.log~); full suite passed
+- cycle 34 | write test for asdiv-a "Truth remains isolated" scenario | added test_truth_remains_isolated_from_model_facing_text; ruff clean, 11 tests pass (test_asdiv_a.py, synthetic records, no network)
+- cycle 34 | write test for train/alternating-cycle "Non-progress output remains independent" | added test_progress_filter_leaves_non_structured_output_untouched; ruff clean, 31 tests pass (test_run_alternating.py)
+- cycle 34 | complete asdiv-a "Selection input changes" coverage | extended test_selection_is_repeatable_and_binds_every_identity_input to assert split/seed/problem_count changes alter identity; ruff clean, 11 tests pass
+- cycle 34 | write tests for eval/metrics "three distinct counters" | new tests/metrics/test_compute.py pins steps/flops/wall_seconds independently derived; ruff clean, 2 tests pass
+- cycle 35 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift; added missing conftest.py clean row
+- cycle 35 | strengthen 3 vacuous recalibration tests in tests/test_stage0_trainability_reports.py | replaced `assert True` bodies (cycle 26 "later item") with spec-grounded negative assertions per validate-stage0-trainability "Recalibration eligibility is method-specific and limited": report/arm schema has no authorize_full_gradient/authorize_full_eggroll/full_training_authorized field, recalibration_eligible is the only flag; ruff clean, 156 tests pass (639s)
+- cycle 35 | finding: compute_recalibration_eligibility treats direction_mismatch as eligible, contradicting the active spec | recorded as SPEC/IMPL CONFLICT in Additional notes (dead helper, only tests call it; production classify_method_status is correct); left for human decision
+- cycle 36 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
+- cycle 36 | write test for eval/metrics "row completeness" | added test_probe_log_rows_carry_all_six_fields_non_null (asserts all six probe-log schema fields non-null); ruff clean, 4 tests pass (test_runner.py)
+- cycle 36 | strengthen gsm8k "observe/probe content" coverage | renamed + strengthened test_observe_events_render_word_problems and test_probe_events_ask_for_numerical_answers to assert real word-problem / numerical-answer wording; ruff clean, 11 tests pass (test_gsm8k.py)
+- cycle 36 | strengthen gsm8k "truth on side channel only" coverage | test_rendered_probe_text_leaks_no_answer_probe_id_or_task_id now asserts probe_id and task_id never leak into rendered text (was answer-only); ruff clean, 11 tests pass (test_gsm8k.py)
+- cycle 37 | write tests for core/latent-loop cost-counter scenarios | added test_different_step_counts_produce_proportional_cost (N=16 reports 4x N=4 steps+flops) + test_flops_counter_reflects_forward_passes (flops == num_steps * 2 * num_params * slot_count) in tests/test_latent_loop.py; ruff clean, 9 tests pass (test_latent_loop.py)
+- cycle 38 | write tests for core/latent-loop subject-protocol scenarios | added tests/test_latent_core_subject.py (3 tests: all-protocol-methods-present + observe-runs-encoder-then-latent-loop + answer-runs-latent-loop-then-decoder, via recording fakes); ruff clean, 3 tests pass; core spec coverage 15/15
+- cycle 38 | spec coverage finding: eval/metrics task-wiper retention scenario is a spec/impl conflict | empirically verified the real TaskWiperOracle on a 3-task split-classify stream produces an all-zero retention matrix (diagonal 0.0, not 1.0): noisy probe features never match the oracle's exact-key store, and its VOCAB guess never matches a class label; marked metrics row conflict
+- cycle 38 | spec coverage re-scan: openspec/specs/codecs | corrected stale per-scenario accounting: "text encoded to slots"/"variable-length"/"slots decoded"/"different states"/"incompatible width" were already covered by test_stage0_shapes.py (ledger had them wrong); cycle-38 seam tests now cover "observe writes encoded input" + "answer returns decoded text"; true remainder = 2 uncovered (pretrained-weights-loaded, frozen-decoder-weights), 1 conflict (answer mutates workspace), 4 narration run-record gaps
+- cycle 39 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
+- cycle 39 | write test for train/eggroll-execution "Performance gate passes" pass branch | added test_performance_gate_passes_at_three_x_speedup_and_no_memory_growth; ruff clean, 8 tests pass (test_benchmark_eggroll.py)
+- cycle 39 | write test for codecs "frozen decoder weights" | added test_decoder_model_params_frozen in test_codecs_freezing.py; ruff clean, 6 tests pass (test_codecs_freezing.py)
+- cycle 39 | write test for train/alternating-cycle "Epoch boundary progress records" | added test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record; ruff clean, 32 tests pass (test_run_alternating.py)
+- cycle 39 | write test for gsm8k "full dataset default" | added test_default_config_uses_all_available_problems (monkeypatched _load_split, problem_count=None yields all 7 problems); ruff clean, 12 tests pass (test_gsm8k.py)
+- cycle 39 | end-of-cycle full suite (4 test files added) | 1379 passed, 2 skipped, 0 failed, 1169s
+- cycle 40 | repo-wide ruff re-scan (rule 11: cycle 40 is a multiple of 20) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
+- cycle 40 | strengthen eval/instrumentation "positive correlation" significance check | added seeded permutation p-value (p < 0.01) to test_difficulty_correlation.py; ruff clean, 1 test passes
+- cycle 41 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
+- cycle 41 | write test for eval/baselines "catastrophic forgetting visible" | added tests/baselines/test_naive_forgetting.py (task-0 accuracy 100% right after training drops to 0 after all 5 tasks); ruff clean, 27 tests pass (tests/baselines/)
+- cycle 41 | finding: joint/frozen/EWC/replay accuracy scenarios blocked by generator design | verified split-classify class centers are task-independent, so tasks share feature clusters and differ only in labels; joint pooled accuracy ~0.1-0.26 across configs (chance), frozen = 1/output_dim (0.10). Recorded blocker in eval/baselines row: those 4 scenarios need task-distinct features, not a test
+- cycle 42 | repo-wide ruff re-scan (rule 11: no unchecked/scanned file rows left) | 8 findings across 5 files, all in ledger-blocked rows with documented reasons (split_classify PLC0415, render TRY004, fetch_corpus PLC0415, run_stage0_trainability TRY004, stage0_trainability BLE001 x4); no clean/fixed drift
+- cycle 42 | write tests for eval/reproduction-gate uncovered scenarios (tolerance declared, five seeds, ordering check) | added tests/gate/test_reproduction_gate_contract.py (5 tests: PASS_BANDS per-method tolerance, MIN_SEEDS>=5 + criterion_4 rejects <5 seeds/accuracies, criterion_3 replay>ewc/naive); ruff clean; 5 tests pass; tests/gate 200 passed

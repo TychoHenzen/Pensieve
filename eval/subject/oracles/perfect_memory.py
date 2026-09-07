@@ -3,11 +3,11 @@ from __future__ import annotations
 import copy
 
 from eval.stream.events import Event, Observe, Probe
+from eval.stream.render import format_features
 from eval.subject import CostCounters, Subject
 
 
 class PerfectMemoryOracle(Subject):
-
     def __init__(self) -> None:
         self._facts: dict[str, str] = {}
         self._steps: int = 0
@@ -43,6 +43,5 @@ def _extract_kv(payload: dict) -> tuple[str | None, str]:
     if "key" in payload and "value" in payload:
         return str(payload["key"]), str(payload["value"])
     if "features" in payload and "label" in payload:
-        from eval.stream.render import format_features
         return format_features(payload["features"]), str(payload["label"])
     return None, ""

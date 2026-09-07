@@ -85,8 +85,8 @@ def load_corpus(path: Path) -> Corpus:
     corpus_id = hashlib.sha256(data).hexdigest()
 
     words: list[str] = []
-    for line in data.decode("utf-8").splitlines():
-        line = line.strip()
+    for raw_line in data.decode("utf-8").splitlines():
+        line = raw_line.strip()
         if not line:
             continue
         doc = json.loads(line)

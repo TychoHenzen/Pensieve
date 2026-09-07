@@ -57,8 +57,7 @@ class TokenCounter(Protocol):
 
     name: str
 
-    def __call__(self, text: str) -> int:
-        ...
+    def __call__(self, text: str) -> int: ...
 
 
 class _RegexTokenCounter:
@@ -163,13 +162,8 @@ def _render_observe(payload: object) -> str:
         renderer = _PAYLOAD_RENDERERS.get(frozenset(payload))
         if renderer is not None:
             return renderer(payload)
-    known = "; ".join(
-        "{" + ", ".join(sorted(shape)) + "}" for shape in _PAYLOAD_RENDERERS
-    )
-    raise ValueError(
-        f"no renderer for Observe payload with shape {payload!r}; "
-        f"known payload shapes: {known}"
-    )
+    known = "; ".join("{" + ", ".join(sorted(shape)) + "}" for shape in _PAYLOAD_RENDERERS)
+    raise ValueError(f"no renderer for Observe payload with shape {payload!r}; known payload shapes: {known}")
 
 
 def carries_text(event: Event) -> bool:
@@ -190,7 +184,7 @@ def render_event(event: Event) -> str:
     answer either, because the event holds no answer at all. An answer
     lives only on the truth side channel.
 
-    Raises `ValueError` for an `Idle`, which carries no text. Call
+    Raises `TypeError` for an `Idle`, which carries no text. Call
     `carries_text` first when the caller may hold one.
     """
     if isinstance(event, Observe):
@@ -200,7 +194,7 @@ def render_event(event: Event) -> str:
     if isinstance(event, Boundary):
         return f"[boundary] {event.kind.value}"
     if isinstance(event, Idle):
-        raise ValueError(
+        raise TypeError(
             "an Idle carries no subject text; it reaches the subject through "
             "idle(budget). Filter on render.carries_text before rendering."
         )

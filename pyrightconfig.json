@@ -1,0 +1,23 @@
+{
+  "include": [
+    "codecs_module",
+    "core",
+    "eval",
+    "scripts",
+    "train",
+    "workspace",
+    "main.py",
+    "conftest.py"
+  ],
+  "exclude": [
+    "**/__pycache__",
+    ".venv",
+    "checkpoints",
+    "data",
+    "gate_results",
+    "build",
+    "dist"
+  ],
+  "pythonVersion": "3.13",
+  "typeCheckingMode": "standard"
+}

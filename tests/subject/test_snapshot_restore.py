@@ -37,9 +37,7 @@ def test_perfect_memory_restore_erases_noise():
         Probe(position=6, probe_id="pc", task_id="t", query="c"),
     ]
 
-    restored = _run_snapshot_noise_restore(
-        PerfectMemoryOracle(), signal, noise, probes
-    )
+    restored = _run_snapshot_noise_restore(PerfectMemoryOracle(), signal, noise, probes)
     clean = _run_clean(PerfectMemoryOracle(), signal, probes)
     assert restored == clean
 
@@ -58,8 +56,6 @@ def test_forgetful_restore_erases_noise():
         Probe(position=4, probe_id="pz", task_id="t", query="z"),
     ]
 
-    restored = _run_snapshot_noise_restore(
-        ForgetfulOracle(), signal, noise, probes
-    )
+    restored = _run_snapshot_noise_restore(ForgetfulOracle(), signal, noise, probes)
     clean = _run_clean(ForgetfulOracle(), signal, probes)
     assert restored == clean

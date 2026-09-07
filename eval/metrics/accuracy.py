@@ -30,14 +30,8 @@ def task_accuracy(log: list[ProbeLogEntry]) -> TaskAccuracyResult:
             probe_correct[entry.probe_id] += 1
             pooled_correct += 1
 
-    per_task = {
-        task_id: task_correct[task_id] / total
-        for task_id, total in task_total.items()
-    }
-    per_probe_class = {
-        probe_id: probe_correct[probe_id] / total
-        for probe_id, total in probe_total.items()
-    }
+    per_task = {task_id: task_correct[task_id] / total for task_id, total in task_total.items()}
+    per_probe_class = {probe_id: probe_correct[probe_id] / total for probe_id, total in probe_total.items()}
     pooled = pooled_correct / pooled_total if pooled_total else 0.0
 
     return TaskAccuracyResult(
