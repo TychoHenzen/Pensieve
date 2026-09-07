@@ -58,9 +58,7 @@ def _validate(num_items: int, difficulty_levels: list[int], probe_rate: float) -
         raise ValueError(f"probe_rate must be in (0, 1], got {probe_rate}")
 
 
-def _assign_difficulties(
-    num_items: int, difficulty_levels: list[int], source
-) -> list[int]:
+def _assign_difficulties(num_items: int, difficulty_levels: list[int], source) -> list[int]:
     """Assign one difficulty per item so that every level appears at least once.
 
     The first `len(difficulty_levels)` items get one level each, shuffled,
@@ -132,7 +130,7 @@ class DifficultyMixGenerator:
 
         difficulties = _assign_difficulties(num_items, difficulty_levels, difficulty_source)
         probe_positions = sorted(order_source.sample(range(total_length), num_items))
-        difficulty_by_position = dict(zip(probe_positions, difficulties))
+        difficulty_by_position = dict(zip(probe_positions, difficulties, strict=True))
 
         for position in range(total_length):
             if position not in difficulty_by_position:

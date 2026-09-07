@@ -19,7 +19,6 @@ from safetensors.torch import save as save_safetensors
 from eval.stage0_identity import training_identity
 from train import alternating_checkpoint, stage0_checkpoint
 
-
 PARAMETER_PATHS = stage0_checkpoint.ALLOWED_MODEL_PARAMETER_PATHS
 EGGROLL_PARAMETER_PATHS = stage0_checkpoint.EGGROLL_MODEL_PARAMETER_PATHS
 RUNTIME_IDENTITY = {
@@ -41,8 +40,8 @@ RUNTIME_IDENTITY = {
 }
 RUN_CONFIG = {
     "dataset_selection": {
-        "dataset": "MU-NLPC/Calc-mawps",
-        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "dataset": "MU-NLPC/Calc-asdiv_a",
+        "revision": "520a6910e097ee287ecd2bb9104f7f45805f9df9",
         "split": "train",
         "seed": 0,
         "count": 3,
@@ -67,13 +66,16 @@ RUN_CONFIG = {
         "sigma": 0.02,
         "rank": 4,
         "variance_weight": 1.0,
+        "prompt_alignment_weight": 0.1,
+        "variance_lower_threshold": 0.001,
+        "variance_upper_threshold": 0.1,
         "eval_batch_size": 8,
         "fitness_batch_size": 8,
         "use_amp": False,
     },
     "held_out_selection": {
-        "dataset": "MU-NLPC/Calc-mawps",
-        "revision": "38c10053efeafd20ab6ff4e08c3ec17de26c19b7",
+        "dataset": "MU-NLPC/Calc-asdiv_a",
+        "revision": "520a6910e097ee287ecd2bb9104f7f45805f9df9",
         "split": "validation",
         "seed": 0,
         "count": 2,
@@ -84,17 +86,12 @@ RUN_CONFIG = {
 
 
 def _optimizer_manifest(method: str) -> dict[str, object]:
-    parameter_paths = (
-        EGGROLL_PARAMETER_PATHS if method == "eggroll" else PARAMETER_PATHS
-    )
+    parameter_paths = EGGROLL_PARAMETER_PATHS if method == "eggroll" else PARAMETER_PATHS
     references = {
         path: (
             {}
             if method == "eggroll"
-            else {
-                name: f"optimizer.{method}.{path}.{name}"
-                for name in ("exp_avg", "exp_avg_sq")
-            }
+            else {name: f"optimizer.{method}.{path}.{name}" for name in ("exp_avg", "exp_avg_sq")}
         )
         for path in parameter_paths
     }
@@ -107,20 +104,13 @@ def _optimizer_manifest(method: str) -> dict[str, object]:
                 "parameter_names": list(parameter_paths),
                 "scalars": {
                     "lr": 1e-4 if method == "gradient" else 1e-3,
-                    **(
-                        {"momentum": 0.0}
-                        if method == "eggroll"
-                        else {"beta1": 0.9, "beta2": 0.999, "eps": 1e-8}
-                    ),
+                    **({"momentum": 0.0} if method == "eggroll" else {"beta1": 0.9, "beta2": 0.999, "eps": 1e-8}),
                     "weight_decay": 0.0,
                     **({} if method == "eggroll" else {"amsgrad": False}),
                 },
             }
         ],
-        "scalar_state": {
-            path: ({} if method == "eggroll" else {"step": 7})
-            for path in parameter_paths
-        },
+        "scalar_state": {path: ({} if method == "eggroll" else {"step": 7}) for path in parameter_paths},
         "tensor_references": references,
     }
 
@@ -137,9 +127,7 @@ def _metadata(*, epoch_boundary: bool = False) -> dict[str, object]:
         for path in PARAMETER_PATHS
     ]
     for method in ("gradient", "eggroll"):
-        parameter_paths = (
-            EGGROLL_PARAMETER_PATHS if method == "eggroll" else PARAMETER_PATHS
-        )
+        parameter_paths = EGGROLL_PARAMETER_PATHS if method == "eggroll" else PARAMETER_PATHS
         for path in parameter_paths:
             if method == "eggroll":
                 continue
@@ -286,9 +274,7 @@ def _plain(value: object) -> object:
     return value
 
 
-def _assert_rejected_without_exposure(
-    path: Path, *, expected_paths: tuple[str, ...]
-) -> None:
+def _assert_rejected_without_exposure(path: Path, *, expected_paths: tuple[str, ...]) -> None:
     exposed: list[object] = []
     mutable_state = {
         "model": torch.tensor([17.0]),
@@ -301,7 +287,7 @@ def _assert_rejected_without_exposure(
     with pytest.raises(stage0_checkpoint.CheckpointContainerError) as error:
         stage0_checkpoint.read_checkpoint_container(
             path,
-            tensor_loader=lambda payload: exposed.append(payload),
+            tensor_loader=exposed.append,
         )
 
     message = str(error.value)

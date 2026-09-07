@@ -15,7 +15,6 @@ from codecs_module.encoder import SlotEncoder
 from codecs_module.narration import NarrationDecoder
 from workspace.concept_slots import Workspace
 
-
 SLOT_WIDTH = 896
 ABLATION_SLOT_COUNTS = (1, 4, 8, 16, 32, 64)
 
@@ -37,9 +36,7 @@ class _FakeTokenizer:
 class _FakeSentenceTransformer(nn.Module):
     def __init__(self) -> None:
         super().__init__()
-        self.transformer = SimpleNamespace(
-            tokenizer=_FakeTokenizer(), auto_model=_FakeSentenceModel()
-        )
+        self.transformer = SimpleNamespace(tokenizer=_FakeTokenizer(), auto_model=_FakeSentenceModel())
 
     def __getitem__(self, index: int) -> Any:
         assert index == 0
@@ -77,6 +74,36 @@ class _FakeQwen(nn.Module):
         token_id = 2 if inputs_embeds[0, 0, 0] < 0 else 3
         logits[:, -1, token_id] = 1.0
         return SimpleNamespace(logits=logits)
+
+
+class _CachingFakeQwen(nn.Module):
+    def __init__(self) -> None:
+        super().__init__()
+        self.input_embeddings = _FakeInputEmbeddings()
+        self.calls: list[dict[str, Any]] = []
+
+    def get_input_embeddings(self) -> nn.Module:
+        return self.input_embeddings
+
+    def forward(
+        self,
+        *,
+        inputs_embeds: torch.Tensor,
+        past_key_values: object | None = None,
+        use_cache: bool = False,
+    ) -> Any:
+        self.calls.append(
+            {
+                "input_shape": tuple(inputs_embeds.shape),
+                "past_key_values": past_key_values,
+                "use_cache": use_cache,
+            }
+        )
+        next_token_ids = (3, 4, 5)
+        next_token_id = next_token_ids[len(self.calls) - 1]
+        logits = torch.zeros(inputs_embeds.shape[0], inputs_embeds.shape[1], 8)
+        logits[:, -1, next_token_id] = 1.0
+        return SimpleNamespace(logits=logits, past_key_values=f"cache-{len(self.calls)}")
 
 
 class _WorkspaceState:
@@ -164,13 +191,34 @@ def test_decoder_forwards_896_wide_slots_and_preserves_workspace_state() -> None
     assert torch.equal(workspace.read_slots(), slots_before)
 
 
+def test_decoder_uses_kv_cache_after_forwarding_the_slot_prefix_once() -> None:
+    model = _CachingFakeQwen()
+    tokenizer = _FakeTokenizer()
+    tokenizer.eos_token_id = 5
+    workspace = _WorkspaceState(torch.ones(8, 896))
+    decoder = SlotDecoder(model=model, tokenizer=tokenizer, max_tokens=5)
+
+    text = decoder.decode(workspace)  # type: ignore[arg-type]
+
+    assert text == "token-3 token-4"
+    assert [call["input_shape"] for call in model.calls] == [
+        (1, 8, 896),
+        (1, 1, 896),
+        (1, 1, 896),
+    ]
+    assert [call["past_key_values"] for call in model.calls] == [
+        None,
+        "cache-1",
+        "cache-2",
+    ]
+    assert all(call["use_cache"] is True for call in model.calls)
+
+
 def test_narration_forwards_896_wide_slots_and_preserves_workspace_state() -> None:
     model = _FakeQwen()
     workspace = _WorkspaceState(torch.ones(8, 896))
     slots_before = workspace.read_slots().clone()
-    decoder = NarrationDecoder(
-        model=model, tokenizer=_FakeTokenizer(), max_tokens=1, device="cpu"
-    )
+    decoder = NarrationDecoder(model=model, tokenizer=_FakeTokenizer(), max_tokens=1, device="cpu")
 
     text = decoder.narrate(workspace)  # type: ignore[arg-type]
 

@@ -68,9 +68,7 @@ def test_reference_sampler_uses_b_first_then_a_in_registry_order() -> None:
     assert isinstance(matrix_direction, ReferenceMatrixDirection)
     assert torch.equal(matrix_direction.b, expected_matrix_draw[:3])
     assert torch.equal(matrix_direction.a, expected_matrix_draw[3:])
-    expected_delta = (
-        expected_matrix_draw[3:] @ expected_matrix_draw[:3].T
-    ) * (sigma / math.sqrt(rank))
+    expected_delta = (expected_matrix_draw[3:] @ expected_matrix_draw[:3].T) * (sigma / math.sqrt(rank))
     assert torch.equal(matrix_direction.materialize(1.0), expected_delta)
 
     assert isinstance(vector_direction, ReferenceVectorDirection)
@@ -106,9 +104,7 @@ def test_materialized_candidates_are_antithetic_and_keep_candidate_order() -> No
     )
     assert len(observed) == 4
     for pair_start in (0, 2):
-        for positive_delta, negative_delta in zip(
-            observed[pair_start], observed[pair_start + 1], strict=True
-        ):
+        for positive_delta, negative_delta in zip(observed[pair_start], observed[pair_start + 1], strict=True):
             assert torch.equal(negative_delta, -positive_delta)
 
 
@@ -149,11 +145,7 @@ def test_step_snapshot_restores_all_mutable_state_without_aliasing() -> None:
     optimizer.zero_grad()
 
     workspace = Workspace(slot_count=1)
-    workspace.write_slots(
-        torch.arange(workspace.slots.numel(), dtype=torch.float32).reshape_as(
-            workspace.slots
-        )
-    )
+    workspace.write_slots(torch.arange(workspace.slots.numel(), dtype=torch.float32).reshape_as(workspace.slots))
     random.seed(101)
     np.random.seed(202)
     torch.manual_seed(303)
@@ -189,9 +181,7 @@ def test_step_snapshot_restores_all_mutable_state_without_aliasing() -> None:
 
     restore_eggroll_step_snapshot(snapshot, parameters, optimizer, workspace)
 
-    for parameter, expected in zip(
-        parameters, snapshot.parameter_values, strict=True
-    ):
+    for parameter, expected in zip(parameters, snapshot.parameter_values, strict=True):
         assert torch.equal(parameter.detach(), expected)
         assert parameter.data_ptr() != expected.data_ptr()
     _assert_state_values_equal(optimizer.state_dict(), snapshot.optimizer_state)
@@ -203,16 +193,11 @@ def test_step_snapshot_restores_all_mutable_state_without_aliasing() -> None:
     if torch.cuda.is_available():
         actual_cuda_states = torch.cuda.get_rng_state_all()
         assert len(actual_cuda_states) == len(snapshot.torch_cuda_rng_states)
-        for actual, expected in zip(
-            actual_cuda_states, snapshot.torch_cuda_rng_states, strict=True
-        ):
+        for actual, expected in zip(actual_cuda_states, snapshot.torch_cuda_rng_states, strict=True):
             assert torch.equal(actual.cpu(), expected)
 
     restored_adam_tensor = next(
-        value
-        for state in optimizer.state.values()
-        for value in state.values()
-        if isinstance(value, torch.Tensor)
+        value for state in optimizer.state.values() for value in state.values() if isinstance(value, torch.Tensor)
     )
     assert restored_adam_tensor.data_ptr() != snapshot_adam_tensor.data_ptr()
     with torch.no_grad():

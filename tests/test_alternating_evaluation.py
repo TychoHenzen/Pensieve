@@ -1,15 +1,15 @@
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 from io import BytesIO
-import random
 from types import SimpleNamespace
 
 import pytest
 import torch
 from torch import nn
 
-from eval.stream.generators.calc_mawps import CalcMawpsRecord
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.alternating_evaluation import (
     HeldOutProblem,
     evaluate_unperturbed,
@@ -20,16 +20,16 @@ from train.alternating_scheduler import (
     PARTIAL_PHASE_BOUNDARY,
     PHASE_BOUNDARY,
     EvaluationRecord,
-    FixedBudgetScheduler,
+    VarianceHysteresisScheduler,
 )
 from train.training_results import ExperimentPosition
 
 
 def test_held_out_loader_uses_only_canonical_validation_records() -> None:
     records = [
-        CalcMawpsRecord(id="one", split="validation", question="first", target="1"),
-        CalcMawpsRecord(id="two", split="validation", question="second", target="2"),
-        CalcMawpsRecord(id="three", split="validation", question="third", target="3"),
+        AsdivRecord(id="one", split="validation", question="first", target="1"),
+        AsdivRecord(id="two", split="validation", question="second", target="2"),
+        AsdivRecord(id="three", split="validation", question="third", target="3"),
     ]
 
     assert load_held_out_problems(records, 2) == [
@@ -55,7 +55,7 @@ def test_unperturbed_evaluation_averages_metrics_without_changing_model() -> Non
     assert result.language_model_loss == pytest.approx(torch.log(torch.tensor(3.0)).item())
     assert result.shared_variance == pytest.approx(1.0)
     assert result.answer_exact_match == pytest.approx(0.5)
-    assert all(torch.equal(before, after) for before, after in zip(before_parameters, model.parameters()))
+    assert all(torch.equal(before, after) for before, after in zip(before_parameters, model.parameters(), strict=True))
     assert torch.equal(model.workspace.snapshot(), before_workspace)
     assert model.encoder.training
     assert model.latent_loop.training
@@ -82,10 +82,10 @@ def test_evaluation_isolates_phase_and_epoch_training_state(
     assert run.snapshot() == before
 
 
-def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_label() -> None:
+def test_scheduler_evaluates_once_when_a_variance_window_completes() -> None:
     eggroll = FakeEngine("eggroll")
     evaluator = FakePhaseEvaluator()
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=500,
         eggroll_engine=eggroll,
         gradient_engine=FakeEngine("gradient"),
@@ -95,18 +95,16 @@ def test_scheduler_evaluates_once_when_a_phase_completes_with_completed_method_l
     for example_position in range(1, 501):
         scheduler.train_step("example", epoch=3, example_position=example_position)
 
-    expected_position = ExperimentPosition(
-        "eggroll", 1, 500, 3, 500, 500, optimizer_call_count=500
-    )
+    expected_position = ExperimentPosition("eggroll", 1, 500, 3, 500, 500, optimizer_call_count=500)
     assert evaluator.positions == [expected_position]
     assert scheduler.evaluation_results == (
         EvaluationRecord(expected_position, expected_position, frozenset({PHASE_BOUNDARY})),
     )
 
 
-def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_position() -> None:
+def test_scheduler_deduplicates_a_window_and_epoch_evaluation_at_the_same_position() -> None:
     evaluator = FakePhaseEvaluator()
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=500,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
@@ -116,9 +114,7 @@ def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_positio
     for example_position in range(1, 501):
         scheduler.train_step("example", epoch=1, example_position=example_position)
 
-    position = ExperimentPosition(
-        "eggroll", 1, 500, 1, 500, 500, optimizer_call_count=500
-    )
+    position = ExperimentPosition("eggroll", 1, 500, 1, 500, 500, optimizer_call_count=500)
     scheduler.evaluate_epoch_boundary(position)
 
     assert evaluator.positions == [position]
@@ -127,9 +123,9 @@ def test_scheduler_deduplicates_a_phase_and_epoch_evaluation_at_the_same_positio
     )
 
 
-def test_scheduler_evaluates_an_incomplete_final_phase_with_a_partial_label() -> None:
+def test_scheduler_evaluates_an_incomplete_final_window_with_a_partial_label() -> None:
     evaluator = FakePhaseEvaluator()
-    scheduler = FixedBudgetScheduler(
+    scheduler = VarianceHysteresisScheduler(
         phase_steps=500,
         eggroll_engine=FakeEngine("eggroll"),
         gradient_engine=FakeEngine("gradient"),
@@ -143,19 +139,17 @@ def test_scheduler_evaluates_an_incomplete_final_phase_with_a_partial_label() ->
     scheduler.evaluate_final_partial_phase(position)
 
     assert evaluator.positions == [position]
-    assert scheduler.evaluation_results == (
-        EvaluationRecord(position, position, frozenset({PARTIAL_PHASE_BOUNDARY})),
-    )
+    assert scheduler.evaluation_results == (EvaluationRecord(position, position, frozenset({PARTIAL_PHASE_BOUNDARY})),)
 
 
 @dataclass
 class FakeEngine:
     update_method: str
 
-    def train_step(self, example: object, position: ExperimentPosition) -> str:
+    def train_step(self, example: object, position: ExperimentPosition) -> object:
         del example
         assert position.update_method == self.update_method
-        return self.update_method
+        return SimpleNamespace(shared_variance=0.015)
 
 
 @dataclass
@@ -177,9 +171,7 @@ class FakeTokenizer:
         del kwargs
         return {"input_ids": torch.tensor([[1 if text == "one" else 2]])}
 
-    def apply_chat_template(
-        self, messages: object, **kwargs: object
-    ) -> dict[str, torch.Tensor]:
+    def apply_chat_template(self, messages: object, **kwargs: object) -> dict[str, torch.Tensor]:
         del messages, kwargs
         return {"input_ids": torch.tensor([[1]])}
 

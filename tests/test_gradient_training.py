@@ -1,16 +1,10 @@
 from __future__ import annotations
 
-import sys
-from types import ModuleType, SimpleNamespace
+from types import SimpleNamespace
 
 import pytest
 import torch
 from torch import nn
-
-
-sentence_transformers = ModuleType("sentence_transformers")
-sentence_transformers.SentenceTransformer = object
-sys.modules.setdefault("sentence_transformers", sentence_transformers)
 
 from train.trainer import LatentCoreTrainer
 from train.training_results import ExperimentPosition, StepResult
@@ -24,9 +18,7 @@ class FakeTokenizer:
         token_id = 2 if text == "2" else 1
         return {"input_ids": torch.tensor([[token_id]])}
 
-    def apply_chat_template(
-        self, messages: object, **kwargs: object
-    ) -> dict[str, torch.Tensor]:
+    def apply_chat_template(self, messages: object, **kwargs: object) -> dict[str, torch.Tensor]:
         del messages, kwargs
         return {"input_ids": torch.tensor([[1]])}
 
@@ -50,9 +42,7 @@ class FakeEncoder(nn.Module):
         super().__init__()
         self.slot_count = 2
         self.projection = nn.Linear(3, 3)
-        self.slot_queries = nn.Parameter(
-            torch.tensor([[0.0, 0.0, 0.0], [0.1, 0.1, 0.1]])
-        )
+        self.slot_queries = nn.Parameter(torch.tensor([[0.0, 0.0, 0.0], [0.1, 0.1, 0.1]]))
         self.attn_log_temp = nn.Parameter(torch.tensor(0.0))
 
     def encode(self, question: str) -> torch.Tensor:
@@ -147,6 +137,4 @@ def test_gradient_step_uses_shared_state_and_emits_common_objective_metrics(
     assert state.latent_loop.run_calls == 2
     assert result.shared_variance == pytest.approx(0.04)
     assert result.regularizer_loss > 0.0
-    assert result.total_objective == pytest.approx(
-        result.language_model_loss + result.regularizer_loss
-    )
+    assert result.total_objective == pytest.approx(result.language_model_loss + result.regularizer_loss)

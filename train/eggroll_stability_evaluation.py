@@ -35,9 +35,7 @@ def evaluate_stability_metrics(
 ) -> StabilityMetrics:
     """Measure task quality and cross-problem separation on the real model."""
     if len(problems) != BASELINE_PROBLEM_COUNT:
-        raise ValueError(
-            f"stability evaluation requires {BASELINE_PROBLEM_COUNT} problems"
-        )
+        raise ValueError(f"stability evaluation requires {BASELINE_PROBLEM_COUNT} problems")
     workspace = trainer.state.workspace
     encoder = trainer.state.encoder
     latent_loop = trainer.state.latent_loop
@@ -98,9 +96,7 @@ def evaluate_stability_metrics(
                     ignore_index=-100,
                     reduction="none",
                 ).reshape_as(labels)
-                total_loss += float(
-                    ((losses * supervised).sum() / supervised.sum()).item()
-                )
+                total_loss += float(((losses * supervised).sum() / supervised.sum()).item())
                 slot_count = slots.shape[-2]
                 student_state = hidden[0, slot_count - 1]
                 teacher_state = prompt_teacher_state(language_model, context_ids)[0]

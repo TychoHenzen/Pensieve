@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from fractions import Fraction
 import re
-
+from fractions import Fraction
 
 _NUMBER_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_.,])[+-]?(?:(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)/(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)|(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:[.][0-9]+)?)(?![A-Za-z0-9_.,/%])"
@@ -28,16 +27,11 @@ def extract_predicted_number(text: str) -> str | None:
         return None
 
     match = matches[0] if delimiter_index >= 0 else matches[-1]
-    if (
-        text[: match.start()].rstrip().endswith("/")
-        or text[match.end() :].lstrip().startswith("/")
-    ):
+    if text[: match.start()].rstrip().endswith("/") or text[match.end() :].lstrip().startswith("/"):
         return None
 
     candidate = match.group(0)
-    if sum(character.isascii() and character.isdigit() for character in candidate) > (
-        _MAX_CANDIDATE_ASCII_DIGITS
-    ):
+    if sum(character.isascii() and character.isdigit() for character in candidate) > (_MAX_CANDIDATE_ASCII_DIGITS):
         return None
     return candidate.replace(",", "")
 

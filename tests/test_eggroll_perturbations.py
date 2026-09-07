@@ -44,9 +44,7 @@ def test_sampler_matches_official_reference_draw_order_and_scale() -> None:
     )
 
     assert len(actual) == len(reference)
-    for actual_direction, reference_direction in zip(
-        actual, reference, strict=True
-    ):
+    for actual_direction, reference_direction in zip(actual, reference, strict=True):
         if isinstance(reference_direction, ReferenceMatrixDirection):
             assert isinstance(actual_direction, MatrixFactors)
             assert actual_direction.b.shape[0] == reference_direction.b.shape[0]
@@ -101,9 +99,7 @@ def test_antithetic_candidates_share_draws_with_opposite_signs() -> None:
     assert positive.directions is negative.directions
     assert positive.sign == 1.0
     assert negative.sign == -1.0
-    for positive_delta, negative_delta in zip(
-        positive.materialize(), negative.materialize(), strict=True
-    ):
+    for positive_delta, negative_delta in zip(positive.materialize(), negative.materialize(), strict=True):
         assert torch.equal(negative_delta, -positive_delta)
 
 

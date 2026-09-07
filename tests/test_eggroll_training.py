@@ -1,24 +1,20 @@
 from __future__ import annotations
 
 import gc
-import sys
-from types import ModuleType, SimpleNamespace
 import weakref
+from types import SimpleNamespace
 
 import pytest
 import torch
 from torch import nn
 
-sentence_transformers = ModuleType("sentence_transformers")
-sentence_transformers.SentenceTransformer = object
-sys.modules.setdefault("sentence_transformers", sentence_transformers)
-
-from train.eggroll_trainer import EggrollTrainer
+from eval.stream.generators.asdiv_a import AsdivRecord
+from train import eggroll_trainer as trainer_module
 from train.eggroll_perturbations import MatrixFactors, sample_antithetic_pair
+from train.eggroll_trainer import EggrollTrainer
 from train.stage0_data import FitnessBatch
 from train.training_results import ExperimentPosition, StepResult
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
-from eval.stream.generators.asdiv_a import AsdivRecord
 
 
 def test_fitness_uses_canonical_post_loop_slot_variance(
@@ -58,8 +54,6 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         )
     )
     factorized_calls: list[tuple[object, ...]] = []
-    from train import eggroll_trainer as trainer_module
-
     original_factorized_linear = trainer_module.factorized_linear
 
     def observe_factorized(*args, **kwargs):
@@ -85,12 +79,8 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         eos_token_id=1,
     )
 
-    assert variance.tolist() == pytest.approx(
-        [post_loop_slot_variance(slots).item() for slots in observed_slots]
-    )
-    collapse_penalty = torch.stack(
-        [slot_variance_penalty(slots) for slots in observed_slots]
-    )
+    assert variance.tolist() == pytest.approx([post_loop_slot_variance(slots).item() for slots in observed_slots])
+    collapse_penalty = torch.stack([slot_variance_penalty(slots) for slots in observed_slots])
     student_states = torch.stack(observed_slots)[:, -1, :]
     alignment_penalty = torch.nn.functional.mse_loss(
         student_states,
@@ -98,22 +88,14 @@ def test_fitness_uses_canonical_post_loop_slot_variance(
         reduction="none",
     ).mean(dim=-1)
     assert fitness.tolist() == pytest.approx(
-        (
-            -losses
-            - alignment_penalty
-            - trainer.variance_weight * collapse_penalty
-        ).tolist()
+        (-losses - alignment_penalty - trainer.variance_weight * collapse_penalty).tolist()
     )
     assert model.forward_calls == 1
     assert len(tap_adapter.prepare_calls) == 1
     assert len(tap_adapter.cached_calls) == 2
     assert len(factorized_calls) == 4
     assert factorized_calls[0][0].shape == (1, 2)
-    assert all(
-        isinstance(direction, MatrixFactors)
-        for call in factorized_calls
-        for direction in call[2]
-    )
+    assert all(isinstance(direction, MatrixFactors) for call in factorized_calls for direction in call[2])
 
     with pytest.raises(
         ValueError,
@@ -196,12 +178,8 @@ def test_zero_perturbation_uses_the_canonical_latent_loop_equation(
     attention = torch.softmax(trainer.encoder.slot_queries @ projected.T, dim=-1)
     expected = attention @ projected
     for _ in range(2):
-        transformed = trainer.latent_loop.proj_norm(
-            trainer.latent_loop.projection(expected)
-        )
-        expected = trainer.latent_loop.layer_norm(
-            transformed + trainer.latent_loop.residual_weight * expected
-        )
+        transformed = trainer.latent_loop.proj_norm(trainer.latent_loop.projection(expected))
+        expected = trainer.latent_loop.layer_norm(transformed + trainer.latent_loop.residual_weight * expected)
     torch.testing.assert_close(observed_slots[0], expected)
 
 
@@ -211,10 +189,10 @@ def test_constructor_accepts_supplied_shared_state(
     state = SimpleNamespace(
         workspace=object(),
         encoder=SimpleNamespace(slot_count=2),
-            latent_loop=SimpleNamespace(model=nn.Identity()),
-            tokenizer=object(),
-            eggroll_parameters=lambda: iter(()),
-            create_eggroll_optimizer=lambda _: object(),
+        latent_loop=SimpleNamespace(model=nn.Identity()),
+        tokenizer=object(),
+        eggroll_parameters=lambda: iter(()),
+        create_eggroll_optimizer=lambda _: object(),
     )
 
     trainer = EggrollTrainer(pop_size=2, state=state)
@@ -291,11 +269,10 @@ def test_train_step_accepts_shared_state_and_reports_common_result(
     assert result.optimizer_call_count == 1
 
 
+# covers: train/alternating-cycle :: Comparable phase measurements :: Compare phase metrics
 def test_fitness_batch_reuses_one_population_and_reports_aggregate_progress(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from eval.stream.generators.asdiv_a import AsdivRecord
-
     trainer = EggrollTrainer.__new__(EggrollTrainer)
     trainer.device = "cpu"
     trainer.use_amp = False
@@ -358,9 +335,7 @@ def test_fitness_batch_reuses_one_population_and_reports_aggregate_progress(
     assert evaluated_records == ["1", "3"]
     assert all(
         first_candidate is second_candidate
-        for first_candidate, second_candidate in zip(
-            candidate_batches[0], candidate_batches[1], strict=True
-        )
+        for first_candidate, second_candidate in zip(candidate_batches[0], candidate_batches[1], strict=True)
     )
     assert update_calls[0]["fitnesses"] == pytest.approx([-2.0, -4.0])
     assert len(update_calls) == 1
@@ -388,9 +363,7 @@ def test_train_epoch_uses_each_record_once_and_keeps_the_final_partial_batch() -
         observed_batches.append(batch)
         record_count = batch.consumed_record_count
         return StepResult(
-            position=ExperimentPosition(
-                "eggroll", 0, optimizer_call_count, 1, batch.start_position, 0
-            ),
+            position=ExperimentPosition("eggroll", 0, optimizer_call_count, 1, batch.start_position, 0),
             language_model_loss=float(record_count),
             total_objective=float(record_count * 10),
             regularizer_loss=float(record_count * 9),
@@ -413,18 +386,16 @@ def test_train_epoch_uses_each_record_once_and_keeps_the_final_partial_batch() -
 
     stats = trainer.train_epoch(
         records,
-        on_step=lambda step, total, result: observed_callbacks.append(
-            (step, total, result)
-        ),
+        on_step=lambda step, total, result: observed_callbacks.append((step, total, result)),
     )
 
     assert [batch.ordered_item_ids for batch in observed_batches] == [
         tuple(f"record-{index}" for index in range(8)),
         ("record-8",),
     ]
-    assert tuple(
-        item_id for batch in observed_batches for item_id in batch.ordered_item_ids
-    ) == tuple(record.id for record in records)
+    assert tuple(item_id for batch in observed_batches for item_id in batch.ordered_item_ids) == tuple(
+        record.id for record in records
+    )
     assert [batch.consumed_record_count for batch in observed_batches] == [8, 1]
     assert [(step, total) for step, total, _ in observed_callbacks] == [(7, 9), (8, 9)]
     assert [result.next_example_position for _, _, result in observed_callbacks] == [8, 9]
@@ -496,8 +467,6 @@ class FakeTokenizer:
         del text, kwargs
         return {"input_ids": torch.tensor([[0]])}
 
-    def apply_chat_template(
-        self, messages: object, **kwargs: object
-    ) -> dict[str, torch.Tensor]:
+    def apply_chat_template(self, messages: object, **kwargs: object) -> dict[str, torch.Tensor]:
         del messages, kwargs
         return {"input_ids": torch.tensor([[0]])}

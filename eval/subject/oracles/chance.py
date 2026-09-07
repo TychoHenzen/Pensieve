@@ -8,7 +8,6 @@ from eval.subject import CostCounters, Subject
 
 
 class ChanceOracle(Subject):
-
     def __init__(self, seed: int = 0) -> None:
         self._rng = random.Random(seed)
         self._steps: int = 0

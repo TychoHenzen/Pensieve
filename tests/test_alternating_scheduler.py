@@ -34,9 +34,7 @@ class FakeEngine:
         self.calls.append((example, position))
         variance = self.variances.pop(0) if self.variances else 0.015
         consumed_record_count = (
-            len(example)
-            if isinstance(example, tuple) and example and isinstance(example[0], tuple)
-            else 1
+            len(example) if isinstance(example, tuple) and example and isinstance(example[0], tuple) else 1
         )
         return FakeResult(
             self.update_method,
@@ -70,7 +68,7 @@ def test_eggroll_stays_active_while_average_variance_is_below_upper_threshold() 
 
     assert len(eggroll.calls) == 3
     assert gradient.calls == []
-    assert eggroll.calls[2][1] == ExperimentPosition("eggroll", 2, 3, 1, 2, 1)
+    assert eggroll.calls[2][1] == ExperimentPosition("eggroll", 2, 3, 1, 2, 1, 3, 1)
 
 
 # covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Eggroll restores variance
@@ -81,9 +79,7 @@ def test_eggroll_switches_to_gradient_when_window_average_reaches_upper_threshol
         scheduler.train_step(example, epoch=1, example_position=example)
 
     assert len(eggroll.calls) == 2
-    assert gradient.calls == [
-        (2, ExperimentPosition("gradient", 2, 3, 1, 2, 1))
-    ]
+    assert gradient.calls == [(2, ExperimentPosition("gradient", 2, 3, 1, 2, 1))]
 
 
 # covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Gradient detects collapse
@@ -99,7 +95,7 @@ def test_gradient_holds_in_hysteresis_band_and_returns_below_lower_threshold() -
     assert len(gradient.calls) == 4
     assert eggroll.calls[-1] == (
         6,
-        ExperimentPosition("eggroll", 4, 7, 1, 6, 1),
+        ExperimentPosition("eggroll", 4, 7, 1, 6, 1, 3, 1),
     )
 
 
@@ -112,7 +108,7 @@ def test_epoch_boundary_does_not_reset_the_variance_window() -> None:
 
     assert eggroll.calls[1] == (
         (2, 0),
-        ExperimentPosition("eggroll", 1, 2, 2, 0, 2),
+        ExperimentPosition("eggroll", 1, 2, 2, 0, 2, 2, 1),
     )
     assert gradient.calls[0] == (
         (2, 1),
@@ -155,14 +151,12 @@ def test_eggroll_batch_stops_at_the_observation_window_boundary() -> None:
         epoch=1,
         example_position=0,
     )
-    following = scheduler.train_records(
-        [("d", "4")], epoch=1, example_position=3
-    )
+    following = scheduler.train_records([("d", "4")], epoch=1, example_position=3)
 
     assert eggroll.calls == [
         (
             (("a", "1"), ("b", "2"), ("c", "3")),
-            ExperimentPosition("eggroll", 1, 3, 1, 2, 3),
+            ExperimentPosition("eggroll", 1, 3, 1, 2, 3, 1, 3),
         )
     ]
     assert result.consumed_record_count == 3

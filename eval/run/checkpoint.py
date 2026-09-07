@@ -86,9 +86,7 @@ def _checkpoint_path(directory: Path, position: int) -> Path:
     return directory / _FILENAME_TEMPLATE.format(position=position)
 
 
-def save_checkpoint(
-    directory: Path, position: int, subject_state: object, rng_state: object
-) -> Path:
+def save_checkpoint(directory: Path, position: int, subject_state: object, rng_state: object) -> Path:
     """Atomically write a checkpoint for `position` into `directory`.
 
     Writes the payload to a temporary file in `directory`, then moves it
@@ -106,9 +104,7 @@ def save_checkpoint(
     )
     final_path = _checkpoint_path(directory, position)
 
-    fd, tmp_name = tempfile.mkstemp(
-        dir=directory, prefix=f"{final_path.name}.", suffix=".tmp"
-    )
+    fd, tmp_name = tempfile.mkstemp(dir=directory, prefix=f"{final_path.name}.", suffix=".tmp")
     tmp_path = Path(tmp_name)
     try:
         with os.fdopen(fd, "wb") as handle:

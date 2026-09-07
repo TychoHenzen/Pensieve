@@ -58,7 +58,7 @@ def test_different_seeds_produce_different_streams():
     assert [item.event for item in first] != [item.event for item in second]
 
 
-# covers: eval/generators/gsm8k::truth isolation::subject_view carries no ProbeTruth
+# covers: eval/generators/gsm8k::GSM8K generator follows the v1 stream schema::truth on side channel only
 def test_subject_view_carries_no_truth():
     items = _items()
     subject_events = list(subject_view(items))
@@ -67,38 +67,46 @@ def test_subject_view_carries_no_truth():
         assert not hasattr(event, "truth")
 
 
-# covers: eval/generators/gsm8k::truth isolation::rendered probe text contains no answer
-def test_rendered_probe_text_contains_no_answer():
+# covers: eval/generators/gsm8k::GSM8K generator follows the v1 stream schema::truth on side channel only
+def test_rendered_probe_text_leaks_no_answer_probe_id_or_task_id():
     items = _items()
     for item in items:
         if not isinstance(item.event, Probe):
             continue
         rendered = render_event(item.event)
         assert item.truth is not None
-        answer = str(item.truth.answer)
-        assert answer not in rendered
+        assert str(item.truth.answer) not in rendered
+        assert item.event.probe_id not in rendered
+        assert item.event.task_id not in rendered
 
 
-# covers: eval/generators/gsm8k::event shape::Observe payloads carry text
-def test_observe_events_have_text_payload():
+# covers: eval/generators/gsm8k::GSM8K generator yields a stream of math word problems::observe events contain word problems
+def test_observe_events_render_word_problems():
     items = _items()
     observes = [item.event for item in items if isinstance(item.event, Observe)]
     assert observes
     for obs in observes:
-        assert isinstance(obs.payload, dict)
-        assert isinstance(obs.payload["text"], str)
-        assert obs.payload["text"]
+        rendered = render_event(obs)
+        # A GSM8K word problem is natural-language prose about numbers: it
+        # carries alphabetic text, at least one digit, and several words.
+        assert any(char.isalpha() for char in rendered)
+        assert any(char.isdigit() for char in rendered)
+        assert len(rendered.split()) > 1
 
 
-# covers: eval/generators/gsm8k::event shape::Probe events carry a query string
-def test_probe_events_have_query_string():
+# covers: eval/generators/gsm8k::GSM8K generator yields a stream of math word problems::probe events ask for numerical answers
+def test_probe_events_ask_for_numerical_answers():
     items = _items()
     probes = _probes(items)
     assert probes
     for item in probes:
         assert isinstance(item.event, Probe)
-        assert isinstance(item.event.query, str)
-        assert item.event.query
+        rendered = render_event(item.event)
+        # The probe asks for a numerical answer to the observed word problem:
+        # it is a question that names the answer and refers back to the problem.
+        assert rendered.strip().endswith("?")
+        assert "answer" in rendered.lower()
+        assert "problem" in rendered.lower()
 
 
 # covers: eval/generators/gsm8k::event shape::each problem yields one Observe followed by one Probe
@@ -116,3 +124,20 @@ def test_probe_truth_has_non_empty_answer():
     for item in _probes(items):
         assert isinstance(item.truth, ProbeTruth)
         assert item.truth.answer
+
+
+# covers: eval/generators/gsm8k::GSM8K generator supports a configurable subset::full dataset default
+def test_default_config_uses_all_available_problems(monkeypatch):
+    problems = [{"question": f"problem {i}?", "answer": f"worked solution #### {i}"} for i in range(1, 8)]
+    monkeypatch.setattr(
+        "eval.stream.generators.gsm8k._load_split",
+        lambda split: problems,
+    )
+
+    items = _items(_config(problem_count=None))
+
+    observes = [item for item in items if isinstance(item.event, Observe)]
+    assert len(observes) == len(problems)
+    assert len(items) == 2 * len(problems)
+    observed_questions = {item.event.payload["text"] for item in observes}
+    assert observed_questions == {problem["question"] for problem in problems}

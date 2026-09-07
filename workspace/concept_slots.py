@@ -14,9 +14,7 @@ class Workspace:
 
     def __init__(self, slot_count: int = DEFAULT_SLOT_COUNT) -> None:
         if slot_count not in ABLATION_SLOT_COUNTS:
-            raise ValueError(
-                f"slot_count must be one of {ABLATION_SLOT_COUNTS}, got {slot_count}"
-            )
+            raise ValueError(f"slot_count must be one of {ABLATION_SLOT_COUNTS}, got {slot_count}")
         self.slot_count = slot_count
         self.slots: torch.Tensor = torch.zeros(slot_count, SLOT_DIM)
 
@@ -25,9 +23,7 @@ class Workspace:
 
     def write_slots(self, values: torch.Tensor) -> None:
         if values.shape != self.slots.shape:
-            raise ValueError(
-                f"expected shape {tuple(self.slots.shape)}, got {tuple(values.shape)}"
-            )
+            raise ValueError(f"expected shape {tuple(self.slots.shape)}, got {tuple(values.shape)}")
         self.slots = values
 
     def snapshot(self) -> torch.Tensor:
@@ -35,9 +31,7 @@ class Workspace:
 
     def restore(self, state: torch.Tensor) -> None:
         if state.shape != self.slots.shape:
-            raise ValueError(
-                f"expected shape {tuple(self.slots.shape)}, got {tuple(state.shape)}"
-            )
+            raise ValueError(f"expected shape {tuple(self.slots.shape)}, got {tuple(state.shape)}")
         self.slots = state.clone()
 
     def collapse_stats(self) -> dict[str, float]:

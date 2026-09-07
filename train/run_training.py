@@ -1,6 +1,6 @@
-"""Gradient training on filtered Calc-MAWPS with the frozen Qwen backbone.
+"""Gradient training on filtered Calc-ASDiv_A with the frozen Qwen backbone.
 
-Loads all 1,089 records in the pinned filtered Calc-MAWPS train order. The
+Loads all 570 records in the pinned Calc-ASDiv_A train order. The
 trainer uses the frozen Qwen/Qwen2.5-0.5B-Instruct backbone and frozen MiniLM.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import os
 import time
+from typing import Any
 
 import torch
 
@@ -52,7 +53,7 @@ def _format_duration(seconds: float) -> str:
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Train the latent-core subject on filtered Calc-MAWPS with the "
+            "Train the latent-core subject on filtered Calc-ASDiv_A with the "
             "frozen Qwen/Qwen2.5-0.5B-Instruct backbone."
         )
     )
@@ -70,7 +71,7 @@ def _parse_args() -> argparse.Namespace:
         "--problem-count",
         type=int,
         default=None,
-        help="Limit filtered Calc-MAWPS training records. Default uses all 1,089 train records.",
+        help="Limit Calc-ASDiv_A training records. Default uses all 570 train records.",
     )
     parser.add_argument(
         "--log-every",
@@ -96,8 +97,8 @@ def _find_latest_checkpoint(save_dir: str) -> str | None:
 def _load_checkpoint(
     path: str,
     *,
-    identity: dict[str, object],
-    selections: dict[str, object],
+    identity: dict[str, Any],
+    selections: dict[str, Any],
     learning_rate: float,
 ):
     """Validate a safe checkpoint before constructing a trainer."""
@@ -115,7 +116,7 @@ def _load_checkpoint(
 
 
 def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
-    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
     dataset = training_examples(
@@ -128,19 +129,17 @@ def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
     return dataset
 
 
-def _load_dataset_context(problem_count: int | None):
-    _log("loading pinned filtered Calc-MAWPS train and validation splits...")
+def _load_dataset_context(
+    problem_count: int | None,
+) -> tuple[list[tuple[str, str]], dict[str, Any], dict[str, Any]]:
+    _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
-    dataset = training_examples(
-        stage0_dataset, mode="gradient", epoch=1, problem_count=problem_count
-    )
+    dataset = training_examples(stage0_dataset, mode="gradient", epoch=1, problem_count=problem_count)
     train = selection_metadata(stage0_dataset.train_selection, problem_count)
     held_out = selection_metadata(stage0_dataset.held_out_selection, None)
     selections = {"train": train, "held_out": held_out}
-    identity = training_identity(
-        runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"]
-    )
+    identity = training_identity(runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"])
     _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
     return dataset, identity, selections
 
@@ -150,9 +149,9 @@ def _save_checkpoint(
     save_dir: str,
     epoch: int,
     *,
-    identity: dict[str, object],
-    selections: dict[str, object],
-    metrics: dict[str, object],
+    identity: dict[str, Any],
+    selections: dict[str, Any],
+    metrics: dict[str, Any],
 ) -> str:
     os.makedirs(save_dir, exist_ok=True)
     checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.ckpt")
@@ -173,8 +172,7 @@ def main() -> None:
     args = _parse_args()
 
     _log(f"device={args.device}")
-    _log(f"config: epochs={args.epochs} slots={args.slot_count} "
-         f"steps={args.num_steps} lr={args.lr}")
+    _log(f"config: epochs={args.epochs} slots={args.slot_count} steps={args.num_steps} lr={args.lr}")
 
     dataset, checkpoint_identity, selections = _load_dataset_context(args.problem_count)
 
@@ -192,10 +190,7 @@ def main() -> None:
                 learning_rate=args.lr,
             )
 
-    _log(
-        "building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct "
-        "+ frozen MiniLM)..."
-    )
+    _log("building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct + frozen MiniLM)...")
     t0 = time.monotonic()
     trainer = LatentCoreTrainer(
         slot_count=args.slot_count,
@@ -203,8 +198,10 @@ def main() -> None:
         lr=args.lr,
         device=args.device,
     )
-    _log(f"trainer ready ({_format_duration(time.monotonic() - t0)}), "
-         f"trainable_params={trainer.trainable_param_count():,}")
+    _log(
+        f"trainer ready ({_format_duration(time.monotonic() - t0)}), "
+        f"trainable_params={trainer.trainable_param_count():,}"
+    )
 
     if resumed is not None:
         restore_checkpoint(
@@ -219,8 +216,7 @@ def main() -> None:
         return
 
     _log(f"{'=' * 60}")
-    _log(f"  epochs {start_epoch + 1} to {args.epochs} ({remaining_epochs} remaining) "
-         f"x {len(dataset)} examples")
+    _log(f"  epochs {start_epoch + 1} to {args.epochs} ({remaining_epochs} remaining) x {len(dataset)} examples")
     _log(f"{'=' * 60}")
 
     epoch_losses: list[float] = []
@@ -231,33 +227,52 @@ def main() -> None:
         recent_losses: list[float] = []
         recent_vars: list[float] = []
 
-        def _on_step(step: int, total: int, result: StepResult) -> None:
-            recent_losses.append(result.loss)
-            recent_vars.append(result.variance)
+        def _on_step(
+            step: int,
+            total: int,
+            result: StepResult,
+            _recent_losses: list[float] = recent_losses,
+            _recent_vars: list[float] = recent_vars,
+            _epoch_start: float = epoch_start,
+            _epoch: int = epoch,
+        ) -> None:
+            loss = getattr(result, "total_objective", getattr(result, "loss", None))
+            variance = getattr(result, "shared_variance", getattr(result, "variance", None))
+            if not isinstance(loss, (int, float)) or isinstance(loss, bool):
+                raise TypeError("gradient trainer result must expose a numeric objective")
+            if not isinstance(variance, (int, float)) or isinstance(variance, bool):
+                raise TypeError("gradient trainer result must expose numeric variance")
+            loss = float(loss)
+            variance = float(variance)
+            _recent_losses.append(loss)
+            _recent_vars.append(variance)
             if (step + 1) % args.log_every == 0 or step + 1 == total:
-                elapsed = time.monotonic() - epoch_start
+                elapsed = time.monotonic() - _epoch_start
                 per_example = elapsed / (step + 1)
                 remaining = per_example * (total - step - 1)
-                avg_loss = sum(recent_losses) / len(recent_losses)
-                avg_var = sum(recent_vars) / len(recent_vars)
-                _log(f"  epoch {epoch}/{args.epochs} "
-                     f"[{step + 1}/{total}] "
-                     f"loss={result.loss:.4f} avg={avg_loss:.4f} "
-                     f"var={result.variance:.6f} avg_var={avg_var:.6f} "
-                     f"ETA {_format_duration(remaining)}")
+                avg_loss = sum(_recent_losses) / len(_recent_losses)
+                avg_var = sum(_recent_vars) / len(_recent_vars)
+                _log(
+                    f"  epoch {_epoch}/{args.epochs} "
+                    f"[{step + 1}/{total}] "
+                    f"loss={loss:.4f} avg={avg_loss:.4f} "
+                    f"var={variance:.6f} avg_var={avg_var:.6f} "
+                    f"ETA {_format_duration(remaining)}"
+                )
 
         stats = trainer.train_epoch(dataset, on_step=_on_step)
         epoch_dt = time.monotonic() - epoch_start
         epoch_losses.append(stats.avg_loss)
 
-        _log(f"epoch {epoch}/{args.epochs} done ({_format_duration(epoch_dt)}) "
-             f"loss={stats.avg_loss:.4f} "
-             f"variance={stats.avg_variance:.6f} [{stats.min_variance:.6f}, {stats.max_variance:.6f}] "
-             f"covariance={stats.avg_covariance:.6f}")
+        _log(
+            f"epoch {epoch}/{args.epochs} done ({_format_duration(epoch_dt)}) "
+            f"loss={stats.avg_loss:.4f} "
+            f"variance={stats.avg_variance:.6f} [{stats.min_variance:.6f}, {stats.max_variance:.6f}] "
+            f"covariance={stats.avg_covariance:.6f}"
+        )
 
         if stats.avg_variance <= 1e-8:
-            _log(f"WARNING: slots are collapsing. "
-                 f"avg_variance={stats.avg_variance:.8f} across {stats.steps} steps")
+            _log(f"WARNING: slots are collapsing. avg_variance={stats.avg_variance:.8f} across {stats.steps} steps")
 
         checkpoint_path = _save_checkpoint(
             trainer,
@@ -280,8 +295,7 @@ def main() -> None:
             total_elapsed = time.monotonic() - training_start
             per_epoch = total_elapsed / epochs_done
             epochs_left = args.epochs - epoch
-            _log(f"  training progress: {epoch}/{args.epochs} epochs, "
-                 f"ETA {_format_duration(per_epoch * epochs_left)}")
+            _log(f"  training progress: {epoch}/{args.epochs} epochs, ETA {_format_duration(per_epoch * epochs_left)}")
 
     _log(f"{'=' * 60}")
     if epoch_losses:
@@ -291,8 +305,7 @@ def main() -> None:
         _log(f"  last_epoch_loss={epoch_losses[-1]:.4f}")
         delta = epoch_losses[-1] - epoch_losses[0]
         sign = "+" if delta >= 0 else ""
-        _log(f"  delta={sign}{delta:.4f} "
-             f"decreased={'yes' if delta < 0 else 'no'}")
+        _log(f"  delta={sign}{delta:.4f} decreased={'yes' if delta < 0 else 'no'}")
     _log(f"{'=' * 60}")
 
 

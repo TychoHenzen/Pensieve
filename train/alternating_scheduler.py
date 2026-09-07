@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from collections.abc import Sequence
-from typing import Generic, Protocol, TypeVar
+from dataclasses import dataclass
+from typing import Protocol
 
 from train.alternating_config import (
     DEFAULT_VARIANCE_LOWER_THRESHOLD,
@@ -14,17 +14,13 @@ from train.alternating_config import (
 )
 from train.training_results import ExperimentPosition
 
-
-ResultT = TypeVar("ResultT")
-EvaluationT = TypeVar("EvaluationT")
-
 PHASE_BOUNDARY = "phase"
 EPOCH_BOUNDARY = "epoch"
 PARTIAL_PHASE_BOUNDARY = "partial_phase"
 
 
 @dataclass(frozen=True)
-class EvaluationRecord(Generic[EvaluationT]):
+class EvaluationRecord[EvaluationT]:
     """One evaluation result and every boundary reached at its position."""
 
     result: EvaluationT
@@ -32,25 +28,28 @@ class EvaluationRecord(Generic[EvaluationT]):
     boundaries: frozenset[str]
 
 
-class TrainingEngine(Protocol[ResultT]):
+class TrainingEngine[ResultT](Protocol):
     """Minimal update interface used by the scheduler."""
 
     @property
     def max_consumed_records(self) -> int:
         """Largest contiguous record batch this engine can consume per call."""
+        ...
 
     def train_step(self, example: object, position: ExperimentPosition) -> ResultT:
         """Apply one update and return its method-specific result."""
+        ...
 
 
-class PhaseEvaluator(Protocol[EvaluationT]):
+class PhaseEvaluator[EvaluationT](Protocol):
     """Evaluate the shared model at a completed phase boundary."""
 
     def evaluate(self, position: ExperimentPosition) -> EvaluationT:
         """Return the evaluation labeled with the completed phase position."""
+        ...
 
 
-class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
+class VarianceHysteresisScheduler[ResultT, EvaluationT]:
     """Select an optimizer from average slot variance over fixed windows."""
 
     def __init__(
@@ -80,6 +79,7 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
         self._phase_variance_sum = 0.0
         self._active_phase = "eggroll"
         self._cycle = 1
+        self._optimizer_call_counts = {"eggroll": 0, "gradient": 0}
         self._evaluation_results: list[EvaluationRecord[EvaluationT]] = []
 
     @property
@@ -176,11 +176,7 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
         records_until_logging_boundary: int | None = None,
     ) -> ResultT:
         update_method = self._active_phase
-        engine = (
-            self._eggroll_engine
-            if update_method == "eggroll"
-            else self._gradient_engine
-        )
+        engine = self._eggroll_engine if update_method == "eggroll" else self._gradient_engine
         max_consumed_records = getattr(engine, "max_consumed_records", 1)
         if (
             isinstance(max_consumed_records, bool)
@@ -199,6 +195,7 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
             raise ValueError("scheduler could not select a positive record batch")
         global_step = self._completed_steps + record_count
         phase_step = self._completed_phase_steps + record_count
+        optimizer_call_count = self._optimizer_call_counts[update_method] + 1
         position = ExperimentPosition(
             update_method=update_method,
             cycle=self._cycle,
@@ -206,6 +203,8 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
             epoch=epoch,
             example_position=example_position + record_count - 1,
             phase_step=phase_step,
+            optimizer_call_count=optimizer_call_count,
+            consumed_record_count=record_count,
         )
         engine_input: object = examples[0] if record_count == 1 else tuple(examples[:record_count])
         result = engine.train_step(engine_input, position)
@@ -223,23 +222,16 @@ class VarianceHysteresisScheduler(Generic[ResultT, EvaluationT]):
             or not isinstance(consumed_record_count, int)
             or consumed_record_count != record_count
         ):
-            raise ValueError(
-                "training result consumed_record_count must match the scheduled batch"
-            )
+            raise ValueError("training result consumed_record_count must match the scheduled batch")
         self._completed_steps = global_step
         self._completed_phase_steps = phase_step
+        self._optimizer_call_counts[update_method] = optimizer_call_count
         self._phase_variance_sum += float(variance) * consumed_record_count
         if phase_step == self._phase_steps:
             average_variance = self._phase_variance_sum / self._phase_steps
-            if (
-                self._active_phase == "eggroll"
-                and average_variance >= self._variance_upper_threshold
-            ):
+            if self._active_phase == "eggroll" and average_variance >= self._variance_upper_threshold:
                 self._active_phase = "gradient"
-            elif (
-                self._active_phase == "gradient"
-                and average_variance <= self._variance_lower_threshold
-            ):
+            elif self._active_phase == "gradient" and average_variance <= self._variance_lower_threshold:
                 self._active_phase = "eggroll"
             self._completed_phase_steps = 0
             self._phase_variance_sum = 0.0

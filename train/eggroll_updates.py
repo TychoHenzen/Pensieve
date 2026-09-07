@@ -18,10 +18,7 @@ from train.eggroll_perturbations import (
 def _pair_descent_scores(
     fitnesses: Sequence[float] | torch.Tensor,
 ) -> tuple[torch.Tensor, int]:
-    if isinstance(fitnesses, torch.Tensor):
-        fitness_tensor = fitnesses
-    else:
-        fitness_tensor = torch.tensor(fitnesses, dtype=torch.float32)
+    fitness_tensor = fitnesses if isinstance(fitnesses, torch.Tensor) else torch.tensor(fitnesses, dtype=torch.float32)
     if fitness_tensor.ndim != 1:
         raise ValueError("fitnesses must be one-dimensional")
 
@@ -31,9 +28,7 @@ def _pair_descent_scores(
     if not torch.isfinite(fitness_tensor).all():
         raise ValueError("fitnesses must be finite")
 
-    normalized = (fitness_tensor - fitness_tensor.mean()) / torch.sqrt(
-        fitness_tensor.var(unbiased=False) + 1e-5
-    )
+    normalized = (fitness_tensor - fitness_tensor.mean()) / torch.sqrt(fitness_tensor.var(unbiased=False) + 1e-5)
     return normalized[1::2] - normalized[0::2], population_size
 
 
@@ -106,27 +101,21 @@ def assemble_factorized_descent_gradients(
     gradients: list[torch.Tensor] = []
 
     for parameter_index, parameter in enumerate(parameters):
-        directions: list[PerturbationDirection] = [
-            pair[parameter_index] for pair in pair_directions
-        ]
+        directions: list[PerturbationDirection] = [pair[parameter_index] for pair in pair_directions]
         if parameter.ndim == 2:
             matrix_directions = []
             for direction in directions:
                 if not isinstance(direction, MatrixFactors):
                     raise TypeError("matrix parameter received non-matrix direction")
                 matrix_directions.append(direction)
-            gradients.append(
-                _matrix_gradient(matrix_directions, pair_scores, population_scale)
-            )
+            gradients.append(_matrix_gradient(matrix_directions, pair_scores, population_scale))
         else:
             vector_directions = []
             for direction in directions:
                 if not isinstance(direction, DenseVectorNoise):
                     raise TypeError("non-matrix parameter received matrix direction")
                 vector_directions.append(direction)
-            gradients.append(
-                _vector_gradient(vector_directions, pair_scores, population_scale)
-            )
+            gradients.append(_vector_gradient(vector_directions, pair_scores, population_scale))
 
     return gradients
 

@@ -94,9 +94,7 @@ def factorized_linear(
     )
 
     if inputs.ndim == 2:
-        base = F.linear(inputs, weight, bias).unsqueeze(0).expand(
-            candidate_count, -1, -1
-        )
+        base = F.linear(inputs, weight, bias).unsqueeze(0).expand(candidate_count, -1, -1)
         compressed = torch.einsum("...i,cir->c...r", inputs, stacked_b)
     else:
         base = F.linear(inputs, weight, bias)

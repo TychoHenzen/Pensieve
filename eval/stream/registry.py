@@ -13,9 +13,9 @@ from collections.abc import Iterator
 
 from eval.stream.config import StreamConfig
 from eval.stream.generator import StreamGenerator
+from eval.stream.generators.asdiv_a import AsdivGenerator
 from eval.stream.generators.assoc import AssocGenerator
 from eval.stream.generators.difficulty_mix import DifficultyMixGenerator
-from eval.stream.generators.calc_mawps import CalcMawpsGenerator
 from eval.stream.generators.gsm8k import GSM8KGenerator
 from eval.stream.generators.split_classify import SplitClassifyGenerator
 from eval.stream.truth import StreamItem
@@ -24,7 +24,7 @@ REGISTRY: dict[str, type[StreamGenerator]] = {
     AssocGenerator.name: AssocGenerator,
     SplitClassifyGenerator.name: SplitClassifyGenerator,
     DifficultyMixGenerator.name: DifficultyMixGenerator,
-    CalcMawpsGenerator.name: CalcMawpsGenerator,
+    AsdivGenerator.name: AsdivGenerator,
     GSM8KGenerator.name: GSM8KGenerator,
 }
 
@@ -38,7 +38,5 @@ def build(config: StreamConfig, seed: int) -> Iterator[StreamItem]:
     generator_class = REGISTRY.get(config.generator)
     if generator_class is None:
         known = ", ".join(sorted(REGISTRY))
-        raise ValueError(
-            f"unknown generator {config.generator!r}; known generators: {known}"
-        )
+        raise ValueError(f"unknown generator {config.generator!r}; known generators: {known}")
     return generator_class().generate(config=config, seed=seed)

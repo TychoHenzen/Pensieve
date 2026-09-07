@@ -15,10 +15,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-import torch
-
-from codecs_module.encoder import SlotEncoder
-from core.latent_loop import LatentLoop
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     SUBJECT_LATENT_RUNS_PER_ANSWER,
@@ -35,7 +31,7 @@ from train.vicreg import (
     post_loop_slot_variance,
     slot_variance_penalty,
 )
-from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
+from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
 @dataclass
@@ -46,6 +42,7 @@ class EpochStats:
     min_variance: float
     max_variance: float
     steps: int
+
 
 DEFAULT_NUM_STEPS = 2
 DEFAULT_LR = 1e-4
@@ -65,15 +62,11 @@ class LatentCoreTrainer:
         ema_decay: float = DEFAULT_EMA_DECAY,
         state: TrainingState | None = None,
     ) -> None:
-        self.state = state or TrainingState(
-            slot_count=slot_count, num_steps=num_steps, device=device
-        )
+        self.state = state or TrainingState(slot_count=slot_count, num_steps=num_steps, device=device)
         self.slot_count = self.state.encoder.slot_count
         self.device = device
         self.variance_weight = variance_weight
-        self.prompt_alignment_weight = validate_prompt_alignment_weight(
-            prompt_alignment_weight
-        )
+        self.prompt_alignment_weight = validate_prompt_alignment_weight(prompt_alignment_weight)
         self.workspace = self.state.workspace
         self.encoder = self.state.encoder
         self.latent_loop = self.state.latent_loop
@@ -121,13 +114,8 @@ class LatentCoreTrainer:
             teacher_state=teacher_state,
         )
         lm_loss = answer_objective.language_model_loss.mean()
-        prompt_alignment_penalty = (
-            self.prompt_alignment_weight
-            * answer_objective.prompt_alignment_loss.mean()
-        )
-        collapse_penalty = self.variance_weight * slot_variance_penalty(
-            loop_slots
-        ).mean()
+        prompt_alignment_penalty = self.prompt_alignment_weight * answer_objective.prompt_alignment_loss.mean()
+        collapse_penalty = self.variance_weight * slot_variance_penalty(loop_slots).mean()
         total_objective = lm_loss + prompt_alignment_penalty + collapse_penalty
         total_objective.backward()
         self.optimizer.step()
@@ -149,12 +137,13 @@ class LatentCoreTrainer:
             total_objective=total_objective.item(),
             regularizer_loss=(prompt_alignment_penalty + collapse_penalty).item(),
             shared_variance=post_loop_slot_variance(loop_slots).item(),
+            optimizer_call_count=position.optimizer_call_count,
         )
 
     def train_epoch(
         self,
         dataset: list[tuple[str, str]],
-        on_step: None | object = None,
+        on_step: object | None = None,
     ) -> EpochStats:
         """Runs one pass over `dataset`, returning aggregated stats.
 

@@ -12,6 +12,7 @@ import argparse
 import os
 import time
 from collections.abc import Sequence
+from typing import Any
 
 import torch
 
@@ -21,6 +22,7 @@ from eval.stage0_identity import (
     ASDIV_REVISION,
     training_identity,
 )
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     validate_prompt_alignment_weight,
@@ -44,7 +46,6 @@ from train.eggroll_trainer import (
     validate_eggroll_config,
 )
 from train.stage0_data import load_stage0_dataset, training_examples
-from train.training_state import EGGROLL_PARAMETER_PATHS
 from train.standalone_checkpoint import (
     build_checkpoint,
     checkpoint_epoch,
@@ -57,6 +58,7 @@ from train.standalone_checkpoint import (
     selection_metadata,
     validate_compatibility,
 )
+from train.training_state import EGGROLL_PARAMETER_PATHS
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
@@ -126,9 +128,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         dest="use_amp",
         help="Use CUDA mixed precision. Benchmark this before long runs.",
     )
-    parser.add_argument(
-        "--variance-weight", type=float, default=DEFAULT_VARIANCE_WEIGHT
-    )
+    parser.add_argument("--variance-weight", type=float, default=DEFAULT_VARIANCE_WEIGHT)
     parser.add_argument(
         "--prompt-alignment-weight",
         type=float,
@@ -170,12 +170,8 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     if isinstance(args.epochs, bool) or args.epochs < 1:
         raise ValueError("--epochs must be at least 1")
-    if args.problem_count is not None and not (
-        1 <= args.problem_count <= ASDIV_PARTITION_COUNTS["train"]
-    ):
-        raise ValueError(
-            f"--problem-count must be from 1 through {ASDIV_PARTITION_COUNTS['train']}"
-        )
+    if args.problem_count is not None and not (1 <= args.problem_count <= ASDIV_PARTITION_COUNTS["train"]):
+        raise ValueError(f"--problem-count must be from 1 through {ASDIV_PARTITION_COUNTS['train']}")
     if isinstance(args.log_every, bool) or args.log_every < 1:
         raise ValueError("--log-every must be at least 1")
     validate_prompt_alignment_weight(args.prompt_alignment_weight)
@@ -198,7 +194,9 @@ def _load_dataset(problem_count: int | None) -> list[tuple[str, str]]:
     return dataset
 
 
-def _load_dataset_context(problem_count: int | None):
+def _load_dataset_context(
+    problem_count: int | None,
+) -> tuple[tuple[AsdivRecord, ...], dict[str, Any], dict[str, Any]]:
     _log("loading pinned Calc-ASDiv_A partitions...")
     t0 = time.monotonic()
     stage0_dataset = load_stage0_dataset()
@@ -212,9 +210,7 @@ def _load_dataset_context(problem_count: int | None):
     train = selection_metadata(stage0_dataset.train_selection, problem_count)
     held_out = selection_metadata(stage0_dataset.held_out_selection, None)
     selections = {"train": train, "held_out": held_out}
-    identity = training_identity(
-        runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"]
-    )
+    identity = training_identity(runtime=runtime_identity(), held_out_item_ids=held_out["ordered_item_ids"])
     _log(f"loaded {len(dataset)} problems ({_format_duration(time.monotonic() - t0)})")
     return dataset, identity, selections
 
@@ -227,10 +223,10 @@ def _find_latest_checkpoint(save_dir: str) -> str | None:
 def _load_checkpoint(
     path: str,
     *,
-    identity: dict[str, object],
-    selections: dict[str, object],
+    identity: dict[str, Any],
+    selections: dict[str, Any],
     learning_rate: float,
-    run_config: dict[str, object],
+    run_config: dict[str, Any],
 ):
     _log(f"loading checkpoint: {path}")
     checkpoint = load_checkpoint(path, expected_mode="eggroll")
@@ -244,10 +240,7 @@ def _load_checkpoint(
     epoch = int(checkpoint.metadata["schedule"]["epoch"])
     filename_epoch = checkpoint_epoch(path)
     if filename_epoch != epoch:
-        raise ValueError(
-            "incompatible resume configuration: "
-            "$.schedule.epoch does not match the checkpoint filename"
-        )
+        raise ValueError("incompatible resume configuration: $.schedule.epoch does not match the checkpoint filename")
     _log(f"resumed from epoch {epoch}")
     return checkpoint, epoch
 
@@ -257,11 +250,11 @@ def _save_checkpoint(
     save_dir: str,
     epoch: int,
     *,
-    identity: dict[str, object],
-    selections: dict[str, object],
-    metrics: dict[str, object],
-    schedule: dict[str, object],
-    run_config: dict[str, object],
+    identity: dict[str, Any],
+    selections: dict[str, Any],
+    metrics: dict[str, Any],
+    schedule: dict[str, Any],
+    run_config: dict[str, Any],
 ) -> str:
     os.makedirs(save_dir, exist_ok=True)
     checkpoint_path = os.path.join(save_dir, f"epoch-{epoch}.ckpt")
@@ -283,7 +276,7 @@ def _run_config(
     args: argparse.Namespace,
     *,
     report_identity: str | None,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     """Return the complete standalone EGGROLL checkpoint identity."""
     return {
         "dataset_selection": {
@@ -356,9 +349,7 @@ def main() -> None:
         if args.stability_report is not None
         else None
     )
-    report_identity = (
-        validated_report.sha256 if validated_report is not None else None
-    )
+    report_identity = validated_report.sha256 if validated_report is not None else None
     run_config = _run_config(args, report_identity=report_identity)
 
     _log(f"device={args.device}")
@@ -389,10 +380,7 @@ def main() -> None:
                 run_config=run_config,
             )
 
-    _log(
-        "building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct "
-        "+ frozen MiniLM)..."
-    )
+    _log("building trainer (loading frozen Qwen/Qwen2.5-0.5B-Instruct + frozen MiniLM)...")
 
     t0 = time.monotonic()
     trainer = EggrollTrainer(
@@ -428,29 +416,33 @@ def main() -> None:
 
     epoch_losses: list[float] = []
     training_start = time.monotonic()
-    eggroll_optimizer_calls = (
-        int(resumed.metadata["schedule"]["eggroll_optimizer_calls"])
-        if resumed is not None
-        else 0
-    )
+    eggroll_optimizer_calls = int(resumed.metadata["schedule"]["eggroll_optimizer_calls"]) if resumed is not None else 0
 
     for epoch in range(start_epoch + 1, args.epochs + 1):
         epoch_start = time.monotonic()
         recent_losses: list[float] = []
         recent_vars: list[float] = []
 
-        def _on_step(step: int, total: int, result: StepResult) -> None:
+        def _on_step(
+            step: int,
+            total: int,
+            result: StepResult,
+            _recent_losses: list[float] = recent_losses,
+            _recent_vars: list[float] = recent_vars,
+            _epoch_start: float = epoch_start,
+            _epoch: int = epoch,
+        ) -> None:
             progress = _training_progress_record(result)
-            recent_losses.append(result.total_objective)
-            recent_vars.append(result.shared_variance)
+            _recent_losses.append(result.total_objective)
+            _recent_vars.append(result.shared_variance)
             if (step + 1) % args.log_every == 0 or step + 1 == total:
-                elapsed = time.monotonic() - epoch_start
+                elapsed = time.monotonic() - _epoch_start
                 per_example = elapsed / (step + 1)
                 remaining = per_example * (total - step - 1)
-                avg_loss = sum(recent_losses) / len(recent_losses)
-                avg_var = sum(recent_vars) / len(recent_vars)
+                avg_loss = sum(_recent_losses) / len(_recent_losses)
+                avg_var = sum(_recent_vars) / len(_recent_vars)
                 _log(
-                    f"  epoch {epoch}/{args.epochs} "
+                    f"  epoch {_epoch}/{args.epochs} "
                     f"[{step + 1}/{total}] "
                     f"loss={result.total_objective:.4f} avg={avg_loss:.4f} "
                     f"var={result.shared_variance:.6f} avg_var={avg_var:.6f} "
@@ -498,10 +490,7 @@ def main() -> None:
             total_elapsed = time.monotonic() - training_start
             per_epoch = total_elapsed / epoch
             epochs_left = args.epochs - epoch
-            _log(
-                f"  ETA {_format_duration(per_epoch * epochs_left)} "
-                f"for remaining {epochs_left} epochs"
-            )
+            _log(f"  ETA {_format_duration(per_epoch * epochs_left)} for remaining {epochs_left} epochs")
 
     _log(f"{'=' * 60}")
     if epoch_losses:

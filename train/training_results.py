@@ -15,6 +15,10 @@ class ExperimentPosition:
     epoch: int
     example_position: int
     phase_step: int
+    # These values describe the update that produced this position.  Defaults
+    # retain the one-record, first-call meaning used by standalone callers.
+    optimizer_call_count: int = 1
+    consumed_record_count: int = 1
 
 
 @dataclass(frozen=True)

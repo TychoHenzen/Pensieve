@@ -15,7 +15,10 @@ on the dataset's own iteration order.
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
+from typing import cast
+
+from datasets import load_dataset
 
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
@@ -41,10 +44,11 @@ def _load_split(split: str) -> list[dict[str, str]]:
     if cached is not None:
         return cached
 
-    from datasets import load_dataset
-
     hf_dataset = load_dataset("openai/gsm8k", "main", split=split)
-    items = [{"question": row["question"], "answer": row["answer"]} for row in hf_dataset]
+    items: list[dict[str, str]] = []
+    for raw_row in hf_dataset:
+        row = cast(Mapping[str, str], raw_row)
+        items.append({"question": row["question"], "answer": row["answer"]})
     _dataset_cache[split] = items
     return items
 

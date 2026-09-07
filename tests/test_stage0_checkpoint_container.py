@@ -21,7 +21,6 @@ from train.alternating_checkpoint import CheckpointSchedule
 from train.alternating_scheduler import EvaluationRecord
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
 
-
 METADATA_MEMBER = "metadata.json"
 TENSORS_MEMBER = "tensors.safetensors"
 
@@ -32,11 +31,9 @@ def _checkpoint_module():
     return importlib.import_module("train.stage0_checkpoint")
 
 
-def _metadata_bytes(
-    *, schema_version: int = 2, extra_json: str = ""
-) -> bytes:
+def _metadata_bytes(*, schema_version: int = 2, extra_json: str = "") -> bytes:
     suffix = f",{extra_json}" if extra_json else ""
-    return f'{{"schema_version":{schema_version}{suffix}}}'.encode("utf-8")
+    return f'{{"schema_version":{schema_version}{suffix}}}'.encode()
 
 
 def _tiny_safetensors_bytes() -> bytes:
@@ -78,11 +75,10 @@ def _write_archive(
         (METADATA_MEMBER, _metadata_bytes(), ZIP_STORED),
         (TENSORS_MEMBER, _tiny_safetensors_bytes(), ZIP_STORED),
     ]
-    with ZipFile(path, "w") as archive:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", UserWarning)
-            for name, payload, compression in archive_members:
-                archive.writestr(name, payload, compress_type=compression)
+    with ZipFile(path, "w") as archive, warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        for name, payload, compression in archive_members:
+            archive.writestr(name, payload, compress_type=compression)
 
 
 def _read(path: Path, tensor_loader: Callable[[bytes], object] | None = None):
@@ -102,7 +98,7 @@ def _assert_rejected_before_tensor_load(
     with pytest.raises(module.CheckpointContainerError, match=match):
         module.read_checkpoint_container(
             path,
-            tensor_loader=lambda payload: calls.append(payload),
+            tensor_loader=calls.append,
         )
 
     assert calls == []
@@ -173,13 +169,13 @@ def test_writer_replace_failure_preserves_target_and_removes_temp_file(
             return_value=(b'{"schema_version":2}', None),
         ),
         patch.object(module.os, "replace", side_effect=OSError("replace failed")),
+        pytest.raises(OSError, match="replace failed"),
     ):
-        with pytest.raises(OSError, match="replace failed"):
-            module.write_checkpoint_container(
-                path,
-                metadata={"schema_version": 2},
-                tensor_payload=_tiny_safetensors_bytes(),
-            )
+        module.write_checkpoint_container(
+            path,
+            metadata={"schema_version": 2},
+            tensor_payload=_tiny_safetensors_bytes(),
+        )
 
     assert path.read_bytes() == original
     assert list(tmp_path.glob(f".{path.name}.*.tmp")) == []
@@ -238,9 +234,11 @@ def test_reader_rejects_incomplete_metadata_before_reading_tensor_member(
         member_reads.append(info.filename)
         return original_read(archive, info, maximum)
 
-    with patch.object(module, "_read_bounded_member", side_effect=record_read):
-        with pytest.raises(module.CheckpointMetadataError, match=r"\$\.identity"):
-            module.read_checkpoint_container(path, tensor_loader=lambda _: None)
+    with (
+        patch.object(module, "_read_bounded_member", side_effect=record_read),
+        pytest.raises(module.CheckpointMetadataError, match=r"\$\.identity"),
+    ):
+        module.read_checkpoint_container(path, tensor_loader=lambda _: None)
 
     assert member_reads == [METADATA_MEMBER]
 
@@ -251,16 +249,18 @@ def test_reader_rejects_tensor_shape_before_calling_loader(tmp_path: Path) -> No
     _write_archive(path)
     calls: list[bytes] = []
 
-    with patch.object(
-        module,
-        "validate_checkpoint_metadata",
-        return_value=_validated_tiny_metadata(shape=[2]),
+    with (
+        patch.object(
+            module,
+            "validate_checkpoint_metadata",
+            return_value=_validated_tiny_metadata(shape=[2]),
+        ),
+        pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"),
     ):
-        with pytest.raises(module.CheckpointContainerError, match=r"shape.*tensor_manifest"):
-            module.read_checkpoint_container(
-                path,
-                tensor_loader=lambda payload: calls.append(payload),
-            )
+        module.read_checkpoint_container(
+            path,
+            tensor_loader=calls.append,
+        )
 
     assert calls == []
 
@@ -284,9 +284,11 @@ def test_reader_rejects_legacy_pickle_without_calling_torch_load(tmp_path: Path)
     path.write_bytes(pickle.dumps({"version": 1, "state": "legacy"}))
     module = _checkpoint_module()
 
-    with patch("torch.load", side_effect=AssertionError("torch.load is forbidden")) as torch_load:
-        with pytest.raises(module.CheckpointContainerError, match=r"(?i)zip|checkpoint"):
-            module.read_checkpoint_container(path, tensor_loader=lambda _: None)
+    with (
+        patch("torch.load", side_effect=AssertionError("torch.load is forbidden")) as torch_load,
+        pytest.raises(module.CheckpointContainerError, match=r"(?i)zip|checkpoint"),
+    ):
+        module.read_checkpoint_container(path, tensor_loader=lambda _: None)
 
     torch_load.assert_not_called()
 
@@ -297,11 +299,7 @@ def test_reader_rejects_duplicate_member_names_before_tensor_load(
     duplicate_member: str,
 ) -> None:
     path = tmp_path / f"duplicate-{duplicate_member}.ckpt"
-    duplicated_payload = (
-        _metadata_bytes()
-        if duplicate_member == METADATA_MEMBER
-        else _tiny_safetensors_bytes()
-    )
+    duplicated_payload = _metadata_bytes() if duplicate_member == METADATA_MEMBER else _tiny_safetensors_bytes()
     _write_archive(
         path,
         members=[

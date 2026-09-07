@@ -7,7 +7,7 @@ import math
 import random
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol
 
 import numpy as np
 import torch
@@ -39,10 +39,7 @@ def _clone_state_value(value: Any) -> Any:
     if isinstance(value, torch.Tensor):
         return value.detach().clone()
     if isinstance(value, dict):
-        return {
-            copy.deepcopy(key): _clone_state_value(item)
-            for key, item in value.items()
-        }
+        return {copy.deepcopy(key): _clone_state_value(item) for key, item in value.items()}
     if isinstance(value, list):
         return [_clone_state_value(item) for item in value]
     if isinstance(value, tuple):
@@ -69,9 +66,7 @@ def capture_eggroll_step_snapshot(
         else ()
     )
     return EggrollStepSnapshot(
-        parameter_values=tuple(
-            parameter.detach().clone() for parameter in parameters
-        ),
+        parameter_values=tuple(parameter.detach().clone() for parameter in parameters),
         optimizer_state=_clone_state_value(optimizer.state_dict()),
         workspace_slots=workspace.snapshot().detach().clone(),
         python_rng_state=copy.deepcopy(random.getstate()),
@@ -92,9 +87,7 @@ def restore_eggroll_step_snapshot(
         raise ValueError("parameter registry length differs from snapshot")
 
     with torch.no_grad():
-        for parameter, saved_value in zip(
-            parameters, snapshot.parameter_values, strict=True
-        ):
+        for parameter, saved_value in zip(parameters, snapshot.parameter_values, strict=True):
             if parameter.shape != saved_value.shape:
                 raise ValueError("parameter shape differs from snapshot")
             parameter.copy_(saved_value.to(device=parameter.device))
@@ -105,9 +98,7 @@ def restore_eggroll_step_snapshot(
     np.random.set_state(_clone_numpy_rng_state(snapshot.numpy_rng_state))
     torch.set_rng_state(snapshot.torch_cpu_rng_state.clone())
     if snapshot.torch_cuda_rng_states:
-        torch.cuda.set_rng_state_all(
-            [state.clone() for state in snapshot.torch_cuda_rng_states]
-        )
+        torch.cuda.set_rng_state_all([state.clone() for state in snapshot.torch_cuda_rng_states])
 
 
 @dataclass(frozen=True)
@@ -134,7 +125,6 @@ class ReferenceVectorDirection:
 
 
 ReferenceDirection = ReferenceMatrixDirection | ReferenceVectorDirection
-CandidateResult = TypeVar("CandidateResult")
 
 
 def materialized_linear(
@@ -150,9 +140,7 @@ def materialized_linear(
     sign_values = torch.as_tensor(signs).tolist()
     candidate_inputs = inputs.ndim > 2
     outputs = []
-    for candidate_index, (factor, sign) in enumerate(
-        zip(factors, sign_values, strict=True)
-    ):
+    for candidate_index, (factor, sign) in enumerate(zip(factors, sign_values, strict=True)):
         current_input = inputs[candidate_index] if candidate_inputs else inputs
         current_bias = bias
         if bias is not None and bias_noises is not None:
@@ -238,7 +226,7 @@ def reference_candidate_deltas(
     return materialize_reference_candidate(directions, sign=sign)
 
 
-def evaluate_materialized_candidates(
+def evaluate_materialized_candidates[CandidateResult](
     parameters: Sequence[torch.Tensor],
     *,
     base_seed: int,
@@ -259,12 +247,8 @@ def evaluate_materialized_candidates(
             sigma=sigma,
             rank=rank,
         )
-        results.append(
-            evaluate(materialize_reference_candidate(directions, sign=1.0))
-        )
-        results.append(
-            evaluate(materialize_reference_candidate(directions, sign=-1.0))
-        )
+        results.append(evaluate(materialize_reference_candidate(directions, sign=1.0)))
+        results.append(evaluate(materialize_reference_candidate(directions, sign=-1.0)))
     return results
 
 
@@ -277,10 +261,7 @@ def reference_descent_gradients(
     rank: int,
 ) -> list[torch.Tensor]:
     """Assemble the pair-loop gradient supplied to a minimizing optimizer."""
-    if isinstance(fitnesses, torch.Tensor):
-        fitness_tensor = fitnesses
-    else:
-        fitness_tensor = torch.tensor(fitnesses, dtype=torch.float32)
+    fitness_tensor = fitnesses if isinstance(fitnesses, torch.Tensor) else torch.tensor(fitnesses, dtype=torch.float32)
     if fitness_tensor.ndim != 1:
         raise ValueError("fitnesses must be one-dimensional")
 
@@ -288,9 +269,7 @@ def reference_descent_gradients(
     if population_size < 2 or population_size % 2 != 0:
         raise ValueError("fitnesses must contain a positive even population")
 
-    normalized = (fitness_tensor - fitness_tensor.mean()) / torch.sqrt(
-        fitness_tensor.var(unbiased=False) + 1e-5
-    )
+    normalized = (fitness_tensor - fitness_tensor.mean()) / torch.sqrt(fitness_tensor.var(unbiased=False) + 1e-5)
     gradients = [torch.zeros_like(parameter) for parameter in parameters]
 
     for pair_index in range(population_size // 2):
@@ -301,9 +280,7 @@ def reference_descent_gradients(
             sigma=sigma,
             rank=rank,
         )
-        score = (
-            normalized[2 * pair_index + 1] - normalized[2 * pair_index]
-        ).item()
+        score = (normalized[2 * pair_index + 1] - normalized[2 * pair_index]).item()
         for gradient, delta in zip(gradients, positive_deltas, strict=True):
             gradient.add_(delta, alpha=score)
 

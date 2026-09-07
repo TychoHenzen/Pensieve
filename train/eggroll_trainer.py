@@ -15,17 +15,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 import torch
-from torch import nn
 
-from codecs_module.encoder import SlotEncoder
-from core.latent_loop import LatentLoop
 from core.qwen_tap import PreparedQwenPrefix
-from train.eggroll_factorized import factorized_linear
-from train.eggroll_perturbations import (
-    MatrixFactors,
-    SignedPerturbationSet,
-    sample_antithetic_pair,
-)
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
     SUBJECT_LATENT_RUNS_PER_ANSWER,
@@ -34,13 +26,18 @@ from train.answer_objective import (
     prompt_teacher_state,
     validate_prompt_alignment_weight,
 )
-from train.training_results import ExperimentPosition, StepResult
-from train.stage0_data import FitnessBatch, plan_eggroll_fitness_batch
-from eval.stream.generators.asdiv_a import AsdivRecord
-from train.training_state import TrainingState
+from train.eggroll_factorized import factorized_linear
+from train.eggroll_perturbations import (
+    MatrixFactors,
+    SignedPerturbationSet,
+    sample_antithetic_pair,
+)
 from train.eggroll_updates import apply_factorized_update
+from train.stage0_data import FitnessBatch, plan_eggroll_fitness_batch
+from train.training_results import ExperimentPosition, StepResult
+from train.training_state import TrainingState
 from train.vicreg import post_loop_slot_variance, slot_variance_penalty
-from workspace.concept_slots import DEFAULT_SLOT_COUNT, Workspace
+from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 DEFAULT_POP_SIZE = 128
 DEFAULT_SIGMA = 0.001
@@ -103,22 +100,16 @@ class EggrollTrainer:
         device: str = "cpu",
         state: TrainingState | None = None,
     ) -> None:
-        validate_eggroll_config(
-            pop_size, sigma, lr, rank, eval_batch_size, fitness_batch_size
-        )
+        validate_eggroll_config(pop_size, sigma, lr, rank, eval_batch_size, fitness_batch_size)
 
-        self.state = state or TrainingState(
-            slot_count=slot_count, num_steps=num_steps, device=device
-        )
+        self.state = state or TrainingState(slot_count=slot_count, num_steps=num_steps, device=device)
         self.slot_count = self.state.encoder.slot_count
         self.device = device
         self.pop_size = pop_size
         self.sigma = sigma
         self.rank = rank
         self.variance_weight = variance_weight
-        self.prompt_alignment_weight = validate_prompt_alignment_weight(
-            prompt_alignment_weight
-        )
+        self.prompt_alignment_weight = validate_prompt_alignment_weight(prompt_alignment_weight)
         self.eval_batch_size = eval_batch_size
         self.fitness_batch_size = fitness_batch_size
         self.use_amp = use_amp and torch.device(device).type == "cuda"
@@ -160,9 +151,10 @@ class EggrollTrainer:
         """Evaluate several perturbed candidates in each frozen-model pass."""
         batch_size = len(perturbations)
         signs = [candidate.sign for candidate in perturbations]
-        matrix_directions = lambda index: self._matrix_directions(
-            perturbations, index
-        )
+
+        def matrix_directions(index: int) -> list[MatrixFactors]:
+            return self._matrix_directions(perturbations, index)
+
         expected_token_width = self.encoder.projection.weight.shape[1]
         if (
             token_embeddings.ndim != 3
@@ -203,6 +195,8 @@ class EggrollTrainer:
 
         loop_slots = slots
         tap_adapter = self.latent_loop.tap_adapter
+        if tap_adapter is None:
+            raise RuntimeError("EGGROLL trainer requires a Qwen tap adapter")
         if context_prefix is None:
             context_prefix = tap_adapter.prepare_prefix(context_embeds)
         for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
@@ -213,8 +207,7 @@ class EggrollTrainer:
                 )
                 if tuple(slot_hidden.shape) != tuple(loop_slots.shape):
                     raise ValueError(
-                        f"expected slot hidden shape {tuple(loop_slots.shape)}, "
-                        f"actual {tuple(slot_hidden.shape)}"
+                        f"expected slot hidden shape {tuple(loop_slots.shape)}, actual {tuple(slot_hidden.shape)}"
                     )
                 transformed = factorized_linear(
                     slot_hidden,
@@ -244,19 +237,11 @@ class EggrollTrainer:
             teacher_state=teacher_state,
         )
         lm_loss = answer_objective.language_model_loss
-        prompt_alignment_penalty = (
-            self.prompt_alignment_weight * answer_objective.prompt_alignment_loss
-        )
+        prompt_alignment_penalty = self.prompt_alignment_weight * answer_objective.prompt_alignment_loss
 
-        variance = torch.stack(
-            [post_loop_slot_variance(candidate_slots) for candidate_slots in loop_slots]
-        )
+        variance = torch.stack([post_loop_slot_variance(candidate_slots) for candidate_slots in loop_slots])
         collapse_penalty = slot_variance_penalty(loop_slots)
-        fitness = (
-            -lm_loss
-            - prompt_alignment_penalty
-            - self.variance_weight * collapse_penalty
-        )
+        fitness = -lm_loss - prompt_alignment_penalty - self.variance_weight * collapse_penalty
         return fitness, lm_loss, variance
 
     @staticmethod
@@ -268,7 +253,6 @@ class EggrollTrainer:
         if not all(isinstance(direction, MatrixFactors) for direction in directions):
             raise TypeError("matrix parameter received non-matrix direction")
         return directions  # type: ignore[return-value]
-
 
     def _prepare_fitness_record(
         self,
@@ -286,9 +270,10 @@ class EggrollTrainer:
             token_embeddings = self.encoder._token_embeddings(question)
             prepared = prepare_training_example(self.tokenizer, question, answer)
             context_embeds = self.latent_loop.embed_tokens(prepared.context_input_ids)
-            context_prefix = self.latent_loop.tap_adapter.prepare_prefix(
-                context_embeds
-            )
+            tap_adapter = self.latent_loop.tap_adapter
+            if tap_adapter is None:
+                raise RuntimeError("EGGROLL trainer requires a Qwen tap adapter")
+            context_prefix = tap_adapter.prepare_prefix(context_embeds)
             answer_ids = prepared.answer_ids.to(self.device)
             teacher_state = prompt_teacher_state(
                 self.latent_loop.model,
@@ -309,30 +294,31 @@ class EggrollTrainer:
         candidates: list[SignedPerturbationSet],
     ) -> tuple[list[float], float, float]:
         """Evaluate one record and release its activations before the next record."""
-        token_embeddings, context_embeds, answer_ids, teacher_state, context_prefix = (
-            self._prepare_fitness_record(question, answer)
+        token_embeddings, context_embeds, answer_ids, teacher_state, context_prefix = self._prepare_fitness_record(
+            question, answer
         )
         record_fitnesses: list[float] = []
         language_model_loss_total = 0.0
         variance_total = 0.0
-        with torch.inference_mode(), torch.autocast(
-            device_type=torch.device(self.device).type,
-            dtype=torch.float16,
-            enabled=self.use_amp,
+        with (
+            torch.inference_mode(),
+            torch.autocast(
+                device_type=torch.device(self.device).type,
+                dtype=torch.float16,
+                enabled=self.use_amp,
+            ),
         ):
             for start in range(0, self.pop_size, self.eval_batch_size):
                 stop = min(start + self.eval_batch_size, self.pop_size)
                 perturbations = candidates[start:stop]
-                batch_fitness, batch_losses, batch_variances = (
-                    self._forward_fitness_batch(
-                        token_embeddings,
-                        context_embeds,
-                        answer_ids,
-                        perturbations,
-                        teacher_state,
-                        eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
-                        context_prefix=context_prefix,
-                    )
+                batch_fitness, batch_losses, batch_variances = self._forward_fitness_batch(
+                    token_embeddings,
+                    context_embeds,
+                    answer_ids,
+                    perturbations,
+                    teacher_state,
+                    eos_token_id=getattr(self.tokenizer, "eos_token_id", None),
+                    context_prefix=context_prefix,
                 )
                 record_fitnesses.extend(batch_fitness.tolist())
                 language_model_loss_total += sum(batch_losses.tolist())
@@ -387,10 +373,7 @@ class EggrollTrainer:
             variance_total += record_variance_total
 
         consumed_record_count = fitness_batch.consumed_record_count
-        fitnesses = [
-            fitness_total / consumed_record_count
-            for fitness_total in candidate_fitness_totals
-        ]
+        fitnesses = [fitness_total / consumed_record_count for fitness_total in candidate_fitness_totals]
         apply_factorized_update(
             self.trainable_params,
             self.optimizer,
@@ -400,9 +383,7 @@ class EggrollTrainer:
             rank=self.rank,
         )
 
-        language_model_loss = language_model_loss_total / (
-            consumed_record_count * self.pop_size
-        )
+        language_model_loss = language_model_loss_total / (consumed_record_count * self.pop_size)
         total_objective = -sum(fitnesses) / len(fitnesses)
         if position is None:
             position = ExperimentPosition(
@@ -434,8 +415,6 @@ class EggrollTrainer:
         optimizer_call_count: int = 1,
     ) -> StepResult:
         """Apply one EGGROLL update for compatibility with one-record callers."""
-        from eval.stream.generators.asdiv_a import AsdivRecord
-
         current_position = 0 if position is None else position.example_position
         fitness_batch = FitnessBatch(
             records=(
@@ -490,6 +469,8 @@ class EggrollTrainer:
             min_var = min(min_var, result.shared_variance)
             max_var = max(max_var, result.shared_variance)
             if on_step is not None:
+                if result.next_example_position is None:
+                    raise RuntimeError("EGGROLL trainer did not return the next example position")
                 on_step(result.next_example_position - 1, len(records), result)
             cursor = fitness_batch.next_position
 

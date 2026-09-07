@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 import numpy as np
@@ -64,9 +65,7 @@ def test_benchmark_protocol_restores_and_alternates_complete_steps() -> None:
     assert results["optimized"].peak_allocated_bytes == 300
     assert results["reference"].consumed_examples_per_step == 8
     assert results["optimized"].consumed_examples_per_step == 8
-    assert results["reference"].durations_seconds_per_consumed_example == (
-        0.125,
-    ) * 5
+    assert results["reference"].durations_seconds_per_consumed_example == (0.125,) * 5
     assert results["optimized"].median_seconds_per_consumed_example == 0.125
     assert results["reference"].peak_allocated_bytes_per_consumed_example == 50.0
     assert results["optimized"].peak_allocated_bytes_per_consumed_example == 37.5
@@ -93,7 +92,7 @@ def test_performance_gate_rejects_insufficient_speedup() -> None:
 
     with pytest.raises(
         benchmark_eggroll.BenchmarkPerformanceError,
-        match="speedup_ratio=2.900000",
+        match=re.escape("speedup_ratio=2.900000"),
     ):
         benchmark_eggroll._performance_gate(measurements)
 
@@ -109,6 +108,23 @@ def test_performance_gate_rejects_peak_memory_increase() -> None:
         match="optimized_peak_allocated_bytes=301",
     ):
         benchmark_eggroll._performance_gate(measurements)
+
+
+# covers: train/eggroll-execution::CUDA benchmark proves a material speed improvement::Performance gate passes
+def test_performance_gate_passes_at_three_x_speedup_and_no_memory_growth() -> None:
+    measurements = {
+        "reference": benchmark_eggroll.PathMeasurements((3.0,) * 5, 3.0, 400),
+        "optimized": benchmark_eggroll.PathMeasurements((1.0,) * 5, 1.0, 400),
+    }
+
+    gate = benchmark_eggroll._performance_gate(measurements)
+
+    assert gate == {
+        "passed": True,
+        "minimum_speedup_ratio": 3.0,
+        "speed_passed": True,
+        "memory_passed": True,
+    }
 
 
 def test_main_writes_one_json_object(monkeypatch: Any, capsys: Any) -> None:

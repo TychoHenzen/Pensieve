@@ -109,7 +109,6 @@ class JointBaseline(Subject):
         }
 
     def restore(self, state: object) -> None:
-        state = state  # type: ignore[assignment]
         self._model.load_state_dict(state["model_state"])  # type: ignore[index]
         self._optimizer.load_state_dict(state["optimizer_state"])  # type: ignore[index]
         self._examples = copy.deepcopy(state["examples"])  # type: ignore[index]

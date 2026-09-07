@@ -15,7 +15,6 @@ from core.latent_loop import LatentLoop
 from core.qwen_tap import PreparedQwenPrefix, QwenTapAdapter
 from workspace.concept_slots import Workspace
 
-
 WIDTH = 896
 CONTEXT_LENGTH = 3
 SLOT_COUNT = 4
@@ -154,9 +153,7 @@ class _PartialQwenBody(nn.Module):
             _attn_implementation="eager",
             is_causal=True,
         )
-        self.layers = nn.ModuleList(
-            [_DecoderBlockSpy(layer_index) for layer_index in range(24)]
-        )
+        self.layers = nn.ModuleList([_DecoderBlockSpy(layer_index) for layer_index in range(24)])
         self.rotary_emb = _RotarySpy()
         self.norm = _CallSpy("final model norm")
 
@@ -196,9 +193,7 @@ def _hidden_states(
     default = torch.full((1, SEQUENCE_LENGTH, WIDTH), -3.0)
     states = [default.clone() for _ in range(count)]
     if count > 12:
-        states[12] = (
-            hidden_at_tap.clone() if hidden_at_tap is not None else default.clone()
-        )
+        states[12] = hidden_at_tap.clone() if hidden_at_tap is not None else default.clone()
     return tuple(states)
 
 
@@ -236,15 +231,11 @@ class _TapAdapterSpy:
     ) -> torch.Tensor:
         hidden_states = self.model.hidden_states
         if len(hidden_states) <= 12:
-            raise ValueError(
-                f"expected hidden-state tuple with index 12, actual length {len(hidden_states)}"
-            )
+            raise ValueError(f"expected hidden-state tuple with index 12, actual length {len(hidden_states)}")
         tapped = hidden_states[12]
         expected = (1, context_length + slots.shape[0], WIDTH)
         if tuple(tapped.shape) != expected:
-            raise ValueError(
-                f"expected hidden state shape {expected}, actual {tuple(tapped.shape)}"
-            )
+            raise ValueError(f"expected hidden state shape {expected}, actual {tuple(tapped.shape)}")
         return tapped[0, -slots.shape[0] :, :]
 
 
@@ -261,9 +252,7 @@ def _loop(hidden_states: tuple[torch.Tensor, ...], *, num_steps: int = 1) -> Lat
 
 def _workspace() -> Workspace:
     workspace = Workspace(slot_count=SLOT_COUNT)
-    values = torch.arange(SLOT_COUNT * WIDTH, dtype=torch.float32).reshape(
-        SLOT_COUNT, WIDTH
-    )
+    values = torch.arange(SLOT_COUNT * WIDTH, dtype=torch.float32).reshape(SLOT_COUNT, WIDTH)
     workspace.write_slots(values / WIDTH)
     return workspace
 
@@ -305,9 +294,7 @@ def test_qwen_tap_full_reference_preserves_unbatched_slot_autograd() -> None:
     model = _DifferentiableQwen()
     adapter = QwenTapAdapter(model)
     context = torch.ones(CONTEXT_LENGTH, WIDTH)
-    slots = torch.linspace(-1.0, 1.0, SLOT_COUNT * WIDTH).reshape(
-        SLOT_COUNT, WIDTH
-    )
+    slots = torch.linspace(-1.0, 1.0, SLOT_COUNT * WIDTH).reshape(SLOT_COUNT, WIDTH)
     slots.requires_grad_(True)
 
     selected = adapter.full_reference(context, slots)
@@ -320,9 +307,7 @@ def test_qwen_tap_full_reference_preserves_unbatched_slot_autograd() -> None:
     assert model.scale.requires_grad is False
     call = model.calls[0]
     assert call["inputs_embeds"].shape == (1, SEQUENCE_LENGTH, WIDTH)
-    assert torch.equal(
-        call["position_ids"], torch.arange(SEQUENCE_LENGTH).unsqueeze(0)
-    )
+    assert torch.equal(call["position_ids"], torch.arange(SEQUENCE_LENGTH).unsqueeze(0))
     assert torch.all(call["attention_mask"] == 1)
     assert call["output_hidden_states"] is True
 
@@ -353,9 +338,7 @@ def test_qwen_tap_full_reference_accepts_candidate_slots_and_shared_context() ->
 
 
 def test_qwen_tap_full_reference_validates_tapped_hidden_shape() -> None:
-    adapter = QwenTapAdapter(
-        _FakeQwen(_hidden_states(torch.zeros(1, SEQUENCE_LENGTH, WIDTH - 1)))
-    )
+    adapter = QwenTapAdapter(_FakeQwen(_hidden_states(torch.zeros(1, SEQUENCE_LENGTH, WIDTH - 1))))
 
     with pytest.raises(
         ValueError,
@@ -381,30 +364,20 @@ def test_qwen_tap_prefix_is_detached_and_candidate_caches_are_independent() -> N
     context.requires_grad_(True)
 
     prefix = adapter.prepare_prefix(context)
-    original = tuple(
-        (key.clone(), value.clone()) for key, value in prefix.layer_key_values
-    )
+    original = tuple((key.clone(), value.clone()) for key, value in prefix.layer_key_values)
     first_cache = adapter.fresh_candidate_cache(prefix, candidate_batch_size=3)
 
     assert prefix.context_length == CONTEXT_LENGTH
     assert len(prefix.layer_key_values) == 12
     assert all(
-        not tensor.requires_grad and tensor.grad_fn is None
-        for layer in prefix.layer_key_values
-        for tensor in layer
+        not tensor.requires_grad and tensor.grad_fn is None for layer in prefix.layer_key_values for tensor in layer
     )
     assert context.grad is None
     call = model.calls[0]
     assert call["use_cache"] is True
-    assert torch.equal(
-        call["attention_mask"], torch.ones(1, CONTEXT_LENGTH, dtype=torch.long)
-    )
-    assert torch.equal(
-        call["position_ids"], torch.arange(CONTEXT_LENGTH).unsqueeze(0)
-    )
-    for layer_index, (stored_key, stored_value) in enumerate(
-        prefix.layer_key_values
-    ):
+    assert torch.equal(call["attention_mask"], torch.ones(1, CONTEXT_LENGTH, dtype=torch.long))
+    assert torch.equal(call["position_ids"], torch.arange(CONTEXT_LENGTH).unsqueeze(0))
+    for layer_index, (stored_key, stored_value) in enumerate(prefix.layer_key_values):
         assert torch.equal(
             first_cache.layers[layer_index].keys,
             stored_key.expand(3, -1, -1, -1),
@@ -414,8 +387,7 @@ def test_qwen_tap_prefix_is_detached_and_candidate_caches_are_independent() -> N
             stored_value.expand(3, -1, -1, -1),
         )
         assert (
-            first_cache.layers[layer_index].keys.untyped_storage().data_ptr()
-            == stored_key.untyped_storage().data_ptr()
+            first_cache.layers[layer_index].keys.untyped_storage().data_ptr() == stored_key.untyped_storage().data_ptr()
         )
         assert (
             first_cache.layers[layer_index].values.untyped_storage().data_ptr()
@@ -525,9 +497,7 @@ def test_qwen_tap_cached_partial_stops_after_block_11_and_omits_logits() -> None
         assert call["use_cache"] is True
         assert torch.equal(
             call["position_ids"],
-            torch.arange(CONTEXT_LENGTH, SEQUENCE_LENGTH)
-            .unsqueeze(0)
-            .expand(candidate_count, -1),
+            torch.arange(CONTEXT_LENGTH, SEQUENCE_LENGTH).unsqueeze(0).expand(candidate_count, -1),
         )
     assert all(not block.calls for block in model.model.layers[12:])
 
@@ -535,11 +505,16 @@ def test_qwen_tap_cached_partial_stops_after_block_11_and_omits_logits() -> None
     query_positions = torch.arange(CONTEXT_LENGTH, SEQUENCE_LENGTH)
     key_positions = torch.arange(SEQUENCE_LENGTH)
     allowed = key_positions.unsqueeze(0) <= query_positions.unsqueeze(1)
-    expected_mask = torch.where(
-        allowed,
-        torch.tensor(0.0),
-        torch.finfo(slots.dtype).min,
-    ).unsqueeze(0).unsqueeze(0).expand(candidate_count, -1, -1, -1)
+    expected_mask = (
+        torch.where(
+            allowed,
+            torch.tensor(0.0),
+            torch.finfo(slots.dtype).min,
+        )
+        .unsqueeze(0)
+        .unsqueeze(0)
+        .expand(candidate_count, -1, -1, -1)
+    )
     assert torch.equal(causal_mask, expected_mask)
 
 
@@ -593,9 +568,7 @@ def test_qwen_tap_cached_partial_requires_decoder_body_structure() -> None:
 
 # covers: core/latent-loop::Latent loop feeds hidden state back as input::hidden state feedback
 def test_qwen_step_uses_hidden_state_12_final_slot_slice_and_declared_equation() -> None:
-    hidden = torch.arange(
-        SEQUENCE_LENGTH * WIDTH, dtype=torch.float32
-    ).reshape(1, SEQUENCE_LENGTH, WIDTH) / 1000
+    hidden = torch.arange(SEQUENCE_LENGTH * WIDTH, dtype=torch.float32).reshape(1, SEQUENCE_LENGTH, WIDTH) / 1000
     loop = _loop(_hidden_states(hidden))
     workspace = _workspace()
     slots = workspace.read_slots().clone()
@@ -660,16 +633,12 @@ def test_qwen_step_rejects_each_incompatible_hidden_state_shape(
 
 # covers: core/latent-loop::Latent loop feeds hidden state back as input::no intermediate tokens
 def test_qwen_run_reuses_updated_slots_without_intermediate_tokens() -> None:
-    hidden = torch.arange(
-        SEQUENCE_LENGTH * WIDTH, dtype=torch.float32
-    ).reshape(1, SEQUENCE_LENGTH, WIDTH)
+    hidden = torch.arange(SEQUENCE_LENGTH * WIDTH, dtype=torch.float32).reshape(1, SEQUENCE_LENGTH, WIDTH)
     loop = _loop(_hidden_states(hidden), num_steps=3)
     workspace = _workspace()
     context = torch.full((CONTEXT_LENGTH, WIDTH), 4.0)
     initial = workspace.read_slots().clone()
-    first_update = loop.layer_norm(
-        loop.proj_norm(loop.projection(hidden[0, -SLOT_COUNT:, :])) + 0.5 * initial
-    )
+    first_update = loop.layer_norm(loop.proj_norm(loop.projection(hidden[0, -SLOT_COUNT:, :])) + 0.5 * initial)
 
     loop.run(workspace, context)
 

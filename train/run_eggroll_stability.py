@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
-from functools import partial
 import json
 import math
 import os
-from pathlib import Path
 import sys
 import time
+from collections.abc import Sequence
+from functools import partial
+from pathlib import Path
 
 import torch
 
@@ -47,9 +47,7 @@ from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description="Run the bounded absolute-health gate for fresh Stage 0 EGGROLL."
-    )
+    parser = argparse.ArgumentParser(description="Run the bounded absolute-health gate for fresh Stage 0 EGGROLL.")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--progress-output", type=Path, default=None)
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
@@ -59,9 +57,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lr", type=float, default=DEFAULT_LR)
     parser.add_argument("--rank", type=int, default=DEFAULT_RANK)
     parser.add_argument("--eval-batch-size", type=int, default=DEFAULT_EVAL_BATCH_SIZE)
-    parser.add_argument(
-        "--fitness-batch-size", type=int, default=DEFAULT_FITNESS_BATCH_SIZE
-    )
+    parser.add_argument("--fitness-batch-size", type=int, default=DEFAULT_FITNESS_BATCH_SIZE)
     parser.add_argument("--variance-weight", type=float, default=DEFAULT_VARIANCE_WEIGHT)
     parser.add_argument(
         "--prompt-alignment-weight",
@@ -101,13 +97,9 @@ def _load_fresh_records():
     training_records = dataset.training_records(mode="eggroll", epoch=1)
     held_out_records = dataset.held_out_records()
     if len(training_records) < DEVELOPMENT_EXAMPLE_COUNT:
-        raise ValueError(
-            f"Stage 0 requires at least {DEVELOPMENT_EXAMPLE_COUNT} train records"
-        )
+        raise ValueError(f"Stage 0 requires at least {DEVELOPMENT_EXAMPLE_COUNT} train records")
     if len(held_out_records) < BASELINE_PROBLEM_COUNT:
-        raise ValueError(
-            f"Stage 0 requires at least {BASELINE_PROBLEM_COUNT} validation records"
-        )
+        raise ValueError(f"Stage 0 requires at least {BASELINE_PROBLEM_COUNT} validation records")
     selected_train = tuple(training_records[:DEVELOPMENT_EXAMPLE_COUNT])
     selected_held_out = tuple(held_out_records[:BASELINE_PROBLEM_COUNT])
     if any(record.split != "train" for record in selected_train):
@@ -150,9 +142,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if output_identity == progress_identity:
         raise ValueError("--output and --progress-output must use distinct paths")
     if args.output.exists() or progress_path.exists():
-        raise FileExistsError(
-            f"refusing to overwrite stability output: {args.output} or {progress_path}"
-        )
+        raise FileExistsError(f"refusing to overwrite stability output: {args.output} or {progress_path}")
     progress_path.parent.mkdir(parents=True, exist_ok=True)
     configure_deterministic_runtime()
     repository_root = Path(__file__).resolve().parents[1]

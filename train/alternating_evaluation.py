@@ -1,4 +1,4 @@
-"""Held-out Calc-MAWPS evaluation for the alternating training experiment.
+"""Held-out Calc-ASDiv_A evaluation for the alternating training experiment.
 
 The evaluator is deliberately separate from either update engine.  It uses
 the shared model objects in read-only mode and returns the common evaluation
@@ -14,8 +14,9 @@ from typing import Protocol
 import torch
 from torch import nn
 
+from codecs_module.decoder import SlotDecoder
 from eval.gate.answer_scoring import score_numerical_answer
-from eval.stream.generators.calc_mawps import CalcMawpsRecord
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train.answer_objective import (
     SUBJECT_LATENT_RUNS_PER_ANSWER,
     decoder_aligned_answer_loss,
@@ -23,13 +24,14 @@ from train.answer_objective import (
 )
 from train.training_results import EvaluationResult, ExperimentPosition
 from train.vicreg import post_loop_slot_variance
+from workspace.concept_slots import Workspace
 
 DEFAULT_EVAL_PROBLEM_COUNT = 128
 
 
 @dataclass(frozen=True)
 class HeldOutProblem:
-    """One fixed Calc-MAWPS question and its normalized numerical answer."""
+    """One fixed Calc-ASDiv_A question and its normalized numerical answer."""
 
     question: str
     answer: str
@@ -38,14 +40,14 @@ class HeldOutProblem:
 class SharedModel(Protocol):
     """The shared components needed for an unperturbed evaluation pass."""
 
-    workspace: object
+    workspace: Workspace
     encoder: object
     latent_loop: object
     tokenizer: object
 
 
 def load_held_out_problems(
-    records: Sequence[CalcMawpsRecord],
+    records: Sequence[AsdivRecord],
     problem_count: int = DEFAULT_EVAL_PROBLEM_COUNT,
 ) -> list[HeldOutProblem]:
     """Convert the persisted seed-0 validation prefix into evaluator inputs.
@@ -56,30 +58,24 @@ def load_held_out_problems(
     if problem_count < 1:
         raise ValueError(f"problem_count must be at least 1, got {problem_count}")
     if problem_count > len(records):
-        raise ValueError(
-            f"problem_count must not exceed the {len(records)} persisted "
-            "validation records"
-        )
+        raise ValueError(f"problem_count must not exceed the {len(records)} persisted validation records")
     if any(record.split != "validation" for record in records):
         raise ValueError("held-out evaluation accepts only validation records")
 
-    return [
-        HeldOutProblem(record.question, record.target)
-        for record in records[:problem_count]
-    ]
+    return [HeldOutProblem(record.question, record.target) for record in records[:problem_count]]
 
 
 def evaluate_unperturbed(
     shared_model: SharedModel,
     problems: Sequence[HeldOutProblem],
     position: ExperimentPosition,
-    answer_decoder: Callable[[object], str] | None = None,
+    answer_decoder: Callable[[Workspace], str] | None = None,
 ) -> EvaluationResult:
     """Measure a shared model without updating its parameters or optimizers.
 
     Loss uses the same answer-token rule as gradient training.  Variance uses
     the canonical post-loop metric.  Generated answers are compared directly
-    with Calc-MAWPS's normalized numerical targets.
+    with Calc-ASDiv_A's normalized numerical targets.
     """
     if not problems:
         return EvaluationResult(position, 0.0, 0.0, 0.0)
@@ -103,9 +99,7 @@ def evaluate_unperturbed(
         correct = 0
         with torch.no_grad():
             for problem in problems:
-                prepared = prepare_training_example(
-                    tokenizer, problem.question, problem.answer
-                )
+                prepared = prepare_training_example(tokenizer, problem.question, problem.answer)
                 context_embeds = latent_loop.embed_tokens(  # type: ignore[attr-defined]
                     prepared.context_input_ids
                 )
@@ -125,7 +119,7 @@ def evaluate_unperturbed(
                 correct += int(score_numerical_answer(decoder(workspace), problem.answer))
     finally:
         workspace.restore(workspace_state)  # type: ignore[attr-defined]
-        for module, was_training in zip(modules, previous_modes):
+        for module, was_training in zip(modules, previous_modes, strict=True):
             module.train(was_training)
 
     total = len(problems)
@@ -146,8 +140,6 @@ def _evaluation_modules(*candidates: object) -> list[nn.Module]:
     return modules
 
 
-def _slot_decoder(language_model: object, tokenizer: object) -> Callable[[object], str]:
+def _slot_decoder(language_model: object, tokenizer: object) -> Callable[[Workspace], str]:
     """Build the real decoder only when generated answers are required."""
-    from codecs_module.decoder import SlotDecoder
-
     return SlotDecoder(language_model, tokenizer).decode

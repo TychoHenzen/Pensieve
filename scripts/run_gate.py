@@ -103,7 +103,12 @@ def _build_subject(method: str, device: str) -> Subject:
     """Return a freshly initialized baseline for `method` on `device`."""
     if method == "naive":
         return NaiveBaseline(
-            INPUT_DIM, OUTPUT_DIM, HIDDEN_LAYERS, HIDDEN_UNITS, LR, device=device,
+            INPUT_DIM,
+            OUTPUT_DIM,
+            HIDDEN_LAYERS,
+            HIDDEN_UNITS,
+            LR,
+            device=device,
         )
     if method == "ewc":
         return EWCBaseline(
@@ -169,9 +174,9 @@ def _read_probe_log(run_dir: Path) -> list[ProbeLogEntry]:
     """Read `run_dir`'s probe log back into `ProbeLogEntry` values."""
     path = run_dir / PROBE_LOG_FILENAME
     entries: list[ProbeLogEntry] = []
-    with open(path, "r", encoding="utf-8") as handle:
-        for line in handle:
-            line = line.strip()
+    with open(path, encoding="utf-8") as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
             if not line:
                 continue
             raw = json.loads(line)
@@ -181,7 +186,11 @@ def _read_probe_log(run_dir: Path) -> list[ProbeLogEntry]:
 
 
 def _execute_run(
-    method: str, seed: int, run_dir: Path, data_dir: str, deterministic: bool,
+    method: str,
+    seed: int,
+    run_dir: Path,
+    data_dir: str,
+    deterministic: bool,
     device: str = "cpu",
 ) -> Path:
     """Seed every RNG, build `method`'s subject, and drive it through the gate stream."""
@@ -207,7 +216,11 @@ def _seed_accuracy(run_dir: Path) -> float:
 
 
 def _check_reproducibility(
-    method: str, seed: int, base_dir: Path, data_dir: str, deterministic: bool,
+    method: str,
+    seed: int,
+    base_dir: Path,
+    data_dir: str,
+    deterministic: bool,
     device: str = "cpu",
 ) -> bool:
     """Run `method` at `seed` twice under deterministic mode and compare probe logs.
@@ -228,27 +241,19 @@ def _check_reproducibility(
     return log_a == log_b
 
 
-def _evaluate_criteria(
-    summary: dict[str, Any], seeds: list[int], reproducibility: dict[str, bool]
-) -> dict[str, bool]:
+def _evaluate_criteria(summary: dict[str, Any], seeds: list[int], reproducibility: dict[str, bool]) -> dict[str, bool]:
     """Check `summary` and `reproducibility` against pass_condition.md's five criteria."""
     criterion_1 = all(
-        PASS_BANDS[method][0] <= summary[method]["mean"] <= PASS_BANDS[method][1]
-        for method in PASS_BANDS
+        PASS_BANDS[method][0] <= summary[method]["mean"] <= PASS_BANDS[method][1] for method in PASS_BANDS
     )
     criterion_2 = all(
-        (summary[method]["mean"] < bound)
-        if direction == "below"
-        else (summary[method]["mean"] > bound)
+        (summary[method]["mean"] < bound) if direction == "below" else (summary[method]["mean"] > bound)
         for method, (direction, bound) in QUALITATIVE_BANDS.items()
     )
     criterion_3 = (
-        summary["replay"]["mean"] > summary["ewc"]["mean"]
-        and summary["replay"]["mean"] > summary["naive"]["mean"]
+        summary["replay"]["mean"] > summary["ewc"]["mean"] and summary["replay"]["mean"] > summary["naive"]["mean"]
     )
-    criterion_4 = len(seeds) >= MIN_SEEDS and all(
-        len(summary[method]["accuracies"]) >= MIN_SEEDS for method in summary
-    )
+    criterion_4 = len(seeds) >= MIN_SEEDS and all(len(summary[method]["accuracies"]) >= MIN_SEEDS for method in summary)
     criterion_5 = all(reproducibility.values())
 
     return {
@@ -267,7 +272,7 @@ def _print_summary(report: dict[str, Any]) -> None:
         print(
             f"{method:8s} mean={stats['mean']:.2f}%  std={stats['std']:.2f}%  "
             f"total={stats['total_seconds']:.1f}s  "
-            f"accuracies={['%.2f' % a for a in stats['accuracies']]}"
+            f"accuracies={[f'{a:.2f}' for a in stats['accuracies']]}"
         )
     print()
     for name, passed in report["criteria"].items():
@@ -320,7 +325,12 @@ def main() -> None:
             run_dir = output_dir / method / f"seed{seed}"
             seed_start = time.monotonic()
             _execute_run(
-                method, seed, run_dir, args.data_dir, args.deterministic, device,
+                method,
+                seed,
+                run_dir,
+                args.data_dir,
+                args.deterministic,
+                device,
             )
             seed_elapsed = time.monotonic() - seed_start
             accuracy = _seed_accuracy(run_dir)
@@ -347,7 +357,12 @@ def main() -> None:
 
     reproducibility = {
         method: _check_reproducibility(
-            method, seeds[0], output_dir, args.data_dir, args.deterministic, device,
+            method,
+            seeds[0],
+            output_dir,
+            args.data_dir,
+            args.deterministic,
+            device,
         )
         for method in METHODS
     }

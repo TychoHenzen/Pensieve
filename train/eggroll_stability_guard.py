@@ -42,9 +42,7 @@ def load_guarded_stability_report(
     asset_identity = actual.get("asset_identity")
     if not isinstance(asset_identity, Mapping):
         # The strict parser normally rejects this. Keep this guard explicit for callers.
-        raise StabilityReportValidationError(
-            ("$.configuration.asset_identity: expected object",)
-        )
+        raise StabilityReportValidationError(("$.configuration.asset_identity: expected object",))
     held_out_item_ids = asset_identity.get("held_out_item_ids")
     if (
         not isinstance(held_out_item_ids, list)
@@ -55,14 +53,10 @@ def load_guarded_stability_report(
         raise StabilityReportValidationError(
             (
                 "$.configuration.asset_identity.held_out_item_ids: expected "
-                f"{BASELINE_PROBLEM_COUNT} unique non-empty strings",
-            )
+                f"{BASELINE_PROBLEM_COUNT} unique non-empty strings"
+            ),
         )
-    root = (
-        Path(repository_root).resolve()
-        if repository_root is not None
-        else Path(__file__).resolve().parents[1]
-    )
+    root = Path(repository_root).resolve() if repository_root is not None else Path(__file__).resolve().parents[1]
     expected_configuration: dict[str, Any] = {
         "asset_identity": training_identity(
             runtime=runtime_identity(),
@@ -91,11 +85,7 @@ def load_guarded_stability_report(
         **dict(STAGE0_IDENTITY),
         **expected_configuration["asset_identity"],
     }
-    loader = (
-        load_compatible_stability_report
-        if require_passing
-        else load_matching_stability_report
-    )
+    loader = load_compatible_stability_report if require_passing else load_matching_stability_report
     return loader(path, expected_configuration)
 
 

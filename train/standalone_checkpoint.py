@@ -4,20 +4,21 @@ from __future__ import annotations
 
 import importlib.metadata
 import os
-from pathlib import Path
 import platform
 import random
 import re
-from typing import Any, Mapping
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, cast
 
 import numpy as np
 import torch
 from safetensors.torch import save as save_safetensors
 
-from eval.stage0_identity import CALC_MAWPS_REVISION
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsSelection,
-    calc_mawps_selection_identity,
+from eval.stage0_identity import ASDIV_REVISION
+from eval.stream.generators.asdiv_a import (
+    AsdivSelection,
+    asdiv_a_selection_identity,
 )
 from train.stage0_checkpoint import (
     ALLOWED_MODEL_PARAMETER_PATHS,
@@ -68,20 +69,18 @@ def runtime_identity() -> dict[str, object]:
     }
 
 
-def selection_metadata(
-    selection: CalcMawpsSelection, count: int | None
-) -> dict[str, object]:
+def selection_metadata(selection: AsdivSelection, count: int | None) -> dict[str, Any]:
     normalized_count = selection.problem_count if count is None else count
     records = selection.records[:normalized_count]
     identity = (
         selection.identity
         if normalized_count == selection.problem_count
-        else calc_mawps_selection_identity(
+        else asdiv_a_selection_identity(
             records=records,
             split=selection.split,
             seed=selection.seed,
             problem_count=normalized_count,
-            revision=CALC_MAWPS_REVISION,
+            revision=ASDIV_REVISION,
         )
     )
     return {
@@ -127,11 +126,7 @@ def _optimizer_manifest(
     tensors: dict[str, torch.Tensor],
     tensor_manifest: list[dict[str, object]],
 ) -> dict[str, object]:
-    parameter_names = list(
-        EGGROLL_MODEL_PARAMETER_PATHS
-        if method == "eggroll"
-        else ALLOWED_MODEL_PARAMETER_PATHS
-    )
+    parameter_names = list(EGGROLL_MODEL_PARAMETER_PATHS if method == "eggroll" else ALLOWED_MODEL_PARAMETER_PATHS)
     state = optimizer.state_dict()
     groups = state["param_groups"]
     if len(groups) != 1 or len(groups[0]["params"]) != len(parameter_names):
@@ -148,7 +143,7 @@ def _optimizer_manifest(
             raise ValueError(f"optimizer group scalar {key!r} is not JSON-compatible")
     scalar_state: dict[str, dict[str, object]] = {}
     references: dict[str, dict[str, str]] = {}
-    for name, parameter_id in zip(parameter_names, groups[0]["params"]):
+    for name, parameter_id in zip(parameter_names, groups[0]["params"], strict=True):
         scalar_state[name] = {}
         references[name] = {}
         for state_name, value in state["state"].get(parameter_id, {}).items():
@@ -168,9 +163,7 @@ def _optimizer_manifest(
         "method": method,
         "optimizer_type": type(optimizer).__name__,
         "parameter_names": parameter_names,
-        "parameter_groups": [
-            {"parameter_names": parameter_names, "scalars": scalars}
-        ],
+        "parameter_groups": [{"parameter_names": parameter_names, "scalars": scalars}],
         "scalar_state": scalar_state,
         "tensor_references": references,
     }
@@ -198,10 +191,8 @@ def build_checkpoint(
         tensor = model_state[name].detach().cpu().contiguous().clone()
         tensors[tensor_name] = tensor
         tensor_manifest.append(_manifest(tensor_name, tensor, "model_parameter"))
-    optimizer_manifest = _optimizer_manifest(
-        mode, optimizer, tensors, tensor_manifest
-    )
-    numpy_state = np.random.get_state()
+    optimizer_manifest = _optimizer_manifest(mode, optimizer, tensors, tensor_manifest)
+    numpy_state = cast(tuple[str, np.ndarray, int, int, float], np.random.get_state())
     numpy_tensor = torch.from_numpy(np.asarray(numpy_state[1], dtype=np.uint32).copy())
     tensors["rng.numpy.state"] = numpy_tensor
     tensor_manifest.append(_manifest("rng.numpy.state", numpy_tensor, "numpy_rng_state"))
@@ -222,9 +213,7 @@ def build_checkpoint(
         saved_metrics.update(
             {
                 "consumed_examples": saved_schedule["consumed_examples"],
-                "eggroll_optimizer_calls": saved_schedule[
-                    "eggroll_optimizer_calls"
-                ],
+                "eggroll_optimizer_calls": saved_schedule["eggroll_optimizer_calls"],
             }
         )
     metadata = {
@@ -273,9 +262,7 @@ def save_checkpoint(path: str | Path, checkpoint: LoadedCheckpointContainer) -> 
 def load_checkpoint(path: str | Path, *, expected_mode: str) -> LoadedCheckpointContainer:
     loaded = read_checkpoint_container(path)
     if loaded.metadata["mode"] != expected_mode:
-        raise ValueError(
-            f"$.mode: expected {expected_mode!r}, got {loaded.metadata['mode']!r}"
-        )
+        raise ValueError(f"$.mode: expected {expected_mode!r}, got {loaded.metadata['mode']!r}")
     return loaded
 
 
@@ -314,9 +301,7 @@ def validate_compatibility(
             return paths
         return [] if actual == expected else [path]
 
-    conflicts = differences(
-        plain(checkpoint.metadata["identity"]), plain(identity), "$.identity"
-    )
+    conflicts = differences(plain(checkpoint.metadata["identity"]), plain(identity), "$.identity")
     conflicts.extend(
         differences(
             plain(checkpoint.metadata["selections"]),
@@ -330,14 +315,10 @@ def validate_compatibility(
             conflicts.append("$.run_config")
         else:
             guarded_checkpoint = {
-                key: value
-                for key, value in checkpoint_config.items()
-                if key not in {"epochs", "logging_frequency"}
+                key: value for key, value in checkpoint_config.items() if key not in {"epochs", "logging_frequency"}
             }
             guarded_resume = {
-                key: value
-                for key, value in run_config.items()
-                if key not in {"epochs", "logging_frequency"}
+                key: value for key, value in run_config.items() if key not in {"epochs", "logging_frequency"}
             }
             conflicts.extend(
                 differences(
@@ -347,23 +328,13 @@ def validate_compatibility(
                 )
             )
             epoch_target = run_config.get("epochs")
-            progress = (
-                int(checkpoint.metadata["schedule"]["epoch"])
-                if completed_epochs is None
-                else completed_epochs
-            )
-            if (
-                not isinstance(epoch_target, int)
-                or isinstance(epoch_target, bool)
-                or epoch_target < progress
-            ):
+            progress = int(checkpoint.metadata["schedule"]["epoch"]) if completed_epochs is None else completed_epochs
+            if not isinstance(epoch_target, int) or isinstance(epoch_target, bool) or epoch_target < progress:
                 conflicts.append("$.run_config.epochs")
     if learning_rate is not None:
         saved_lr = checkpoint.metadata["optimizer_manifests"][0]["parameter_groups"][0]["scalars"].get("lr")
         if saved_lr != learning_rate:
-            conflicts.append(
-                "$.optimizer_manifests[0].parameter_groups[0].scalars.lr"
-            )
+            conflicts.append("$.optimizer_manifests[0].parameter_groups[0].scalars.lr")
     if conflicts:
         raise ValueError("incompatible resume configuration: " + ", ".join(conflicts))
 
@@ -391,14 +362,12 @@ def restore_checkpoint(
     if len(parameter_ids) != len(names) or len(parameters) != len(names):
         incompatibilities.append("$.optimizer_manifests[0].parameter_names")
     restored_state: dict[int, dict[str, object]] = {}
-    for parameter_id, parameter, name in zip(parameter_ids, parameters, names):
+    for parameter_id, parameter, name in zip(parameter_ids, parameters, names, strict=True):
         values = dict(manifest["scalar_state"][name])
         for state_name, tensor_name in manifest["tensor_references"][name].items():
             tensor = checkpoint.tensors[tensor_name]
             if tensor.shape != parameter.shape:
-                incompatibilities.append(
-                    f"$.optimizer_manifests[0].tensor_references.{name}.{state_name}"
-                )
+                incompatibilities.append(f"$.optimizer_manifests[0].tensor_references.{name}.{state_name}")
             values[state_name] = tensor
         if values:
             restored_state[parameter_id] = values
@@ -418,9 +387,7 @@ def restore_checkpoint(
         for name, parameter in model_parameters.items():
             parameter.copy_(checkpoint.tensors[f"model.{name}"])
     optimizer.load_state_dict(optimizer_state)
-    random.setstate(
-        (python_rng["version"], tuple(python_rng["state"]), python_rng["gaussian_cache"])
-    )
+    random.setstate((python_rng["version"], tuple(python_rng["state"]), python_rng["gaussian_cache"]))
     np.random.set_state(
         (
             numpy_rng["bit_generator"],
@@ -432,9 +399,7 @@ def restore_checkpoint(
     )
     torch.set_rng_state(checkpoint.tensors[rng["pytorch_cpu"]["state_tensor"]])
     if rng["cuda"]:
-        torch.cuda.set_rng_state_all(
-            [checkpoint.tensors[item["state_tensor"]] for item in rng["cuda"]]
-        )
+        torch.cuda.set_rng_state_all([checkpoint.tensors[item["state_tensor"]] for item in rng["cuda"]])
 
 
 def latest_epoch_checkpoint(directory: str | Path) -> Path | None:

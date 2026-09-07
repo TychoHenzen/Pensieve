@@ -27,7 +27,7 @@ def derive(seed: int, name: str) -> random.Random:
     produces, and the result never depends on Python's per-process string
     hash salt.
     """
-    digest = hashlib.sha256(f"{seed}:{name}".encode("utf-8")).digest()
+    digest = hashlib.sha256(f"{seed}:{name}".encode()).digest()
     return random.Random(int.from_bytes(digest, "big"))
 
 

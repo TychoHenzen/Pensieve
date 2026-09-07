@@ -8,7 +8,7 @@ from torch import nn
 
 from eval.gate import latent_eval
 from eval.gate.answer_scoring import score_numerical_answer
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, select_calc_mawps_records
+from eval.stream.generators.asdiv_a import AsdivRecord, select_asdiv_a_records
 
 
 def test_numerical_answer_scoring_extracts_last_generated_number() -> None:
@@ -41,20 +41,12 @@ class _Subject:
         self.latent_loop = _LatentLoop()
 
 
-def test_load_subject_uses_safe_v2_checkpoint_loader(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_subject_uses_safe_v2_checkpoint_loader(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     source_encoder = _Encoder()
     source_latent = _LatentLoop()
     tensors = {
-        **{
-            f"model.encoder.{name}": tensor.detach().clone()
-            for name, tensor in source_encoder.state_dict().items()
-        },
-        **{
-            f"model.latent_loop.{name}": tensor.detach().clone()
-            for name, tensor in source_latent.state_dict().items()
-        },
+        **{f"model.encoder.{name}": tensor.detach().clone() for name, tensor in source_encoder.state_dict().items()},
+        **{f"model.latent_loop.{name}": tensor.detach().clone() for name, tensor in source_latent.state_dict().items()},
     }
     checkpoint_path = tmp_path / "alternating.ckpt"
     checkpoint_path.write_bytes(b"safe-container-placeholder")
@@ -82,9 +74,7 @@ def test_load_subject_uses_safe_v2_checkpoint_loader(
         assert torch.equal(loaded.latent_loop.state_dict()[name], tensor), name
 
 
-def test_load_subject_rejects_legacy_pickle_suffix_before_loading(
-    tmp_path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_load_subject_rejects_legacy_pickle_suffix_before_loading(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     path = tmp_path / "legacy.pt"
     torch.save({"model_state": {}}, path)
     monkeypatch.setattr(
@@ -99,17 +89,15 @@ def test_load_subject_rejects_legacy_pickle_suffix_before_loading(
 
 def test_run_eval_configures_runtime_before_subject_construction() -> None:
     records = tuple(
-        CalcMawpsRecord(
-            id=f"mawps__test_{index:03d}",
+        AsdivRecord(
+            id=f"asdiv_a__test_{index:03d}",
             split="test",
             question=f"What is {index} plus zero?",
             target=str(index),
         )
         for index in range(520)
     )
-    ordered = select_calc_mawps_records(
-        {"test": records}, split="test", seed=0, problem_count=None
-    ).ordered_item_ids
+    ordered = select_asdiv_a_records({"test": records}, split="test", seed=0, problem_count=None).ordered_item_ids
     token_result = {
         "schema_version": 2,
         "identity": {
@@ -157,9 +145,7 @@ def test_main_configures_runtime_before_parsing_device_default(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     events: list[str] = []
-    monkeypatch.setattr(
-        latent_eval, "configure_deterministic_runtime", lambda: events.append("runtime")
-    )
+    monkeypatch.setattr(latent_eval, "configure_deterministic_runtime", lambda: events.append("runtime"))
 
     def stop_after_parse_boundary() -> object:
         assert events == ["runtime"]

@@ -68,7 +68,7 @@ A subject MAY implement a `read_only` flag that prevents learning during `answer
 
 ### Requirement: Perfect-memory oracle
 
-An oracle subject that stores every observed key-value pair and answers every probe correctly for any fact it has seen. [REQUIRED]
+An oracle subject that MUST store every observed key-value pair and answer every probe correctly for any fact it has seen. [REQUIRED]
 
 #### Scenario: recalls a fact at any distance
 
@@ -84,7 +84,7 @@ An oracle subject that stores every observed key-value pair and answers every pr
 
 ### Requirement: Forgetful oracle
 
-An oracle that remembers only the most recent item. It answers correctly if the probe asks about the last thing it saw. It answers wrong otherwise. [REQUIRED]
+An oracle that MUST remember only the most recent item. It MUST answer correctly if the probe asks about the last thing it saw, and wrong otherwise. [REQUIRED]
 
 #### Scenario: correct on immediate recall
 
@@ -110,7 +110,7 @@ An oracle that answers randomly from the vocabulary. Over enough probes, its acc
 
 ### Requirement: Task-wiper oracle
 
-An oracle that learns the current task perfectly and destroys the previous task's knowledge on every task switch. After a `Boundary(TASK_SWITCH)`, it forgets the task that just ended. [REQUIRED]
+An oracle that MUST learn the current task perfectly and destroy the previous task's knowledge on every task switch. After a `Boundary(TASK_SWITCH)`, it MUST forget the task that just ended. [REQUIRED]
 
 #### Scenario: current task correct, previous task at chance
 
@@ -120,7 +120,7 @@ An oracle that learns the current task perfectly and destroys the previous task'
 
 ### Requirement: Cheater oracle
 
-An oracle that learns from probes. It reads the truth answer during `answer()` and stores it. It exists solely to test that probe isolation catches it. [REQUIRED]
+An oracle that MUST learn from probes. It reads the truth answer during `answer()` and stores it. It exists solely to test that probe isolation catches it. [REQUIRED]
 
 #### Scenario: learns from probes when unprotected
 

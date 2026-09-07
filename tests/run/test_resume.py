@@ -12,9 +12,9 @@ from __future__ import annotations
 
 import json
 
+from eval.run import PROBE_LOG_FILENAME
 from eval.run.config import RunConfig
 from eval.run.runner import run
-from eval.run import PROBE_LOG_FILENAME
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
 from eval.stream.truth import ProbeTruth, StreamItem
@@ -80,17 +80,13 @@ def test_resume_with_chance_oracle_matches_unbroken_run(tmp_path):
     items = _make_items(30)  # 60 events total
 
     unbroken_subject = ChanceOracle(seed=7)
-    unbroken_config = _make_config(
-        tmp_path, subject="chance", checkpoint_interval_events=1000, seed=7
-    )
+    unbroken_config = _make_config(tmp_path, subject="chance", checkpoint_interval_events=1000, seed=7)
     unbroken_dir = run(unbroken_subject, items, unbroken_config, run_dir=tmp_path / "unbroken")
     unbroken_log = _read_log(unbroken_dir / PROBE_LOG_FILENAME)
 
     killed_dir = tmp_path / "resumed"
     killed_subject = ChanceOracle(seed=7)
-    killed_config = _make_config(
-        tmp_path, subject="chance", checkpoint_interval_events=25, seed=7
-    )
+    killed_config = _make_config(tmp_path, subject="chance", checkpoint_interval_events=25, seed=7)
     run(killed_subject, items[:25], killed_config, run_dir=killed_dir)
 
     resumed_subject = ChanceOracle(seed=7)

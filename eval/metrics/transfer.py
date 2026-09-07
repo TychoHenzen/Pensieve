@@ -43,9 +43,7 @@ def forward_transfer(
             continue
 
         teaching_position = task_entries[0].teaching_position
-        pre_teaching_entries = [
-            entry for entry in task_entries if entry.position < teaching_position
-        ]
+        pre_teaching_entries = [entry for entry in task_entries if entry.position < teaching_position]
         if not pre_teaching_entries:
             results.append(0.0)
             continue

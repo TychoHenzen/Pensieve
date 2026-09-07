@@ -1,4 +1,4 @@
-"""Slot-count ablation on persisted Calc-MAWPS/Qwen Stage 0 inputs."""
+"""Slot-count ablation on persisted Calc-ASDiv_A/Qwen Stage 0 inputs."""
 
 from __future__ import annotations
 
@@ -14,14 +14,13 @@ import torch
 from eval.gate.latent_eval import run_eval
 from eval.gate.result_cache import checkpoint_sha256, read_token_result, write_json_atomic
 from eval.gate.token_cot_baseline import prepare_baseline_request
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, load_calc_mawps_record_split
+from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
 from eval.subjects.latent_core import DEFAULT_NUM_STEPS
 from train.alternating_checkpoint import load_checkpoint
 from train.standalone_checkpoint import configure_deterministic_runtime
 
-
-DEFAULT_OUTPUT = Path("gate_results/calc_mawps_qwen/slot_ablation.json")
-DEFAULT_TOKEN_RESULT = Path("gate_results/calc_mawps_qwen/token_cot.json")
+DEFAULT_OUTPUT = Path("gate_results/asdiv_a_qwen/slot_ablation.json")
+DEFAULT_TOKEN_RESULT = Path("gate_results/asdiv_a_qwen/token_cot.json")
 SLOT_COUNTS = [1, 4, 8, 16, 32, 64]
 DEFAULT_SEEDS = [0, 1, 2]
 
@@ -62,16 +61,13 @@ def _validate_checkpoint_slot_count(
     checkpoint = checkpoint_loader(path)
     tensors = getattr(checkpoint, "tensors", None)
     if not isinstance(tensors, Mapping):
-        raise ValueError(f"{path} does not contain a checkpoint tensor mapping")
+        raise TypeError(f"{path} does not contain a checkpoint tensor mapping")
     slot_queries = tensors.get("model.encoder.slot_queries")
     if not isinstance(slot_queries, torch.Tensor) or slot_queries.ndim != 2:
         raise ValueError(f"{path} must contain two-dimensional model.encoder.slot_queries")
     stored_slot_count = int(slot_queries.shape[0])
     if stored_slot_count != requested_slot_count:
-        raise ValueError(
-            f"{path} contains {stored_slot_count} slots, not requested slot count "
-            f"{requested_slot_count}"
-        )
+        raise ValueError(f"{path} contains {stored_slot_count} slots, not requested slot count {requested_slot_count}")
     return checkpoint_sha256(path)
 
 
@@ -93,7 +89,7 @@ def _validated_runs(
         raise ValueError("latent result seed order is inconsistent")
     identity = result.get("identity")
     if not isinstance(identity, Mapping):
-        raise ValueError("latent result identity must be an object")
+        raise TypeError("latent result identity must be an object")
     expected_identity = copy.deepcopy(dict(expected_token_identity))
     expected_identity.update(
         {
@@ -127,11 +123,12 @@ def _validated_runs(
         items = run.get("items")
         if not isinstance(items, list) or len(items) != total:
             raise ValueError(f"latent result run {index} item coverage is inconsistent")
-        item_correct = [
-            item.get("correct")
-            for item in items
-            if isinstance(item, Mapping) and isinstance(item.get("correct"), bool)
-        ]
+        item_correct: list[bool] = []
+        for item in items:
+            if isinstance(item, Mapping):
+                item_score = item.get("correct")
+                if isinstance(item_score, bool):
+                    item_correct.append(item_score)
         if len(item_correct) != total or sum(item_correct) != correct:
             raise ValueError(f"latent result run {index} item scores are inconsistent")
         summaries.append(
@@ -154,17 +151,15 @@ def run_ablation(
     device: str,
     checkpoint_dir: Path,
     token_result_path: Path,
-    records: Sequence[CalcMawpsRecord] | None = None,
-    record_loader: Callable[[str], Sequence[CalcMawpsRecord]] = load_calc_mawps_record_split,
+    records: Sequence[AsdivRecord] | None = None,
+    record_loader: Callable[[str], Sequence[AsdivRecord]] = load_asdiv_a_record_split,
     baseline_preparer: Callable[..., Any] = prepare_baseline_request,
     token_reader: Callable[..., Mapping[str, Any]] = read_token_result,
     checkpoint_loader: Callable[[Path], Any] = load_checkpoint,
     latent_runner: Callable[..., Mapping[str, Any]] = run_eval,
 ) -> dict[str, Any]:
     """Evaluate validated per-width checkpoints against one persisted selection."""
-    parsed_slots = parse_integer_list(
-        ",".join(map(str, slot_counts)), name="slot counts", minimum=1
-    )
+    parsed_slots = parse_integer_list(",".join(map(str, slot_counts)), name="slot counts", minimum=1)
     if parsed_slots != slot_counts:
         raise ValueError("slot counts must be an ordered list of positive integers")
     parsed_seeds = parse_integer_list(",".join(map(str, seeds)), name="seeds", minimum=0)
@@ -193,13 +188,9 @@ def run_ablation(
     )
     selection = prepared.identity.get("selection")
     if not isinstance(selection, Mapping):
-        raise ValueError("prepared token identity selection must be an object")
+        raise TypeError("prepared token identity selection must be an object")
     expected_total = selection.get("problem_count")
-    if (
-        isinstance(expected_total, bool)
-        or not isinstance(expected_total, int)
-        or expected_total < 1
-    ):
+    if isinstance(expected_total, bool) or not isinstance(expected_total, int) or expected_total < 1:
         raise ValueError("prepared token selection problem_count must be positive")
 
     per_slot_count: dict[str, Any] = {}
@@ -261,9 +252,7 @@ def run_ablation(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Stage 0 slot-count ablation on persisted Calc-MAWPS/Qwen inputs."
-    )
+    parser = argparse.ArgumentParser(description="Stage 0 slot-count ablation on persisted Calc-ASDiv_A/Qwen inputs.")
     parser.add_argument(
         "--slot-counts",
         default=",".join(str(count) for count in SLOT_COUNTS),
@@ -276,9 +265,7 @@ def _parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--development-limit", type=int, default=None)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
-    parser.add_argument(
-        "--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu"
-    )
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
         "--checkpoint-dir",
         type=Path,

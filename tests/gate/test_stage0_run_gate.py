@@ -13,14 +13,20 @@ from eval.gate import gate_report, latent_eval, result_cache, run_gate, token_co
 from tests.gate.test_stage0_result_cache import (
     CHECKPOINT_DIGEST,
     SEEDS,
+)
+from tests.gate.test_stage0_result_cache import (
     _latent_result as _cached_latent_result,
+)
+from tests.gate.test_stage0_result_cache import (
     _records as _cache_records,
+)
+from tests.gate.test_stage0_result_cache import (
     _token_result as _cached_token_result,
 )
 from tests.gate.test_stage0_token_baseline import (
+    _backbone_loader,
     _FakeModel,
     _FakeTokenizer,
-    _backbone_loader,
     _records,
 )
 
@@ -48,20 +54,16 @@ def _prepared() -> tuple[Any, _FakeModel]:
     return prepared, model
 
 
-def test_default_gate_paths_are_calc_mawps_qwen_scoped() -> None:
-    assert run_gate.DEFAULT_RESULTS_DIR == Path("gate_results/calc_mawps_qwen")
-    assert token_cot_baseline.DEFAULT_OUTPUT == (
-        run_gate.DEFAULT_RESULTS_DIR / "token_cot.json"
-    )
+def test_default_gate_paths_are_asdiv_a_qwen_scoped() -> None:
+    assert Path("gate_results/asdiv_a_qwen") == run_gate.DEFAULT_RESULTS_DIR
+    assert token_cot_baseline.DEFAULT_OUTPUT == (run_gate.DEFAULT_RESULTS_DIR / "token_cot.json")
 
 
 def test_valid_token_cache_reuse_recomputes_current_identity_without_generation(
     tmp_path: Path,
 ) -> None:
     prepared, model = _prepared()
-    result = token_cot_baseline.run_baseline(
-        device="cpu", prepared_request=prepared
-    )
+    result = token_cot_baseline.run_baseline(device="cpu", prepared_request=prepared)
     path = tmp_path / "token_cot.json"
     result_cache.write_gate_result(path, result)
     model.generate_calls.clear()
@@ -83,9 +85,7 @@ def test_stale_rendered_or_runtime_identity_is_rejected_before_reuse(
     tmp_path: Path, field: str, replacement: str
 ) -> None:
     prepared, model = _prepared()
-    result = token_cot_baseline.run_baseline(
-        device="cpu", prepared_request=prepared
-    )
+    result = token_cot_baseline.run_baseline(device="cpu", prepared_request=prepared)
     stale = copy.deepcopy(result)
     if field.startswith("runtime."):
         stale["identity"]["runtime"][field.split(".", 1)[1]] = replacement
@@ -100,9 +100,7 @@ def test_stale_rendered_or_runtime_identity_is_rejected_before_reuse(
     assert model.generate_calls == []
 
 
-def test_generated_baseline_uses_atomic_cache_writer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_generated_baseline_uses_atomic_cache_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     prepared, _model = _prepared()
     calls: list[tuple[Path, dict[str, Any]]] = []
 
@@ -117,9 +115,51 @@ def test_generated_baseline_uses_atomic_cache_writer(
     assert calls == [(tmp_path / "token_cot.json", result)]
 
 
-def test_token_standalone_main_uses_atomic_cache_writer(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_latent_phase_logs_per_seed_and_global_progress(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    prepared, _model = _prepared()
+    args = _args(tmp_path)
+    args.checkpoint.write_bytes(b"checkpoint")
+    token_result = token_cot_baseline.run_baseline(device="cpu", prepared_request=prepared)
+    messages: list[str] = []
+
+    def fake_run_eval(**kwargs: Any) -> dict[str, Any]:
+        callback = kwargs["on_item"]
+        callback(
+            latent_eval.LatentProgress(
+                seed=0,
+                seed_index=1,
+                seed_count=5,
+                item_index=10,
+                item_count=520,
+                seed_correct=4,
+                global_done=10,
+                global_count=2600,
+                global_correct=4,
+            )
+        )
+        return {"runs": []}
+
+    monkeypatch.setattr(run_gate, "run_eval", fake_run_eval)
+    monkeypatch.setattr(run_gate, "write_gate_result", lambda *_args: None)
+    monkeypatch.setattr(run_gate, "_log", messages.append)
+
+    run_gate._run_latent_eval(
+        args,
+        list(run_gate.DEFAULT_SEEDS),
+        token_result,
+        _records(),
+        prepared,
+    )
+
+    progress = next(message for message in messages if "latent seed" in message)
+    assert "seed 1/5 (0) [10/520]" in progress
+    assert "seed_acc=0.4000 (4/10)" in progress
+    assert "global=[10/2600] acc=0.4000 (4/10)" in progress
+    assert "elapsed " in progress
+    assert "ETA " in progress
+
+
+def test_token_standalone_main_uses_atomic_cache_writer(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     output = tmp_path / "token.json"
     result = {"correct": 1, "total": 1}
     calls: list[tuple[Path, dict[str, Any]]] = []
@@ -168,7 +208,7 @@ def test_latent_standalone_main_uses_strict_reader_and_atomic_writer(
     writes: list[tuple[Path, Any]] = []
     monkeypatch.setattr(latent_eval, "_parse_args", lambda: args)
     monkeypatch.setattr(latent_eval, "configure_deterministic_runtime", lambda: None)
-    monkeypatch.setattr(latent_eval, "load_calc_mawps_record_split", lambda _split: records)
+    monkeypatch.setattr(latent_eval, "load_asdiv_a_record_split", lambda _split: records)
     monkeypatch.setattr(
         token_cot_baseline,
         "prepare_baseline_request",
@@ -177,9 +217,7 @@ def test_latent_standalone_main_uses_strict_reader_and_atomic_writer(
     monkeypatch.setattr(
         result_cache,
         "read_token_result",
-        lambda path, *, expected_identity, records: (
-            reads.append((path, expected_identity, records)) or token_result
-        ),
+        lambda path, *, expected_identity, records: reads.append((path, expected_identity, records)) or token_result,
     )
     monkeypatch.setattr(
         result_cache,
@@ -195,9 +233,7 @@ def test_latent_standalone_main_uses_strict_reader_and_atomic_writer(
 
 
 @pytest.mark.parametrize("field", ["rendered_inputs_sha256", "runtime"])
-def test_build_report_rejects_stale_token_request_identity(
-    tmp_path: Path, field: str
-) -> None:
+def test_build_report_rejects_stale_token_request_identity(tmp_path: Path, field: str) -> None:
     records = _cache_records()
     token = _cached_token_result(records)
     latent = _cached_latent_result(records)
@@ -220,9 +256,7 @@ def test_build_report_rejects_stale_token_request_identity(
 
 
 @pytest.mark.parametrize("field", ["checkpoint", "seeds"])
-def test_build_report_rejects_stale_latent_checkpoint_or_seeds(
-    tmp_path: Path, field: str
-) -> None:
+def test_build_report_rejects_stale_latent_checkpoint_or_seeds(tmp_path: Path, field: str) -> None:
     records = _cache_records()
     token = _cached_token_result(records)
     latent = _cached_latent_result(records)

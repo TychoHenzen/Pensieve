@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import argparse
-from collections import Counter
-from collections.abc import Callable, Mapping, Sequence
-from dataclasses import asdict, dataclass, replace
 import gc
 import json
 import math
 import os
-from pathlib import Path
 import sys
 import time
+from collections import Counter
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import asdict, dataclass, replace
+from pathlib import Path
 from typing import Any, Literal, Protocol
 
 import torch
@@ -32,20 +32,23 @@ from train.answer_objective import (
     prepare_training_example,
     prompt_teacher_state,
 )
+from train.eggroll_stability import StabilityMetrics, ValidatedStabilityReport
+from train.eggroll_stability_guard import load_guarded_stability_report
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
-    DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_RANK,
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
     EggrollTrainer,
 )
-from train.eggroll_stability import StabilityMetrics, ValidatedStabilityReport
-from train.eggroll_stability_guard import load_guarded_stability_report
+from train.eggroll_trainer import (
+    DEFAULT_LR as DEFAULT_EGGROLL_LR,
+)
 from train.stage0_data import HELD_OUT_COUNT, load_stage0_dataset, training_examples
 from train.standalone_checkpoint import configure_deterministic_runtime
-from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR, LatentCoreTrainer
+from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
+from train.trainer import LatentCoreTrainer
 from train.training_state import TrainingState
 from train.vicreg import post_loop_slot_variance
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
@@ -202,22 +205,14 @@ def alignment_effectiveness_components(
         raise ValueError("scored trial losses must be finite and non-negative")
     lm_denominator = max(baseline.language_model_loss, 1e-8)
     alignment_denominator = max(baseline.student_teacher_mse, 1e-8)
-    lm_improvement = (
-        baseline.language_model_loss - metrics.language_model_loss
-    ) / lm_denominator
-    alignment_improvement = (
-        baseline.student_teacher_mse - metrics.student_teacher_mse
-    ) / alignment_denominator
+    lm_improvement = (baseline.language_model_loss - metrics.language_model_loss) / lm_denominator
+    alignment_improvement = (baseline.student_teacher_mse - metrics.student_teacher_mse) / alignment_denominator
     return {
         "exact_accuracy_delta": metrics.exact_accuracy - baseline.exact_accuracy,
-        "first_token_accuracy_delta": (
-            metrics.first_token_accuracy - baseline.first_token_accuracy
-        ),
+        "first_token_accuracy_delta": (metrics.first_token_accuracy - baseline.first_token_accuracy),
         "language_model_loss_relative_improvement": lm_improvement,
         "prompt_alignment_mse_relative_improvement": alignment_improvement,
-        "separation_retention_delta": (
-            metrics.separation_retention - baseline.separation_retention
-        ),
+        "separation_retention_delta": (metrics.separation_retention - baseline.separation_retention),
     }
 
 
@@ -237,14 +232,10 @@ def alignment_candidate_rejection_reasons(
     """Reject proxy gains that worsen output conditioning or answer loss."""
     alignment_effectiveness_components(metrics, baseline)
     reasons: list[str] = []
-    minimum_separation = (
-        baseline.separation_retention * MIN_SEPARATION_RETENTION_RATIO
-    )
+    minimum_separation = baseline.separation_retention * MIN_SEPARATION_RETENTION_RATIO
     if metrics.separation_retention < minimum_separation:
         reasons.append("question_separation_regressed")
-    maximum_lm_loss = baseline.language_model_loss * (
-        1.0 + MAX_LANGUAGE_MODEL_LOSS_REGRESSION
-    )
+    maximum_lm_loss = baseline.language_model_loss * (1.0 + MAX_LANGUAGE_MODEL_LOSS_REGRESSION)
     if metrics.language_model_loss > maximum_lm_loss:
         reasons.append("language_model_loss_regressed")
     return tuple(reasons)
@@ -286,11 +277,7 @@ def search_method_weights(
         raise ValueError(f"unknown training method {method!r}")
     if isinstance(rounds, bool) or not isinstance(rounds, int) or rounds < 1:
         raise ValueError("rounds must be an integer of at least 1")
-    if (
-        isinstance(max_expansions, bool)
-        or not isinstance(max_expansions, int)
-        or max_expansions < 0
-    ):
+    if isinstance(max_expansions, bool) or not isinstance(max_expansions, int) or max_expansions < 0:
         raise ValueError("max_expansions must be a non-negative integer")
     logarithmic_weights(lower, upper, candidates_per_round)
     if not math.isfinite(min_score_improvement) or min_score_improvement < 0.0:
@@ -307,19 +294,12 @@ def search_method_weights(
         started = time.perf_counter()
         metrics = run_trial(method, weight)
         score_components = (
-            {name: 0.0 for name in SCORE_WEIGHTS}
+            dict.fromkeys(SCORE_WEIGHTS, 0.0)
             if baseline is None
             else alignment_effectiveness_components(metrics, baseline)
         )
-        score = sum(
-            SCORE_WEIGHTS[name] * value
-            for name, value in score_components.items()
-        )
-        rejection_reasons = (
-            ()
-            if baseline is None
-            else alignment_candidate_rejection_reasons(metrics, baseline)
-        )
+        score = sum(SCORE_WEIGHTS[name] * value for name, value in score_components.items())
+        rejection_reasons = () if baseline is None else alignment_candidate_rejection_reasons(metrics, baseline)
         result = TrialResult(
             method=method,
             weight=weight,
@@ -342,7 +322,7 @@ def search_method_weights(
             method=method,
             weight=0.0,
             score=0.0,
-            score_components={name: 0.0 for name in SCORE_WEIGHTS},
+            score_components=dict.fromkeys(SCORE_WEIGHTS, 0.0),
             eligible=True,
             rejection_reasons=(),
             metrics=zero_control_metrics,
@@ -442,7 +422,7 @@ def unhealthy_eggroll_search_result(
         method="eggroll",
         weight=0.0,
         score=0.0,
-        score_components={name: 0.0 for name in SCORE_WEIGHTS},
+        score_components=dict.fromkeys(SCORE_WEIGHTS, 0.0),
         eligible=False,
         rejection_reasons=failure_paths,
         metrics=_trial_metrics_from_stability(final_metrics),
@@ -539,9 +519,7 @@ def evaluate_trial(
                     ignore_index=-100,
                     reduction="none",
                 ).reshape_as(labels)
-                total_loss += float(
-                    ((losses * supervised).sum() / supervised.sum()).item()
-                )
+                total_loss += float(((losses * supervised).sum() / supervised.sum()).item())
                 slot_count = slots.shape[-2]
                 student_state = hidden[0, slot_count - 1]
                 teacher_state = prompt_teacher_state(language_model, context_ids)[0]
@@ -635,19 +613,14 @@ def _run_real_trial(
 ) -> TrialMetrics:
     trainer = _trainer_for_trial(method, weight, assets, config)
     examples = assets.train_examples[method]
-    updates = (
-        config.gradient_updates if method == "gradient" else config.eggroll_updates
-    )
+    updates = config.gradient_updates if method == "gradient" else config.eggroll_updates
     progress_interval = max(1, updates // 4)
     try:
         for index in range(updates):
             question, answer = examples[index % len(examples)]
             trainer.train_step(question, answer)
             if (index + 1) % progress_interval == 0 or index + 1 == updates:
-                _log(
-                    f"  {method} weight={weight:.8g} "
-                    f"updates={index + 1}/{updates}"
-                )
+                _log(f"  {method} weight={weight:.8g} updates={index + 1}/{updates}")
         return evaluate_trial(
             trainer,
             assets.held_out,
@@ -664,21 +637,21 @@ def _run_real_trial(
 def _load_assets(args: argparse.Namespace) -> SearchAssets:
     configure_deterministic_runtime()
     dataset = load_stage0_dataset()
-    train_examples = {
+    methods: tuple[Method, Method] = ("gradient", "eggroll")
+    train_examples: dict[Method, list[tuple[str, str]]] = {
         method: training_examples(
             dataset,
             mode=method,
             epoch=1,
             problem_count=args.train_problems,
         )
-        for method in ("gradient", "eggroll")
+        for method in methods
     }
     backbone = load_frozen_qwen_backbone(device=args.device)
     sentence_model = load_minilm_model()
     sentence_model.to(args.device)
     held_out = tuple(
-        (record.question, record.target)
-        for record in dataset.held_out_records()[: args.validation_problems]
+        (record.question, record.target) for record in dataset.held_out_records()[: args.validation_problems]
     )
     return SearchAssets(
         backbone=backbone,
@@ -729,9 +702,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--method", choices=("gradient", "eggroll", "both"), default="both")
     parser.add_argument("--lower-weight", type=float, default=DEFAULT_LOWER_WEIGHT)
     parser.add_argument("--upper-weight", type=float, default=DEFAULT_UPPER_WEIGHT)
-    parser.add_argument(
-        "--candidates-per-round", type=int, default=DEFAULT_CANDIDATES_PER_ROUND
-    )
+    parser.add_argument("--candidates-per-round", type=int, default=DEFAULT_CANDIDATES_PER_ROUND)
     parser.add_argument("--rounds", type=int, default=DEFAULT_ROUNDS)
     parser.add_argument("--max-expansions", type=int, default=DEFAULT_MAX_EXPANSIONS)
     parser.add_argument(
@@ -740,12 +711,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_MIN_SCORE_IMPROVEMENT,
     )
     parser.add_argument("--train-problems", type=int, default=DEFAULT_TRAIN_PROBLEMS)
-    parser.add_argument(
-        "--validation-problems", type=int, default=DEFAULT_VALIDATION_PROBLEMS
-    )
-    parser.add_argument(
-        "--gradient-updates", type=int, default=DEFAULT_GRADIENT_UPDATES
-    )
+    parser.add_argument("--validation-problems", type=int, default=DEFAULT_VALIDATION_PROBLEMS)
+    parser.add_argument("--gradient-updates", type=int, default=DEFAULT_GRADIENT_UPDATES)
     parser.add_argument("--eggroll-updates", type=int, default=DEFAULT_EGGROLL_UPDATES)
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=2)
@@ -756,9 +723,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sigma", type=float, default=DEFAULT_SIGMA)
     parser.add_argument("--rank", type=int, default=DEFAULT_RANK)
     parser.add_argument("--eval-batch-size", type=int, default=DEFAULT_EVAL_BATCH_SIZE)
-    parser.add_argument(
-        "--fitness-batch-size", type=int, default=DEFAULT_FITNESS_BATCH_SIZE
-    )
+    parser.add_argument("--fitness-batch-size", type=int, default=DEFAULT_FITNESS_BATCH_SIZE)
     parser.add_argument(
         "--stability-report",
         type=Path,
@@ -766,9 +731,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Absolute zero-alignment EGGROLL stability report.",
     )
     parser.add_argument("--amp", action="store_true", dest="use_amp")
-    parser.add_argument(
-        "--max-decode-tokens", type=int, default=DEFAULT_MAX_TOKENS
-    )
+    parser.add_argument("--max-decode-tokens", type=int, default=DEFAULT_MAX_TOKENS)
     parser.add_argument(
         "--device",
         default="cuda" if torch.cuda.is_available() else "cpu",
@@ -800,15 +763,10 @@ def _validate_args(args: argparse.Namespace) -> None:
             raise ValueError(f"--{name.replace('_', '-')} must be at least 1")
     if args.max_expansions < 0:
         raise ValueError("--max-expansions must be non-negative")
-    if (
-        not math.isfinite(args.min_score_improvement)
-        or args.min_score_improvement < 0.0
-    ):
+    if not math.isfinite(args.min_score_improvement) or args.min_score_improvement < 0.0:
         raise ValueError("--min-score-improvement must be finite and non-negative")
     if not 2 <= args.validation_problems <= HELD_OUT_COUNT:
-        raise ValueError(
-            f"--validation-problems must be from 2 through {HELD_OUT_COUNT}"
-        )
+        raise ValueError(f"--validation-problems must be from 2 through {HELD_OUT_COUNT}")
     if args.pop_size % 2 != 0:
         raise ValueError("--pop-size must be even for antithetic sampling")
     for name in ("gradient_lr", "eggroll_lr", "sigma"):
@@ -845,15 +803,11 @@ def main(argv: Sequence[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     _validate_args(args)
     configure_deterministic_runtime()
-    methods: tuple[Method, ...] = (
-        ("gradient", "eggroll") if args.method == "both" else (args.method,)
-    )
+    methods: tuple[Method, ...] = ("gradient", "eggroll") if args.method == "both" else (args.method,)
     eggroll_stability: ValidatedStabilityReport | None = None
     if "eggroll" in methods:
         if args.stability_report is None:
-            raise ValueError(
-                "--stability-report is required for EGGROLL alignment search"
-            )
+            raise ValueError("--stability-report is required for EGGROLL alignment search")
         eggroll_stability = load_guarded_stability_report(
             args.stability_report,
             population=args.pop_size,
@@ -871,21 +825,15 @@ def main(argv: Sequence[str] | None = None) -> None:
     output_identity = os.path.normcase(str(output.resolve()))
     progress_identity = os.path.normcase(str(progress_output.resolve()))
     if output_identity == progress_identity:
-        raise ValueError(
-            "--output must not resolve to the derived JSONL progress path"
-        )
+        raise ValueError("--output must not resolve to the derived JSONL progress path")
     if output.exists() or progress_output.exists():
-        raise FileExistsError(
-            f"refusing to overwrite search output: {output} or {progress_output}"
-        )
+        raise FileExistsError(f"refusing to overwrite search output: {output} or {progress_output}")
     progress_output.parent.mkdir(parents=True, exist_ok=True)
 
     runnable_methods = tuple(
         method
         for method in methods
-        if method != "eggroll"
-        or eggroll_stability is None
-        or eggroll_stability.report.status == "passed"
+        if method != "eggroll" or eggroll_stability is None or eggroll_stability.report.status == "passed"
     )
     assets: SearchAssets | None = None
     if runnable_methods:
@@ -896,9 +844,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         assets = _load_assets(args)
     config = _runtime_config(args)
     completed_trials = 0
-    maximum_trials = len(methods) * (
-        1 + args.candidates_per_round + args.max_expansions + 2 * args.rounds
-    )
+    maximum_trials = len(methods) * (1 + args.candidates_per_round + args.max_expansions + 2 * args.rounds)
     started = time.perf_counter()
     search_results: dict[str, MethodSearchResult] = {}
 
@@ -909,9 +855,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         with progress_output.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(record, sort_keys=True, allow_nan=False) + "\n")
         elapsed = time.perf_counter() - started
-        eta = (
-            elapsed / completed_trials * max(maximum_trials - completed_trials, 0)
-        )
+        eta = elapsed / completed_trials * max(maximum_trials - completed_trials, 0)
         _log(
             f"trial {completed_trials} (max {maximum_trials}) method={result.method} "
             f"weight={result.weight:.8g} score={result.score:.6f} "
@@ -925,13 +869,10 @@ def main(argv: Sequence[str] | None = None) -> None:
         )
 
     for method in methods:
-        if method == "eggroll" and eggroll_stability is not None:
-            if eggroll_stability.report.status != "passed":
-                search_results[method] = unhealthy_eggroll_search_result(
-                    eggroll_stability
-                )
-                _log("EGGROLL zero control is unhealthy; skipping positive trials")
-                continue
+        if method == "eggroll" and eggroll_stability is not None and eggroll_stability.report.status != "passed":
+            search_results[method] = unhealthy_eggroll_search_result(eggroll_stability)
+            _log("EGGROLL zero control is unhealthy; skipping positive trials")
+            continue
         _log(f"starting independent {method} search")
         if assets is None:
             raise RuntimeError("search assets were not loaded for a runnable method")
@@ -951,9 +892,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             ),
             on_trial=observe,
             zero_control_metrics=(
-                _trial_metrics_from_stability(
-                    eggroll_stability.report.checkpoints[-1].current
-                )
+                _trial_metrics_from_stability(eggroll_stability.report.checkpoints[-1].current)
                 if method == "eggroll" and eggroll_stability is not None
                 else None
             ),
@@ -973,27 +912,17 @@ def main(argv: Sequence[str] | None = None) -> None:
             **vars(args),
             "output": str(output),
             "progress_output": str(progress_output),
-            "stability_report": (
-                str(args.stability_report)
-                if args.stability_report is not None
-                else None
-            ),
+            "stability_report": (str(args.stability_report) if args.stability_report is not None else None),
             "score_weights": SCORE_WEIGHTS,
             "score_reference": "same_method_zero_weight_control",
             "eligibility_guards": {
-                "minimum_separation_retention_ratio": (
-                    MIN_SEPARATION_RETENTION_RATIO
-                ),
-                "maximum_language_model_loss_regression": (
-                    MAX_LANGUAGE_MODEL_LOSS_REGRESSION
-                ),
+                "minimum_separation_retention_ratio": (MIN_SEPARATION_RETENTION_RATIO),
+                "maximum_language_model_loss_regression": (MAX_LANGUAGE_MODEL_LOSS_REGRESSION),
             },
             "initialization_seed": 0,
             "fresh_state_per_trial": True,
         },
-        "methods": {
-            method: asdict(result) for method, result in search_results.items()
-        },
+        "methods": {method: asdict(result) for method, result in search_results.items()},
         "duration_seconds": time.perf_counter() - started,
     }
     _write_json(output, payload)

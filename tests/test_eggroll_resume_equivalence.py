@@ -18,6 +18,7 @@ from tests.test_eggroll_step_equivalence import (
     _deterministic_fitness_batch,
     _make_trainer,
 )
+from tests.test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 from train import eggroll_trainer as trainer_module
 from train import run_alternating, run_eggroll
 from train.alternating_checkpoint import (
@@ -28,12 +29,13 @@ from train.alternating_checkpoint import (
 )
 from train.eggroll_trainer import EggrollTrainer
 from train.stage0_checkpoint import ALLOWED_MODEL_PARAMETER_PATHS
-from tests.test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 
 
 # covers: train/eggroll-execution :: Optimized execution preserves EGGROLL training semantics :: Resume stays deterministic
-def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(torch.cuda, "get_rng_state_all", lambda: [])
+def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(torch.cuda, "get_rng_state_all", list)
     random.seed(911)
     np.random.seed(912)
     torch.manual_seed(913)
@@ -85,9 +87,7 @@ def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(monkeypatch: py
 
     monkeypatch.setattr(trainer_module, "sample_antithetic_pair", record_seed)
 
-    uninterrupted_result = uninterrupted.train_fitness_batch(
-        _deterministic_fitness_batch(3)
-    )
+    uninterrupted_result = uninterrupted.train_fitness_batch(_deterministic_fitness_batch(3))
     uninterrupted_seeds = list(active_seed_trace[0])
     uninterrupted_final = capture_eggroll_step_snapshot(
         _all_trainable_params(uninterrupted),
@@ -123,19 +123,10 @@ def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(monkeypatch: py
     assert resumed_result.language_model_loss == pytest.approx(
         uninterrupted_result.language_model_loss, rel=1e-4, abs=1e-4
     )
-    assert resumed_result.total_objective == pytest.approx(
-        uninterrupted_result.total_objective, rel=1e-4, abs=1e-4
-    )
-    assert resumed_result.regularizer_loss == pytest.approx(
-        uninterrupted_result.regularizer_loss, rel=1e-4, abs=1e-4
-    )
-    assert resumed_result.shared_variance == pytest.approx(
-        uninterrupted_result.shared_variance, rel=1e-4, abs=1e-4
-    )
-    assert (
-        resumed_result.consumed_record_count
-        == uninterrupted_result.consumed_record_count
-    )
+    assert resumed_result.total_objective == pytest.approx(uninterrupted_result.total_objective, rel=1e-4, abs=1e-4)
+    assert resumed_result.regularizer_loss == pytest.approx(uninterrupted_result.regularizer_loss, rel=1e-4, abs=1e-4)
+    assert resumed_result.shared_variance == pytest.approx(uninterrupted_result.shared_variance, rel=1e-4, abs=1e-4)
+    assert resumed_result.consumed_record_count == uninterrupted_result.consumed_record_count
     assert resumed_result.next_example_position == uninterrupted_result.next_example_position
     assert resumed_result.optimizer_call_count == uninterrupted_result.optimizer_call_count
     assert resumed_seeds == uninterrupted_seeds
@@ -152,9 +143,7 @@ def test_eggroll_snapshot_resume_matches_uninterrupted_next_step(monkeypatch: py
         )
     assert resumed_final.optimizer_state == uninterrupted_final.optimizer_state
     assert resumed_final.python_rng_state == uninterrupted_final.python_rng_state
-    assert np.array_equal(
-        resumed_final.numpy_rng_state[1], uninterrupted_final.numpy_rng_state[1]
-    )
+    assert np.array_equal(resumed_final.numpy_rng_state[1], uninterrupted_final.numpy_rng_state[1])
     assert resumed_final.numpy_rng_state[:1] == uninterrupted_final.numpy_rng_state[:1]
     assert resumed_final.numpy_rng_state[2:] == uninterrupted_final.numpy_rng_state[2:]
     assert torch.equal(

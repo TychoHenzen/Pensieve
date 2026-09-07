@@ -45,15 +45,18 @@ class _FakeModel(nn.Module):
         return self.forward(**kwargs)
 
 
-@pytest.fixture
-def loop() -> LatentLoop:
+def _make_loop(num_steps: int) -> LatentLoop:
     fake_model = _FakeModel()
     with patch(
         "core.latent_loop.AutoModelForCausalLM.from_pretrained",
         return_value=fake_model,
     ):
-        latent_loop = LatentLoop(num_steps=3, device="cpu")
-    return latent_loop
+        return LatentLoop(num_steps=num_steps, device="cpu")
+
+
+@pytest.fixture
+def loop() -> LatentLoop:
+    return _make_loop(num_steps=3)
 
 
 def test_step_passes_only_inputs_embeds_not_input_ids(loop: LatentLoop) -> None:
@@ -132,3 +135,28 @@ def test_reset_cost_zeroes_counters(loop: LatentLoop) -> None:
     cost = loop.get_cost()
     assert cost.steps == 0
     assert cost.flops == 0
+
+
+# covers: core/latent-loop::Latent step count is configurable::different step counts produce different compute
+def test_different_step_counts_produce_proportional_cost() -> None:
+    small = _make_loop(num_steps=4)
+    large = _make_loop(num_steps=16)
+
+    small.run(Workspace(slot_count=4))
+    large.run(Workspace(slot_count=4))
+
+    assert large.get_cost().steps == 4 * small.get_cost().steps
+    assert large.get_cost().flops == 4 * small.get_cost().flops
+
+
+# covers: core/latent-loop::Latent steps map to cost counters::flops counter reflects forward passes
+def test_flops_counter_reflects_forward_passes(loop: LatentLoop) -> None:
+    workspace = Workspace(slot_count=4)
+    workspace.write_slots(torch.randn(4, SLOT_DIM))
+
+    loop.run(workspace)
+
+    num_params = sum(p.numel() for p in loop.model.parameters())
+    expected_per_step = 2 * num_params * 4
+    assert expected_per_step > 0
+    assert loop.get_cost().flops == loop.num_steps * expected_per_step

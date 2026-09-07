@@ -8,8 +8,8 @@ from workspace.concept_slots import (
 )
 
 __all__ = [
-    "Workspace",
-    "SLOT_DIM",
-    "DEFAULT_SLOT_COUNT",
     "ABLATION_SLOT_COUNTS",
+    "DEFAULT_SLOT_COUNT",
+    "SLOT_DIM",
+    "Workspace",
 ]

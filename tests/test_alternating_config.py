@@ -35,7 +35,7 @@ def test_accepts_positive_phase_budget_and_epoch_count() -> None:
 )
 # covers: train/alternating-cycle :: Average-variance hysteresis optimizer control :: Invalid variance controller
 def test_rejects_invalid_variance_hysteresis(lower: float, upper: float) -> None:
-    with pytest.raises(ValueError, match="variance.*threshold"):
+    with pytest.raises(ValueError, match=r"variance.*threshold"):
         validate_scheduler_config(
             phase_steps=50,
             epochs=1,

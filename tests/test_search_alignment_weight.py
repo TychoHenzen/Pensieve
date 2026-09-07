@@ -6,6 +6,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.eggroll_stability_fixtures import write_stability_report
+from train.eggroll_stability_guard import load_guarded_stability_report
 from train.search_alignment_weight import (
     TrialMetrics,
     alignment_candidate_rejection_reasons,
@@ -15,9 +17,7 @@ from train.search_alignment_weight import (
     search_method_weights,
     unhealthy_eggroll_search_result,
 )
-from train.eggroll_stability_guard import load_guarded_stability_report
 from train.standalone_checkpoint import configure_deterministic_runtime
-from tests.eggroll_stability_fixtures import write_stability_report
 
 
 def _metrics(
@@ -110,9 +110,7 @@ def test_methods_refine_independently_and_keep_zero_control() -> None:
     peaks = {"gradient": 0.03, "eggroll": 0.3}
 
     def trial(method: str, weight: float) -> TrialMetrics:
-        distance = abs(
-            math.log10(max(weight, 1e-6)) - math.log10(peaks[method])
-        )
+        distance = abs(math.log10(max(weight, 1e-6)) - math.log10(peaks[method]))
         quality = max(0.0, 1.0 - distance)
         return _metrics(
             exact=quality,
@@ -301,7 +299,9 @@ def test_observed_loss_gain_with_question_separation_collapse_is_rejected() -> N
 
 
 # covers: train/eggroll-stability-gate :: Alignment search rejects an unhealthy zero-weight control :: Eggroll zero control is unhealthy
-def test_unhealthy_zero_control_blocks_every_positive_eggroll_trial_and_preserves_evidence(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_unhealthy_zero_control_blocks_every_positive_eggroll_trial_and_preserves_evidence(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     configure_deterministic_runtime()
     report_path = tmp_path / "failed-stability.json"
     expected_report = write_stability_report(
@@ -343,22 +343,26 @@ def test_unhealthy_zero_control_blocks_every_positive_eggroll_trial_and_preserve
     )
     main(
         [
-            "--method", "eggroll",
-            "--stability-report", str(report_path),
-            "--output", str(output_path),
-            "--device", "cpu",
+            "--method",
+            "eggroll",
+            "--stability-report",
+            str(report_path),
+            "--output",
+            str(output_path),
+            "--device",
+            "cpu",
         ]
     )
     payload = json.loads(output_path.read_text(encoding="utf-8"))
     assert runtime_accesses == []
     assert payload["methods"]["eggroll"]["status"] == "method_unhealthy"
-    assert payload["methods"]["eggroll"][
-        "stability_evidence"
-    ] == expected_report.to_dict()
+    assert payload["methods"]["eggroll"]["stability_evidence"] == expected_report.to_dict()
 
 
 # covers: train/eggroll-stability-gate :: Alignment search rejects an unhealthy zero-weight control :: Gradient search remains independent
-def test_public_combined_search_keeps_gradient_independent_when_eggroll_is_unhealthy(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_public_combined_search_keeps_gradient_independent_when_eggroll_is_unhealthy(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     configure_deterministic_runtime()
     report_path = tmp_path / "failed-stability.json"
     write_stability_report(report_path, status="failed", population=32)
@@ -384,22 +388,25 @@ def test_public_combined_search_keeps_gradient_independent_when_eggroll_is_unhea
             alignment_mse=1.0 - quality,
         )
 
-    monkeypatch.setattr(
-        "train.search_alignment_weight._load_assets", fake_assets
-    )
-    monkeypatch.setattr(
-        "train.search_alignment_weight._run_real_trial", fake_trial
-    )
+    monkeypatch.setattr("train.search_alignment_weight._load_assets", fake_assets)
+    monkeypatch.setattr("train.search_alignment_weight._run_real_trial", fake_trial)
 
     main(
         [
-            "--method", "both",
-            "--stability-report", str(report_path),
-            "--candidates-per-round", "3",
-            "--rounds", "1",
-            "--max-expansions", "0",
-            "--output", str(output_path),
-            "--device", "cpu",
+            "--method",
+            "both",
+            "--stability-report",
+            str(report_path),
+            "--candidates-per-round",
+            "3",
+            "--rounds",
+            "1",
+            "--max-expansions",
+            "0",
+            "--output",
+            str(output_path),
+            "--device",
+            "cpu",
         ]
     )
 
@@ -432,9 +439,12 @@ def test_public_search_rejects_output_progress_collision_before_runtime_access(
     with pytest.raises(ValueError, match="derived JSONL progress path"):
         main(
             [
-                "--method", "gradient",
-                "--output", str(output_path),
-                "--device", "cpu",
+                "--method",
+                "gradient",
+                "--output",
+                str(output_path),
+                "--device",
+                "cpu",
             ]
         )
 

@@ -2,19 +2,19 @@ from __future__ import annotations
 
 import copy
 import hashlib
-from io import StringIO
 import json
-from pathlib import Path
 import random
+from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 import torch
+from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 from torch import nn
 
 from train import run_alternating
-from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
 from train.alternating_checkpoint import (
     CheckpointSchedule,
     build_alternating_checkpoint,
@@ -24,23 +24,25 @@ from train.alternating_config import (
     DEFAULT_VARIANCE_LOWER_THRESHOLD,
     DEFAULT_VARIANCE_UPPER_THRESHOLD,
 )
+from train.alternating_evaluation import DEFAULT_EVAL_PROBLEM_COUNT
 from train.alternating_scheduler import EvaluationRecord
+from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
 from train.eggroll_trainer import (
     DEFAULT_EVAL_BATCH_SIZE,
     DEFAULT_FITNESS_BATCH_SIZE,
-    DEFAULT_LR as DEFAULT_EGGROLL_LR,
     DEFAULT_NUM_STEPS,
     DEFAULT_POP_SIZE,
     DEFAULT_RANK,
     DEFAULT_SIGMA,
     DEFAULT_VARIANCE_WEIGHT,
 )
-from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
-from train.answer_objective import DEFAULT_PROMPT_ALIGNMENT_WEIGHT
+from train.eggroll_trainer import (
+    DEFAULT_LR as DEFAULT_EGGROLL_LR,
+)
 from train.trainer import DEFAULT_LR as DEFAULT_GRADIENT_LR
 from train.training_results import EvaluationResult, ExperimentPosition, StepResult
+from train.training_state import EGGROLL_PARAMETER_PATHS, GRADIENT_PARAMETER_PATHS
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
-from test_stage0_checkpoint_resume import RUN_CONFIG, _metadata
 
 
 def _position() -> ExperimentPosition:
@@ -54,6 +56,7 @@ def _position() -> ExperimentPosition:
     )
 
 
+# covers: train/alternating-cycle :: Comparable phase measurements :: Record experiment position
 def test_training_progress_record_has_exact_comparable_content() -> None:
     record = run_alternating._training_record(
         StepResult(
@@ -75,6 +78,11 @@ def test_training_progress_record_has_exact_comparable_content() -> None:
         "phase_step": 3,
         "language_model_loss": 1.25,
         "shared_variance": 0.4,
+        "next_example_position": 7,
+        "observation_window_examples": 3,
+        "records_consumed": 1,
+        "batch_size": 1,
+        "optimizer_call_count": 1,
     }
 
 
@@ -109,20 +117,17 @@ def test_evaluation_progress_record_has_sorted_boundaries_and_exact_metrics() ->
 
 
 def test_checkpoint_progress_record_has_exact_paths() -> None:
-    assert run_alternating._checkpoint_record(
-        [Path("runs/phase-27.pt"), Path("runs/epoch-2.pt")]
-    ) == {
+    paths = [Path("runs/phase-27.pt"), Path("runs/epoch-2.pt")]
+    assert run_alternating._checkpoint_record(paths) == {
         "record_type": "checkpoint",
-        "paths": ["runs\\phase-27.pt", "runs\\epoch-2.pt"],
+        "paths": [str(path) for path in paths],
     }
 
 
 def test_progress_record_is_written_as_one_compact_json_line() -> None:
     output = StringIO()
 
-    run_alternating._write_progress_record(
-        {"record_type": "checkpoint", "paths": ["phase-27.pt"]}, output
-    )
+    run_alternating._write_progress_record({"record_type": "checkpoint", "paths": ["phase-27.pt"]}, output)
 
     assert output.getvalue().count("\n") == 1
     assert json.loads(output.getvalue()) == {
@@ -181,7 +186,7 @@ def test_invalid_eggroll_values_fail_during_argument_parsing() -> None:
     ]
     observed_messages: list[str] = []
 
-    for option, value, expected_message in invalid_values:
+    for option, value, _expected_message in invalid_values:
         with pytest.raises(ValueError) as error:
             run_alternating._parse_args([option, value])
         observed_messages.append(str(error.value))
@@ -192,29 +197,51 @@ def test_invalid_eggroll_values_fail_during_argument_parsing() -> None:
 def test_alternating_command_accepts_overrides() -> None:
     args = run_alternating._parse_args(
         [
-            "--epochs", "7",
-            "--phase-steps", "25",
-            "--variance-lower-threshold", "0.03",
-            "--variance-upper-threshold", "0.08",
-            "--slot-count", "6",
-            "--num-steps", "4",
-            "--gradient-lr", "0.03",
-            "--eggroll-lr", "0.04",
-            "--pop-size", "32",
-            "--sigma", "0.05",
-            "--rank", "3",
-            "--variance-weight", "0.7",
-            "--prompt-alignment-weight", "0.6",
-            "--eval-batch-size", "4",
-            "--fitness-batch-size", "6",
+            "--epochs",
+            "7",
+            "--phase-steps",
+            "25",
+            "--variance-lower-threshold",
+            "0.03",
+            "--variance-upper-threshold",
+            "0.08",
+            "--slot-count",
+            "6",
+            "--num-steps",
+            "4",
+            "--gradient-lr",
+            "0.03",
+            "--eggroll-lr",
+            "0.04",
+            "--pop-size",
+            "32",
+            "--sigma",
+            "0.05",
+            "--rank",
+            "3",
+            "--variance-weight",
+            "0.7",
+            "--prompt-alignment-weight",
+            "0.6",
+            "--eval-batch-size",
+            "4",
+            "--fitness-batch-size",
+            "6",
             "--amp",
-            "--eval-problem-count", "16",
-            "--problem-count", "100",
-            "--device", "cpu",
-            "--log-every", "8",
-            "--save-dir", "runs/alternating",
-            "--resume", "latest",
-            "--stability-report", "report.json",
+            "--eval-problem-count",
+            "16",
+            "--problem-count",
+            "100",
+            "--device",
+            "cpu",
+            "--log-every",
+            "8",
+            "--save-dir",
+            "runs/alternating",
+            "--resume",
+            "latest",
+            "--stability-report",
+            "report.json",
         ]
     )
 
@@ -250,9 +277,18 @@ def test_run_config_records_every_typed_alternating_setting(tmp_path: Path) -> N
     report_path.write_text('{"status":"passed"}', encoding="utf-8")
     args = run_alternating._parse_args(
         [
-            "--problem-count", "3", "--eval-problem-count", "2", "--phase-steps", "2",
-            "--sigma", "0.02", "--eggroll-lr", "0.001",
-            "--stability-report", str(report_path),
+            "--problem-count",
+            "3",
+            "--eval-problem-count",
+            "2",
+            "--phase-steps",
+            "2",
+            "--sigma",
+            "0.02",
+            "--eggroll-lr",
+            "0.001",
+            "--stability-report",
+            str(report_path),
         ]
     )
 
@@ -276,13 +312,14 @@ def test_run_config_records_every_typed_alternating_setting(tmp_path: Path) -> N
             "fitness_batch_size": DEFAULT_FITNESS_BATCH_SIZE,
         }
     )
-    expected["stability_report_identity"] = hashlib.sha256(
-        b'{"status":"passed"}'
-    ).hexdigest()
-    assert run_alternating._run_config(
-        args,
-        report_identity=expected["stability_report_identity"],
-    ) == expected
+    expected["stability_report_identity"] = hashlib.sha256(b'{"status":"passed"}').hexdigest()
+    assert (
+        run_alternating._run_config(
+            args,
+            report_identity=expected["stability_report_identity"],
+        )
+        == expected
+    )
 
 
 def test_incompatible_run_config_is_rejected_before_model_construction(
@@ -312,13 +349,9 @@ def test_incompatible_run_config_is_rejected_before_model_construction(
     monkeypatch.setattr(
         run_alternating,
         "_selection_metadata",
-        lambda selection, _count: fixture["selections"][
-            "train" if selection is train_selection else "held_out"
-        ],
+        lambda selection, _count: fixture["selections"]["train" if selection is train_selection else "held_out"],
     )
-    monkeypatch.setattr(
-        run_alternating, "_runtime_identity", lambda: fixture["identity"]["runtime"]
-    )
+    monkeypatch.setattr(run_alternating, "_runtime_identity", lambda: fixture["identity"]["runtime"])
     monkeypatch.setattr(
         run_alternating,
         "TrainingState",
@@ -374,9 +407,7 @@ def test_pre_alignment_checkpoint_cannot_resume_changed_objective() -> None:
 
 
 @pytest.mark.parametrize("value", ["0", "-1"])
-def test_invalid_log_every_is_rejected_before_production_loading(
-    value: str, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_invalid_log_every_is_rejected_before_production_loading(value: str, monkeypatch: pytest.MonkeyPatch) -> None:
     def reject_production_loading(*_args: object, **_kwargs: object) -> None:
         raise AssertionError("production loading was attempted")
 
@@ -524,7 +555,7 @@ def test_traversal_caps_eggroll_batches_and_continues_within_the_epoch() -> None
 
     assert eggroll.batches == [("a", "b"), ("c",)]
     assert gradient.batches == [("d",), ("e",)]
-    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 1, 2, 3)
+    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 1, 2, 3, 2, 1)
     assert gradient.positions[0] == ExperimentPosition("gradient", 2, 4, 1, 3, 1)
 
 
@@ -548,7 +579,7 @@ def test_traversal_preserves_the_observation_window_across_epochs() -> None:
     )
 
     assert eggroll.batches == [("a", "b"), ("a",)]
-    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 2, 0, 3)
+    assert eggroll.positions[-1] == ExperimentPosition("eggroll", 1, 3, 2, 0, 3, 2, 1)
     assert gradient.batches == [("b",)]
     assert gradient.positions == [ExperimentPosition("gradient", 2, 4, 2, 1, 1)]
 
@@ -576,6 +607,206 @@ def test_default_five_epoch_traversal_consumes_exactly_2850_ordered_examples() -
     assert len(visits) == 2850
     assert len(eggroll.batches) == 399
     assert gradient.batches == []
+
+
+def test_alternating_fixture_separates_batch_observation_log_and_epoch_boundaries() -> None:
+    class MetricEngine:
+        def __init__(self, method: str, max_consumed_records: int, variance: float) -> None:
+            self.method = method
+            self.max_consumed_records = max_consumed_records
+            self.variance = variance
+            self.visits: list[tuple[tuple[str, int], ...]] = []
+            self.positions: list[ExperimentPosition] = []
+            self.metrics: list[tuple[float, float]] = []
+
+        def train_step(self, example: object, position: ExperimentPosition) -> StepResult:
+            records = (
+                example if isinstance(example, tuple) and example and isinstance(example[0], tuple) else (example,)
+            )
+            typed_records = tuple(records)
+            self.visits.append(typed_records)  # type: ignore[arg-type]
+            self.positions.append(position)
+            loss = sum(record[1] for record in typed_records) / len(typed_records)
+            self.metrics.append((loss, self.variance))
+            return StepResult(
+                position=position,
+                language_model_loss=loss,
+                total_objective=loss,
+                regularizer_loss=0.0,
+                shared_variance=self.variance,
+                consumed_record_count=len(typed_records),
+                next_example_position=position.example_position + 1,
+            )
+
+    eggroll = MetricEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = MetricEngine("gradient", max_consumed_records=1, variance=0.005)
+    saved: list[tuple[int, bool, bool]] = []
+    output = StringIO()
+
+    def save(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del evaluation_record
+        saved.append((schedule.global_step, phase_boundary, epoch_boundary))
+        return ()
+
+    schedule = run_alternating._run_schedule(
+        examples=[("a", 1), ("b", 3), ("c", 5), ("d", 7), ("e", 9), ("f", 11)],
+        epochs=1,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=4,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=save,
+        output=output,
+    )
+
+    assert eggroll.visits == [(("a", 1), ("b", 3)), (("c", 5),)]
+    assert gradient.visits == [(("d", 7),), (("e", 9),), (("f", 11),)]
+    assert eggroll.positions == [
+        ExperimentPosition("eggroll", 1, 2, 1, 1, 2, 1, 2),
+        ExperimentPosition("eggroll", 1, 3, 1, 2, 3, 2, 1),
+    ]
+    assert gradient.positions == [
+        ExperimentPosition("gradient", 2, 4, 1, 3, 1, 1, 1),
+        ExperimentPosition("gradient", 2, 5, 1, 4, 2, 2, 1),
+        ExperimentPosition("gradient", 2, 6, 1, 5, 3, 3, 1),
+    ]
+    assert eggroll.metrics == [(2.0, 0.03), (5.0, 0.03)]
+    assert gradient.metrics == [(7.0, 0.005), (9.0, 0.005), (11.0, 0.005)]
+    assert schedule is not None
+    assert schedule.active_phase == "eggroll"
+    assert saved == [(3, True, False), (6, True, True)]
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    assert [record["record_type"] for record in records] == [
+        "training",
+        "evaluation",
+        "checkpoint",
+    ]
+    assert records[0] == {
+        "record_type": "training",
+        "update_method": "gradient",
+        "cycle": 2,
+        "global_step": 4,
+        "epoch": 1,
+        "example_position": 3,
+        "phase_step": 1,
+        "language_model_loss": 7.0,
+        "shared_variance": 0.005,
+        "next_example_position": 4,
+        "observation_window_examples": 1,
+        "records_consumed": 1,
+        "batch_size": 1,
+        "optimizer_call_count": 1,
+    }
+
+
+# covers: train/alternating-cycle :: Throttled progress output :: Epoch boundary progress records
+def test_pure_epoch_boundary_emits_one_evaluation_and_one_checkpoint_record(
+    tmp_path: Path,
+) -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+    output = StringIO()
+
+    def save(
+        schedule: CheckpointSchedule,
+        *,
+        phase_boundary: bool,
+        epoch_boundary: bool,
+        evaluation_record: EvaluationRecord[EvaluationResult],
+    ) -> tuple[Path, ...]:
+        del evaluation_record
+        names: list[Path] = []
+        if phase_boundary:
+            names.append(tmp_path / f"phase-{schedule.global_step}.pt")
+        if epoch_boundary:
+            names.append(tmp_path / f"epoch-{schedule.epoch}.pt")
+        for path in names:
+            path.write_text("{}", encoding="utf-8")
+        return tuple(names)
+
+    run_alternating._run_schedule(
+        examples=["a", "b"],
+        epochs=2,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=10,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=save,
+        output=output,
+    )
+
+    records = [json.loads(line) for line in output.getvalue().splitlines()]
+    evaluation_records = [record for record in records if record["record_type"] == "evaluation"]
+    checkpoint_records = [record for record in records if record["record_type"] == "checkpoint"]
+
+    # Epoch 1 ends at global_step 2 with an incomplete observation window, so
+    # it is a pure epoch-only boundary: exactly one evaluation record carrying
+    # the epoch and global step, and one checkpoint record naming the saved file.
+    assert [record["global_step"] for record in evaluation_records] == [2, 4]
+    assert evaluation_records[0]["boundaries"] == ["epoch"]
+    assert evaluation_records[0]["epoch"] == 1
+    assert evaluation_records[0]["global_step"] == 2
+    assert evaluation_records[1]["boundaries"] == ["epoch", "partial_phase"]
+
+    assert checkpoint_records == [
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-1.pt")],
+        },
+        {
+            "record_type": "checkpoint",
+            "paths": [str(tmp_path / "epoch-2.pt")],
+        },
+    ]
+    assert all(record["paths"] for record in checkpoint_records)
+
+
+# covers: train/alternating-cycle :: Throttled progress output :: Non-progress output remains independent
+def test_progress_filter_leaves_non_structured_output_untouched() -> None:
+    eggroll = _BatchEngine("eggroll", max_consumed_records=2, variance=0.03)
+    gradient = _BatchEngine("gradient", max_consumed_records=1, variance=0.005)
+    output = StringIO()
+    log_output = StringIO()
+
+    run_alternating._run_schedule(
+        examples=["a", "b", "c", "d", "e"],
+        epochs=1,
+        phase_steps=3,
+        variance_lower_threshold=0.01,
+        variance_upper_threshold=0.02,
+        log_every=2,
+        eggroll_engine=eggroll,
+        gradient_engine=gradient,
+        evaluator=_NoopEvaluator(),
+        save_boundary=_save_nothing,
+        output=output,
+        log_output=log_output,
+    )
+
+    structured = output.getvalue().splitlines()
+    assert structured, "the structured stream should carry at least one progress record"
+    for line in structured:
+        record = json.loads(line)
+        assert record["record_type"] in {"training", "evaluation", "checkpoint"}
+
+    human = log_output.getvalue().splitlines()
+    assert human, "the human-readable stream should carry at least one line"
+    for line in human:
+        with pytest.raises(ValueError):
+            json.loads(line)
+    assert any("epoch 1/1 done" in line for line in human)
 
 
 def test_main_builds_shared_production_run_and_executes_schedule(
@@ -613,9 +844,7 @@ def test_main_builds_shared_production_run_and_executes_schedule(
             "ordered_item_ids": ["item-0"],
         },
     )
-    monkeypatch.setattr(
-        run_alternating, "TrainingState", lambda *args: shared_state
-    )
+    monkeypatch.setattr(run_alternating, "TrainingState", lambda *args: shared_state)
 
     def build_gradient(**kwargs: object) -> object:
         calls["gradient_state"] = kwargs["state"]
@@ -639,11 +868,22 @@ def test_main_builds_shared_production_run_and_executes_schedule(
         lambda *_args, **_kwargs: SimpleNamespace(sha256="c" * 64),
     )
 
-    run_alternating.main([
-        "--epochs", "1", "--phase-steps", "2", "--problem-count", "1",
-        "--eval-problem-count", "1", "--save-dir", str(tmp_path),
-        "--stability-report", str(tmp_path / "stability.json"),
-    ])
+    run_alternating.main(
+        [
+            "--epochs",
+            "1",
+            "--phase-steps",
+            "2",
+            "--problem-count",
+            "1",
+            "--eval-problem-count",
+            "1",
+            "--save-dir",
+            str(tmp_path),
+            "--stability-report",
+            str(tmp_path / "stability.json"),
+        ]
+    )
 
     assert calls["gradient_state"] is shared_state
     assert calls["eggroll_state"] is shared_state
@@ -686,9 +926,7 @@ def test_main_phase_checkpoint_serializes_latest_boundary_evaluation(
         "_selection_metadata",
         lambda selection, _count: {
             "identity": "a" * 64,
-            "split": (
-                "train" if selection is stage0_dataset.train_selection else "validation"
-            ),
+            "split": ("train" if selection is stage0_dataset.train_selection else "validation"),
             "seed": 0,
             "problem_count": 1,
             "ordered_item_ids": ["item-0"],
@@ -769,8 +1007,7 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     parameters = {
-        name: nn.Parameter(torch.tensor([float(index)]))
-        for index, name in enumerate(stage0_parameter_paths())
+        name: nn.Parameter(torch.tensor([float(index)])) for index, name in enumerate(stage0_parameter_paths())
     }
     gradient = torch.optim.Adam(parameters.values(), lr=1e-4)
     eggroll_parameters = [parameters[name] for name in EGGROLL_PARAMETER_PATHS]
@@ -834,10 +1071,7 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
         restored_eggroll,
     )
 
-    assert all(
-        torch.equal(parameter, checkpoint.tensors[f"model.{name}"])
-        for name, parameter in parameters.items()
-    )
+    assert all(torch.equal(parameter, checkpoint.tensors[f"model.{name}"]) for name, parameter in parameters.items())
     assert restored_gradient.param_groups[0]["lr"] == 1e-4
     assert restored_eggroll.param_groups[0]["lr"] == 0.1
     assert all(restored_gradient.state[parameter] for parameter in parameters.values())
@@ -851,9 +1085,7 @@ def test_compatible_checkpoint_restores_model_optimizers_and_every_rng_state(
     numpy_rng = checkpoint.metadata["rng"]["numpy"]
     restored_numpy = np.random.get_state()
     assert restored_numpy[0] == numpy_rng["bit_generator"]
-    assert np.array_equal(
-        restored_numpy[1], checkpoint.tensors[numpy_rng["state_tensor"]].numpy()
-    )
+    assert np.array_equal(restored_numpy[1], checkpoint.tensors[numpy_rng["state_tensor"]].numpy())
     assert torch.equal(
         torch.get_rng_state(),
         checkpoint.tensors[checkpoint.metadata["rng"]["pytorch_cpu"]["state_tensor"]],
@@ -872,12 +1104,8 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         def __init__(self, method: str) -> None:
             self.method = method
 
-        def train_step(
-            self, example: object, position: ExperimentPosition
-        ) -> StepResult:
-            visits.append(
-                (str(example), position.epoch, position.example_position, self.method)
-            )
+        def train_step(self, example: object, position: ExperimentPosition) -> StepResult:
+            visits.append((str(example), position.epoch, position.example_position, self.method))
             variance = 0.03 if self.method == "eggroll" else 0.005
             return StepResult(position, 1.0, 1.0, 0.0, variance)
 
@@ -946,13 +1174,9 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         ("c", 2, 2, "eggroll"),
     ]
     records = [
-        json.loads(line)
-        for line in first_output.getvalue().splitlines()
-        + resumed_output.getvalue().splitlines()
+        json.loads(line) for line in first_output.getvalue().splitlines() + resumed_output.getvalue().splitlines()
     ]
-    training_records = [
-        record for record in records if record["record_type"] == "training"
-    ]
+    training_records = [record for record in records if record["record_type"] == "training"]
     assert [record["global_step"] for record in training_records] == [3, 6]
     assert training_records == [
         {
@@ -988,16 +1212,12 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
             "optimizer_call_count": 4,
         },
     ]
-    evaluation_records = [
-        record for record in records if record["record_type"] == "evaluation"
-    ]
+    evaluation_records = [record for record in records if record["record_type"] == "evaluation"]
     assert [record["global_step"] for record in evaluation_records] == [3, 6]
     assert evaluation_records[0]["boundaries"] == ["epoch", "partial_phase"]
     assert evaluation_records[1]["boundaries"] == ["epoch", "phase"]
 
-    checkpoint_records = [
-        record for record in records if record["record_type"] == "checkpoint"
-    ]
+    checkpoint_records = [record for record in records if record["record_type"] == "checkpoint"]
     assert checkpoint_records == [
         {
             "record_type": "checkpoint",
@@ -1009,9 +1229,7 @@ def test_small_injected_run_crosses_boundaries_and_resumes_without_revisiting_ex
         },
     ]
     assert saved == [
-        CheckpointSchedule(
-            "gradient", 0, 2, 1, 1, eggroll_optimizer_calls=2
-        ),
+        CheckpointSchedule("gradient", 0, 2, 1, 1, eggroll_optimizer_calls=2),
         CheckpointSchedule(
             "gradient",
             1,

@@ -37,11 +37,7 @@ def _items(config=None, seed=0):
 
 
 def _observes_by_position(items):
-    return {
-        item.event.position: item.event
-        for item in items
-        if isinstance(item.event, Observe)
-    }
+    return {item.event.position: item.event for item in items if isinstance(item.event, Observe)}
 
 
 # covers: eval/generators::Probes at exactly the requested distances::probe truth matches the taught value
@@ -94,9 +90,7 @@ def test_each_pair_is_taught_exactly_once():
         for item in items
         if isinstance(item.event, Observe)
         and any(
-            other.event.teaching_position == item.event.position
-            for other in items
-            if isinstance(other.event, Probe)
+            other.event.teaching_position == item.event.position for other in items if isinstance(other.event, Probe)
         )
     ]
     assert len(taught_keys) == len(set(taught_keys)) == 3
@@ -137,7 +131,7 @@ def test_same_config_and_seed_give_identical_sequence():
 def test_replay_determinism_covers_every_event_field():
     first = _items()
     second = _items()
-    for first_item, second_item in zip(first, second):
+    for first_item, second_item in zip(first, second, strict=True):
         if isinstance(first_item.event, Observe):
             assert first_item.event.payload == second_item.event.payload
         if isinstance(first_item.event, Probe):
@@ -216,14 +210,15 @@ def test_interleaving_puts_another_pairs_teaching_between_a_teaching_and_its_pro
         teach_position = probe_item.event.teaching_position
         probe_position = probe_item.event.position
         for observe_item in observes:
-            if teach_position < observe_item.event.position < probe_position:
-                if observe_item.event.position != teach_position:
-                    is_another_teaching = any(
-                        other.event.teaching_position == observe_item.event.position
-                        for other in probes
-                    )
-                    if is_another_teaching:
-                        found_interleaved = True
+            if (
+                teach_position < observe_item.event.position < probe_position
+                and observe_item.event.position != teach_position
+            ):
+                is_another_teaching = any(
+                    other.event.teaching_position == observe_item.event.position for other in probes
+                )
+                if is_another_teaching:
+                    found_interleaved = True
     assert found_interleaved
 
 
@@ -266,9 +261,7 @@ def test_no_payload_or_query_text_carries_a_role_prefix():
 def test_taught_keys_are_pairwise_distinct_and_in_vocab():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     keys = [
-        item.event.payload["key"]
-        for item in items
-        if isinstance(item.event, Observe) and "key" in item.event.payload
+        item.event.payload["key"] for item in items if isinstance(item.event, Observe) and "key" in item.event.payload
     ]
     assert len(keys) == len(set(keys))
     assert all(key in vocab.VOCAB for key in keys)
@@ -298,9 +291,7 @@ def test_every_key_and_value_is_a_vocabulary_word():
 def test_keys_are_pairwise_distinct_across_the_whole_stream():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     keys = [
-        item.event.payload["key"]
-        for item in items
-        if isinstance(item.event, Observe) and "key" in item.event.payload
+        item.event.payload["key"] for item in items if isinstance(item.event, Observe) and "key" in item.event.payload
     ]
     assert len(keys) == 5
     assert len(keys) == len(set(keys))
@@ -313,9 +304,7 @@ def test_each_probe_query_matches_exactly_one_taught_key():
         for item in items
         if isinstance(item.event, Observe)
         and any(
-            other.event.teaching_position == item.event.position
-            for other in items
-            if isinstance(other.event, Probe)
+            other.event.teaching_position == item.event.position for other in items if isinstance(other.event, Probe)
         )
     ]
     for item in items:
@@ -338,9 +327,7 @@ def test_filler_spans_continue_one_document_across_the_stream():
     corpus = load_corpus(resolve("corpus_fixture"))
     items = _items(_config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, max_distance=10))
     filler_texts = [
-        item.event.payload["text"]
-        for item in items
-        if isinstance(item.event, Observe) and "text" in item.event.payload
+        item.event.payload["text"] for item in items if isinstance(item.event, Observe) and "text" in item.event.payload
     ]
     assert len(filler_texts) > 3
     assert " ".join(filler_texts) in " ".join(corpus.words)
@@ -351,20 +338,20 @@ def test_filler_drawn_from_configured_corpus(tmp_path, monkeypatch):
     fixture_text = (FIXTURE_DIR / "corpus_fixture.jsonl").read_text(encoding="utf-8")
     (tmp_path / "corpus_fixture.jsonl").write_text(fixture_text, encoding="utf-8")
     second_lines = [
-        '{"text": "Every gear in the old clock tower turned in step with the one beside it, '
-        'a chain of brass teeth carrying the hour forward one click at a time."}',
-        '{"text": "The orchard on the hill had been planted before the war, and the trees '
-        'still bore fruit every autumn without anyone tending them closely."}',
+        (
+            '{"text": "Every gear in the old clock tower turned in step with the one beside it, '
+            'a chain of brass teeth carrying the hour forward one click at a time."}'
+        ),
+        (
+            '{"text": "The orchard on the hill had been planted before the war, and the trees '
+            'still bore fruit every autumn without anyone tending them closely."}'
+        ),
     ]
     (tmp_path / "second_corpus.jsonl").write_text("\n".join(second_lines), encoding="utf-8")
     monkeypatch.setenv("PENSIVE_CORPUS_DIR", str(tmp_path))
 
-    fixture_items = _items(
-        _config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, corpus="corpus_fixture")
-    )
-    second_items = _items(
-        _config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, corpus="second_corpus")
-    )
+    fixture_items = _items(_config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, corpus="corpus_fixture"))
+    second_items = _items(_config(num_pairs=3, recall_distances=[1, 2], filler_density=3.0, corpus="second_corpus"))
 
     def _filler_texts(items):
         return {
@@ -379,9 +366,7 @@ def test_filler_drawn_from_configured_corpus(tmp_path, monkeypatch):
 def test_filler_payloads_are_prose_and_differ_from_each_other():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
     filler_texts = [
-        item.event.payload["text"]
-        for item in items
-        if isinstance(item.event, Observe) and "text" in item.event.payload
+        item.event.payload["text"] for item in items if isinstance(item.event, Observe) and "text" in item.event.payload
     ]
     assert len(filler_texts) > 1
     for text in filler_texts:
@@ -392,9 +377,7 @@ def test_filler_payloads_are_prose_and_differ_from_each_other():
 # covers: eval/generators::Each pair is taught exactly once::teaching payload has exactly key and value
 def test_teaching_payload_has_exactly_key_and_value():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
-    taught_positions = {
-        item.event.teaching_position for item in items if isinstance(item.event, Probe)
-    }
+    taught_positions = {item.event.teaching_position for item in items if isinstance(item.event, Probe)}
     for item in items:
         if not isinstance(item.event, Observe):
             continue
@@ -405,9 +388,7 @@ def test_teaching_payload_has_exactly_key_and_value():
 # covers: eval/generators::Filler occupies non-teaching, non-probe positions with continuous corpus prose::filler payload has text key
 def test_taught_observe_payload_holds_only_key_and_value():
     items = _items(_config(num_pairs=5, recall_distances=[1, 2, 3], filler_density=1.0, max_distance=10))
-    taught_positions = {
-        item.event.teaching_position for item in items if isinstance(item.event, Probe)
-    }
+    taught_positions = {item.event.teaching_position for item in items if isinstance(item.event, Probe)}
     for item in items:
         if not isinstance(item.event, Observe):
             continue
@@ -496,12 +477,18 @@ def test_configs_naming_different_counters_are_both_hashable():
     first = _config(recall_distances=[1], token_counter="regex-whitespace-v1")
     second = _config(recall_distances=[1], token_counter="some-other-counter")
     first_digest = stream_hash(
-        first, seed=0, generator_version=AssocGenerator.version,
-        render_version="1", corpus_id="corpus-id",
+        first,
+        seed=0,
+        generator_version=AssocGenerator.version,
+        render_version="1",
+        corpus_id="corpus-id",
     )
     second_digest = stream_hash(
-        second, seed=0, generator_version=AssocGenerator.version,
-        render_version="1", corpus_id="corpus-id",
+        second,
+        seed=0,
+        generator_version=AssocGenerator.version,
+        render_version="1",
+        corpus_id="corpus-id",
     )
     assert isinstance(first_digest, str) and first_digest
     assert isinstance(second_digest, str) and second_digest

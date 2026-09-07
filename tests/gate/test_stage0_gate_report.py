@@ -24,11 +24,10 @@ import pytest
 import torch
 
 from eval.gate import gate_report, latent_eval
-from eval.stream.generators.calc_mawps import (
-    CalcMawpsRecord,
-    select_calc_mawps_records,
+from eval.stream.generators.asdiv_a import (
+    AsdivRecord,
+    select_asdiv_a_records,
 )
-
 
 FULL_TEST_COUNT = 520
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
@@ -37,7 +36,7 @@ DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 def _items(correct: int) -> list[dict[str, Any]]:
     return [
         {
-            "item_id": f"mawps__test_{index:03d}",
+            "item_id": f"asdiv_a__test_{index:03d}",
             "prediction": str(index) if index < correct else "wrong",
             "target": str(index),
             "correct": index < correct,
@@ -140,10 +139,10 @@ def test_gate_compares_unrounded_mean_of_validated_per_seed_fractions(
     assert report["pass"] is expected_pass
 
 
-def _records() -> tuple[CalcMawpsRecord, ...]:
+def _records() -> tuple[AsdivRecord, ...]:
     return tuple(
-        CalcMawpsRecord(
-            id=f"mawps__test_{index:03d}",
+        AsdivRecord(
+            id=f"asdiv_a__test_{index:03d}",
             split="test",
             question=f"What is {index} plus zero?",
             target=str(index),
@@ -152,8 +151,8 @@ def _records() -> tuple[CalcMawpsRecord, ...]:
     )
 
 
-def _persisted_token_result(records: Sequence[CalcMawpsRecord]) -> dict[str, Any]:
-    ordered = select_calc_mawps_records(
+def _persisted_token_result(records: Sequence[AsdivRecord]) -> dict[str, Any]:
+    ordered = select_asdiv_a_records(
         {"test": tuple(records)}, split="test", seed=0, problem_count=None
     ).ordered_item_ids
     return {

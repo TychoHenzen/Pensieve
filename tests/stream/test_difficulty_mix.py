@@ -47,18 +47,14 @@ def _evaluate_chain_independently(query: str) -> int:
     assert start_match, f"query has no parseable start: {query!r}"
     total = int(start_match.group(1))
 
-    rest = body[start_match.end():].strip()
+    rest = body[start_match.end() :].strip()
     step_texts = [segment.strip() for segment in rest.split(".") if segment.strip()]
     for step_text in step_texts:
         match = _STEP_PATTERN.match(step_text + ".")
         assert match, f"unparseable step: {step_text!r} in query {query!r}"
         verb, operand_text = match.groups()
         operand = int(operand_text)
-        total = (
-            (total + operand) % CHAIN_MODULUS
-            if verb == "Add"
-            else (total - operand) % CHAIN_MODULUS
-        )
+        total = (total + operand) % CHAIN_MODULUS if verb == "Add" else (total - operand) % CHAIN_MODULUS
     return total
 
 
@@ -77,7 +73,7 @@ def _evaluate_chain_raw(query: str) -> int:
     assert start_match, f"query has no parseable start: {query!r}"
     total = int(start_match.group(1))
 
-    rest = body[start_match.end():].strip()
+    rest = body[start_match.end() :].strip()
     step_texts = [segment.strip() for segment in rest.split(".") if segment.strip()]
     for step_text in step_texts:
         match = _STEP_PATTERN.match(step_text + ".")
@@ -163,12 +159,10 @@ def test_rendered_query_follows_the_parseable_grammar():
         body = query[: -len(suffix)]
         start_match = re.match(r"^Start at (\d+)\.", body)
         assert start_match, f"no start segment: {query!r}"
-        rest = body[start_match.end():].strip()
+        rest = body[start_match.end() :].strip()
         step_texts = [s.strip() for s in rest.split(".") if s.strip()]
         for step_text in step_texts:
-            assert _STEP_PATTERN.match(step_text + "."), (
-                f"step does not match pattern: {step_text!r}"
-            )
+            assert _STEP_PATTERN.match(step_text + "."), f"step does not match pattern: {step_text!r}"
 
 
 # covers: eval/generators::Rendered query never leaks difficulty or level labels::no level leak
@@ -293,9 +287,7 @@ def test_modulo_is_applied_when_the_chain_total_reaches_or_exceeds_the_modulus()
             raw_total = _evaluate_chain_raw(item.event.query)
             if raw_total >= CHAIN_MODULUS:
                 large_total_probes.append((item, raw_total))
-    assert large_total_probes, (
-        "no probe reached a chain total >= CHAIN_MODULUS across sampled seeds"
-    )
+    assert large_total_probes, "no probe reached a chain total >= CHAIN_MODULUS across sampled seeds"
     for item, raw_total in large_total_probes:
         assert item.truth.answer == raw_total % CHAIN_MODULUS
 
@@ -392,9 +384,5 @@ def test_determinism_extends_to_truth_answer_and_difficulty_values():
     first_probes = _probes(_items(config, seed=42))
     second_probes = _probes(_items(config, seed=42))
     assert first_probes
-    assert [item.truth.answer for item in first_probes] == [
-        item.truth.answer for item in second_probes
-    ]
-    assert [item.truth.difficulty for item in first_probes] == [
-        item.truth.difficulty for item in second_probes
-    ]
+    assert [item.truth.answer for item in first_probes] == [item.truth.answer for item in second_probes]
+    assert [item.truth.difficulty for item in first_probes] == [item.truth.difficulty for item in second_probes]

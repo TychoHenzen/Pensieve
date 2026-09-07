@@ -123,4 +123,3 @@ def write_stability_report(
         raise ValueError(f"unknown fixture status {status!r}")
     path.write_text(report.canonical_json() + "\n", encoding="utf-8")
     return report
-

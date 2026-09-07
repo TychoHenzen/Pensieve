@@ -1,4 +1,4 @@
-"""Render the exact Stage 0 Calc-MAWPS/Qwen gate verdict."""
+"""Render the exact Stage 0 Calc-ASDiv_A/Qwen gate verdict."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
-from eval.gate import result_cache
-from eval.stream.generators.calc_mawps import CalcMawpsRecord, load_calc_mawps_record_split
+from eval.gate import result_cache, token_cot_baseline
+from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
+from train import standalone_checkpoint
 
-
-DEFAULT_RESULTS_DIR = Path("gate_results/calc_mawps_qwen")
+DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_OUTPUT = DEFAULT_RESULTS_DIR / "gate_report.json"
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 BASELINE_FLOOR = Fraction(26, 520)
@@ -55,11 +55,7 @@ def evaluate_gate_results(
     baseline = _fraction(token_result) if token_result is not None else Fraction(0, 1)
     runs = latent_result.get("runs", []) if latent_result is not None else []
     run_fractions = [_fraction(run) for run in runs if isinstance(run, dict)]
-    latent_mean = (
-        sum(run_fractions, Fraction(0, 1)) / len(run_fractions)
-        if run_fractions
-        else Fraction(0, 1)
-    )
+    latent_mean = sum(run_fractions, Fraction(0, 1)) / len(run_fractions) if run_fractions else Fraction(0, 1)
     criteria = {
         "criterion_baseline_present": baseline_present,
         "criterion_baseline_meaningful": (
@@ -74,24 +70,24 @@ def evaluate_gate_results(
         ),
         "criterion_min_seeds": _exact_default_seeds(latent_result),
     }
-    token_display = None if token_result is None else {
-        **token_result,
-        "accuracy": float(baseline),
-    }
+    token_display = (
+        None
+        if token_result is None
+        else {
+            **token_result,
+            "accuracy": float(baseline),
+        }
+    )
     latent_display = None
     if latent_result is not None:
         floats = [float(value) for value in run_fractions]
         mean = float(latent_mean)
-        variance = (
-            sum((value - mean) ** 2 for value in floats) / (len(floats) - 1)
-            if len(floats) > 1
-            else 0.0
-        )
+        variance = sum((value - mean) ** 2 for value in floats) / (len(floats) - 1) if len(floats) > 1 else 0.0
         latent_display = {
             **latent_result,
             "accuracies": floats,
             "mean": mean,
-            "std": variance ** 0.5,
+            "std": variance**0.5,
         }
     return {
         "schema_version": 2,
@@ -101,22 +97,18 @@ def evaluate_gate_results(
     }
 
 
-def _selected_records(
-    records: tuple[CalcMawpsRecord, ...], ordered_ids: list[str]
-) -> tuple[CalcMawpsRecord, ...]:
+def _selected_records(records: tuple[AsdivRecord, ...], ordered_ids: list[str]) -> tuple[AsdivRecord, ...]:
     by_id = {record.id: record for record in records}
     try:
         return tuple(by_id[item_id] for item_id in ordered_ids)
     except KeyError as exc:
-        raise result_cache.GateResultError(
-            f"cached selection contains unknown item {exc.args[0]!r}"
-        ) from exc
+        raise result_cache.GateResultError(f"cached selection contains unknown item {exc.args[0]!r}") from exc
 
 
 def build_report(
     results_dir: Path,
     *,
-    records: tuple[CalcMawpsRecord, ...] | None = None,
+    records: tuple[AsdivRecord, ...] | None = None,
     expected_token_identity: Mapping[str, Any] | None = None,
     expected_checkpoint_sha256: str | None = None,
     expected_seeds: Sequence[int] | None = None,
@@ -130,11 +122,9 @@ def build_report(
         return report
 
     if expected_token_identity is None:
-        raise result_cache.GateResultError(
-            "current expected token identity is required to read cached results"
-        )
+        raise result_cache.GateResultError("current expected token identity is required to read cached results")
 
-    source_records = records or tuple(load_calc_mawps_record_split("test"))
+    source_records = records or tuple(load_asdiv_a_record_split("test"))
     selection = expected_token_identity.get("selection")
     if not isinstance(selection, dict) or not isinstance(selection.get("ordered_item_ids"), list):
         raise result_cache.GateResultError("expected token selection identity is missing")
@@ -177,10 +167,7 @@ def _print_summary(report: dict[str, Any]) -> None:
     if latent_result is None:
         print("latent eval: missing")
     else:
-        print(
-            f"latent eval mean accuracy: {latent_result['mean']:.4f} "
-            f"(std={latent_result['std']:.4f})"
-        )
+        print(f"latent eval mean accuracy: {latent_result['mean']:.4f} (std={latent_result['std']:.4f})")
     for name, passed in report["criteria"].items():
         print(f"{name}: {'PASS' if passed else 'FAIL'}")
     print(f"GATE: {'PASS' if report['pass'] else 'FAIL'}")
@@ -188,7 +175,7 @@ def _print_summary(report: dict[str, Any]) -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Collect strict Stage 0 Calc-MAWPS/Qwen results and render a verdict."
+        description="Collect strict Stage 0 Calc-ASDiv_A/Qwen results and render a verdict."
     )
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
@@ -208,17 +195,13 @@ def _parse_args() -> argparse.Namespace:
 
 
 def main() -> None:
-    from eval.gate.result_cache import checkpoint_sha256
-    from eval.gate.token_cot_baseline import prepare_baseline_request
-    from train.standalone_checkpoint import configure_deterministic_runtime
-
-    configure_deterministic_runtime()
+    standalone_checkpoint.configure_deterministic_runtime()
     args = _parse_args()
     token_path = args.results_dir / "token_cot.json"
     latent_path = args.results_dir / "latent_eval.json"
     if token_path.exists() and latent_path.exists():
-        records = tuple(load_calc_mawps_record_split("test"))
-        prepared = prepare_baseline_request(
+        records = tuple(load_asdiv_a_record_split("test"))
+        prepared = token_cot_baseline.prepare_baseline_request(
             device=args.device,
             development_limit=args.development_limit,
             records=records,
@@ -228,7 +211,7 @@ def main() -> None:
             args.results_dir,
             records=records,
             expected_token_identity=prepared.identity,
-            expected_checkpoint_sha256=checkpoint_sha256(args.checkpoint),
+            expected_checkpoint_sha256=result_cache.checkpoint_sha256(args.checkpoint),
             expected_seeds=DEFAULT_SEEDS,
         )
     else:
