@@ -122,6 +122,7 @@ class EggrollTrainer:
 
         self.trainable_params = list(self.state.eggroll_parameters())
         self.optimizer = self.state.create_eggroll_optimizer(lr)
+        self.last_predicted_objective_delta: float | None = None
 
     def trainable_param_count(self) -> int:
         return sum(p.numel() for p in self.trainable_params)
@@ -374,7 +375,8 @@ class EggrollTrainer:
 
         consumed_record_count = fitness_batch.consumed_record_count
         fitnesses = [fitness_total / consumed_record_count for fitness_total in candidate_fitness_totals]
-        apply_factorized_update(
+        before_parameters = tuple(parameter.detach().clone() for parameter in self.trainable_params)
+        gradients = apply_factorized_update(
             self.trainable_params,
             self.optimizer,
             base_seed=base_seed,
@@ -382,6 +384,24 @@ class EggrollTrainer:
             sigma=self.sigma,
             rank=self.rank,
         )
+        gradient_values = (
+            tuple(gradients) if gradients is not None else tuple(parameter.grad for parameter in self.trainable_params)
+        )
+        if all(isinstance(gradient, torch.Tensor) for gradient in gradient_values):
+            self.last_predicted_objective_delta = float(
+                sum(
+                    torch.sum(gradient * (parameter.detach() - before)).item()
+                    for gradient, parameter, before in zip(
+                        gradient_values,
+                        self.trainable_params,
+                        before_parameters,
+                        strict=True,
+                    )
+                    if isinstance(gradient, torch.Tensor)
+                )
+            )
+        else:
+            self.last_predicted_objective_delta = None
 
         language_model_loss = language_model_loss_total / (consumed_record_count * self.pop_size)
         total_objective = -sum(fitnesses) / len(fitnesses)

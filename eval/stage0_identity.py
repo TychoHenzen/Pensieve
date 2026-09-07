@@ -39,6 +39,72 @@ ASDIV_SOURCE_SPLIT = "test"
 ASDIV_SOURCE_COUNT = 1_218
 ASDIV_PARTITION_SEED = 0
 ASDIV_PARTITION_COUNTS = MappingProxyType({"train": 570, "validation": 128, "test": 520})
+STAGE0_HELD_OUT_ITEM_IDS = (
+    "asdiv_a__nluds-0085",
+    "asdiv_a__nluds-0333",
+    "asdiv_a__nluds-0378",
+    "asdiv_a__nluds-0225",
+    "asdiv_a__nluds-1932",
+    "asdiv_a__nluds-2207",
+    "asdiv_a__nluds-0992",
+    "asdiv_a__nluds-1036",
+    "asdiv_a__nluds-0725",
+    "asdiv_a__nluds-1823",
+    "asdiv_a__nluds-0377",
+    "asdiv_a__nluds-0245",
+    "asdiv_a__nluds-0479",
+    "asdiv_a__nluds-0475",
+    "asdiv_a__nluds-0641",
+    "asdiv_a__nluds-0256",
+    "asdiv_a__nluds-1375",
+    "asdiv_a__nluds-2296",
+    "asdiv_a__nluds-0964",
+    "asdiv_a__nluds-0268",
+    "asdiv_a__nluds-0702",
+    "asdiv_a__nluds-0482",
+    "asdiv_a__nluds-0320",
+    "asdiv_a__nluds-1775",
+    "asdiv_a__nluds-0301",
+    "asdiv_a__nluds-0310",
+    "asdiv_a__nluds-0364",
+    "asdiv_a__nluds-0943",
+    "asdiv_a__nluds-1896",
+    "asdiv_a__nluds-0919",
+    "asdiv_a__nluds-2157",
+    "asdiv_a__nluds-1934",
+    "asdiv_a__nluds-0034",
+    "asdiv_a__nluds-0357",
+    "asdiv_a__nluds-0003",
+    "asdiv_a__nluds-0439",
+    "asdiv_a__nluds-1828",
+    "asdiv_a__nluds-1026",
+    "asdiv_a__nluds-0906",
+    "asdiv_a__nluds-0154",
+    "asdiv_a__nluds-0480",
+    "asdiv_a__nluds-2113",
+    "asdiv_a__nluds-0728",
+    "asdiv_a__nluds-1964",
+    "asdiv_a__nluds-1786",
+    "asdiv_a__nluds-1032",
+    "asdiv_a__nluds-0639",
+    "asdiv_a__nluds-0949",
+    "asdiv_a__nluds-1805",
+    "asdiv_a__nluds-0253",
+    "asdiv_a__nluds-1283",
+    "asdiv_a__nluds-2104",
+    "asdiv_a__nluds-0758",
+    "asdiv_a__nluds-2281",
+    "asdiv_a__nluds-1926",
+    "asdiv_a__nluds-1887",
+    "asdiv_a__nluds-0484",
+    "asdiv_a__nluds-0042",
+    "asdiv_a__nluds-2170",
+    "asdiv_a__nluds-2000",
+    "asdiv_a__nluds-1743",
+    "asdiv_a__nluds-0613",
+    "asdiv_a__nluds-0248",
+    "asdiv_a__nluds-1596",
+)
 
 QWEN_MATH_PROMPT = "Solve this math word problem. Return only the numerical answer.\n\nProblem:\n{question}"
 QWEN_ANSWER_PREFILL = "#### "
@@ -280,7 +346,10 @@ def load_frozen_qwen_backbone(
     manifest_verifier: Callable[[str, str, Mapping[str, Mapping[str, str]]], None] | None = None,
 ) -> FrozenQwenBackbone:
     """Load one pinned, verified Qwen model and freeze it for Stage 0."""
-    os.environ["CUBLAS_WORKSPACE_CONFIG"] = ":4096:8"
+    os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
+    torch.use_deterministic_algorithms(True)
+    torch.backends.cuda.matmul.allow_tf32 = False
+    torch.backends.cudnn.benchmark = False
 
     if manifest_verifier is None:
         manifest_verifier = verify_huggingface_manifest

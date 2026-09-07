@@ -5,6 +5,7 @@ from __future__ import annotations
 import inspect
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -1759,6 +1760,34 @@ class TestNoUpdateControl:
         assert "separation_retention_ratio" in drift
         assert drift["separation_retention_ratio"] == 1.0
 
+    def test_no_update_arm_stops_when_metrics_drift(
+        self, monkeypatch: pytest.MonkeyPatch, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that a no-update arm stops when evaluation metrics change."""
+
+        class FakeTrainer:
+            def __init__(self, **_kwargs: object) -> None:
+                self.state = type("State", (), {"trainable_params": {}})()
+
+        evaluations = iter(
+            (
+                sample_metrics,
+                replace(sample_metrics, language_model_loss=2.0),
+            )
+        )
+
+        monkeypatch.setattr("train.stage0_trainability.LatentCoreTrainer", FakeTrainer)
+        monkeypatch.setattr(
+            "train.stage0_trainability.evaluate_objective_on_training_records",
+            lambda *_args, **_kwargs: (next(evaluations), ()),
+        )
+
+        manifest = FreshStateManifest(training_records=tuple((f"Q{i}", f"A{i}") for i in range(32)))
+        arm = run_no_update_arm(manifest)
+
+        assert arm.final_status == "stopped"
+        assert "metrics drifted" in arm.final_stop_reason
+
 
 class TestArmSafetyChecks:
     """Test independent safety checks for arm evaluations."""
@@ -1991,7 +2020,7 @@ class TestTableDrivenClassification:
         "overfit,method_status,causal,expected_eligible",
         [
             ("passed", "viable", "passed", True),
-            ("passed", "viable", "direction_mismatch", True),
+            ("passed", "viable", "direction_mismatch", False),
             ("objective_untrainable", "viable", "passed", False),
             ("passed", "no_improvement", "passed", False),
             ("passed", "viable", "unsafe_update", False),
@@ -2158,8 +2187,8 @@ class TestRecalibrationEligibility:
         assert eligible is True
         assert len(missing) == 0
 
-    def test_eligible_direction_mismatch_with_causal(self) -> None:
-        """Test eligible when method is direction_mismatch (can retry)."""
+    def test_ineligible_direction_mismatch_with_causal(self) -> None:
+        """Test direction mismatch blocks recalibration eligibility."""
 
         eligible, missing = compute_recalibration_eligibility(
             "eggroll",
@@ -2168,8 +2197,9 @@ class TestRecalibrationEligibility:
             causal_status="direction_mismatch",
         )
 
-        assert eligible is True
-        assert len(missing) == 0
+        assert eligible is False
+        assert "causal_unsupported" in missing
+        assert "method_not_viable" in missing
 
     def test_ineligible_objective_untrainable(self) -> None:
         """Test ineligible when objective failed."""
@@ -2273,6 +2303,52 @@ class TestOverallClassification:
 
         assert overall == "shared_loss_behavior_conflict"
         assert "shared_direction_mismatch" in conditions
+
+    def test_overall_shared_loss_behavior_conflict_with_evidence(self) -> None:
+        """Test shared conflict when both methods lower loss but regress decoded metrics."""
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=(),
+            language_model_loss=1.0,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.5,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+        final_metrics = replace(
+            baseline_metrics,
+            language_model_loss=0.8,
+            exact_accuracy=0.4,
+            first_token_accuracy=0.4,
+        )
+        baseline = ArmCheckpoint(consumed_examples=0, optimizer_call_count=0, metrics=baseline_metrics)
+        final = ArmCheckpoint(consumed_examples=32, optimizer_call_count=32, metrics=final_metrics)
+        evidence = {
+            method: ArmResult(
+                arm="gradient_only" if method == "gradient" else "eggroll_only",
+                method=method,
+                status="loss_behavior_conflict",
+                baseline_checkpoint=baseline,
+                checkpoints=(final,),
+                recalibration_eligible=False,
+            )
+            for method in ("gradient", "eggroll")
+        }
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {"gradient": "loss_behavior_conflict", "eggroll": "loss_behavior_conflict"},
+            method_evidence=evidence,
+        )
+
+        assert overall == "shared_loss_behavior_conflict"
+        assert "shared_loss_behavior_conflict" in conditions
 
     def test_overall_method_specific_failure(self) -> None:
         """Test method_specific_failure when methods conflict."""

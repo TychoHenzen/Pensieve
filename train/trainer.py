@@ -13,7 +13,10 @@ neither shape fits a teacher-forced training step.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
+
+import torch
 
 from train.answer_objective import (
     DEFAULT_PROMPT_ALIGNMENT_WEIGHT,
@@ -75,6 +78,7 @@ class LatentCoreTrainer:
 
         self.trainable_params = list(self.state.parameters())
         self.optimizer = self.state.create_gradient_optimizer(lr)
+        self.last_predicted_objective_delta: float | None = None
 
     def trainable_param_count(self) -> int:
         """Number of trainable scalar parameters across all trainable modules."""
@@ -91,6 +95,7 @@ class LatentCoreTrainer:
         Slots predict the first answer token. Answer prefixes predict the
         remaining tokens and EOS, matching ``SlotDecoder.decode``.
         """
+        before_parameters = tuple(parameter.detach().clone() for parameter in self.trainable_params)
         self.optimizer.zero_grad()
 
         prepared = prepare_training_example(self.tokenizer, question, answer)
@@ -118,8 +123,20 @@ class LatentCoreTrainer:
         collapse_penalty = self.variance_weight * slot_variance_penalty(loop_slots).mean()
         total_objective = lm_loss + prompt_alignment_penalty + collapse_penalty
         total_objective.backward()
+        gradients = tuple(
+            parameter.grad.detach().clone()
+            if parameter.grad is not None
+            else parameter.detach().new_zeros(parameter.shape)
+            for parameter in self.trainable_params
+        )
         self.optimizer.step()
         self.ema_projection.update()
+        self.last_predicted_objective_delta = float(
+            sum(
+                torch.sum(gradient * (parameter.detach() - before)).item()
+                for gradient, parameter, before in zip(gradients, self.trainable_params, before_parameters, strict=True)
+            )
+        )
 
         if position is None:
             position = ExperimentPosition(
@@ -137,6 +154,87 @@ class LatentCoreTrainer:
             total_objective=total_objective.item(),
             regularizer_loss=(prompt_alignment_penalty + collapse_penalty).item(),
             shared_variance=post_loop_slot_variance(loop_slots).item(),
+            optimizer_call_count=position.optimizer_call_count,
+        )
+
+    def train_batch(
+        self,
+        records: Sequence[tuple[str, str]],
+        position: ExperimentPosition | None = None,
+    ) -> StepResult:
+        """Apply one gradient update to the complete objective over a record batch."""
+        if not records:
+            raise ValueError("gradient batches must contain at least one record")
+
+        before_parameters = tuple(parameter.detach().clone() for parameter in self.trainable_params)
+        self.optimizer.zero_grad()
+        language_model_loss_total = 0.0
+        regularizer_total = 0.0
+        variance_total = 0.0
+        objective_total = None
+        for question, answer in records:
+            prepared = prepare_training_example(self.tokenizer, question, answer)
+            teacher_state = prompt_teacher_state(
+                self.latent_loop.model,
+                prepared.context_input_ids.to(self.device),
+            )
+            context_embeds = self.latent_loop.embed_tokens(prepared.context_input_ids)
+            slots = self.encoder.encode(question)
+            self.workspace.write_slots(slots)
+            for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
+                self.latent_loop.run(self.workspace, context_embeds=context_embeds)
+            loop_slots = self.workspace.read_slots()
+            answer_objective = prompt_aligned_answer_objective(
+                self.latent_loop.model,
+                loop_slots,
+                prepared.answer_ids.to(self.device),
+                getattr(self.tokenizer, "eos_token_id", None),
+                teacher_state=teacher_state,
+            )
+            lm_loss = answer_objective.language_model_loss.mean()
+            prompt_alignment_penalty = self.prompt_alignment_weight * answer_objective.prompt_alignment_loss.mean()
+            collapse_penalty = self.variance_weight * slot_variance_penalty(loop_slots).mean()
+            regularizer = prompt_alignment_penalty + collapse_penalty
+            objective = lm_loss + regularizer
+            objective_total = objective if objective_total is None else objective_total + objective
+            language_model_loss_total += lm_loss.item()
+            regularizer_total += regularizer.item()
+            variance_total += post_loop_slot_variance(loop_slots).item()
+
+        assert objective_total is not None
+        objective_total = objective_total / len(records)
+        objective_total.backward()
+        gradients = tuple(
+            parameter.grad.detach().clone()
+            if parameter.grad is not None
+            else parameter.detach().new_zeros(parameter.shape)
+            for parameter in self.trainable_params
+        )
+        self.optimizer.step()
+        self.ema_projection.update()
+        self.last_predicted_objective_delta = float(
+            sum(
+                torch.sum(gradient * (parameter.detach() - before)).item()
+                for gradient, parameter, before in zip(gradients, self.trainable_params, before_parameters, strict=True)
+            )
+        )
+        if position is None:
+            position = ExperimentPosition(
+                update_method="gradient",
+                cycle=0,
+                global_step=0,
+                epoch=0,
+                example_position=0,
+                phase_step=0,
+            )
+        return StepResult(
+            position=position,
+            language_model_loss=language_model_loss_total / len(records),
+            total_objective=float(objective_total.item()),
+            regularizer_loss=regularizer_total / len(records),
+            shared_variance=variance_total / len(records),
+            consumed_record_count=len(records),
+            next_example_position=position.example_position + len(records),
             optimizer_call_count=position.optimizer_call_count,
         )
 

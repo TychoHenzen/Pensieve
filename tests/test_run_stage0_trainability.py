@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import torch
 
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train import run_stage0_trainability
 from train.stage0_trainability import (
     ImplementationIdentity,
@@ -277,6 +280,9 @@ def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     assert not output_path.with_name(f".{output_path.name}.tmp").exists()
     data = json.loads(output_path.read_text(encoding="utf-8"))
     assert data["overall_status"] == "inconclusive"
+    with pytest.raises(FileExistsError):
+        run_stage0_trainability._write_report_to_file(report, output_path)
+    assert json.loads(output_path.read_text(encoding="utf-8"))["overall_status"] == "inconclusive"
 
 
 def test_pre_existing_output_rejected_before_model_loading(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -482,3 +488,108 @@ def test_command_routes_investigation_result_through_main(tmp_path: Path, monkey
     progress_data = json.loads(progress_lines[0])
     assert progress_data["kind"] == "arm_checkpoint"
     assert progress_data["sequence_number"] == 0
+
+
+def test_real_runner_builds_typed_report_without_placeholder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real orchestration path writes typed identity and probe evidence."""
+    training_records = tuple(
+        AsdivRecord(id=f"train-{index}", split="train", question=f"Q{index}", target=f"A{index}") for index in range(32)
+    )
+    held_out_records = tuple(
+        AsdivRecord(id=f"validation-{index}", split="validation", question=f"V{index}", target=f"B{index}")
+        for index in range(64)
+    )
+
+    class FakeDataset:
+        def training_records(self, *, mode: str, epoch: int) -> tuple[AsdivRecord, ...]:
+            assert mode == "eggroll"
+            assert epoch == 1
+            return training_records
+
+        def held_out_records(self) -> tuple[AsdivRecord, ...]:
+            return held_out_records
+
+    implementation = ImplementationIdentity(
+        sha256="b" * 64,
+        sources=(("fixture.py", "c" * 64),),
+    )
+    validation_calls: list[tuple[tuple[tuple[str, str], ...], dict[str, object]]] = []
+
+    def fake_trainer(**_kwargs: object) -> SimpleNamespace:
+        return SimpleNamespace(state=SimpleNamespace(trainable_params={"fixture": torch.zeros(1)}))
+
+    monkeypatch.setattr(run_stage0_trainability, "LatentCoreTrainer", fake_trainer)
+    monkeypatch.setattr(run_stage0_trainability, "load_stage0_dataset", FakeDataset)
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "build_trainability_record_selections",
+        lambda _dataset: (
+            (("overfit", "d" * 64),),
+            tuple((f"train-{index}", "e" * 64) for index in range(32)),
+            tuple((f"validation-{index}", "f" * 64) for index in range(64)),
+        ),
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "load_and_validate_stability_report",
+        lambda _path, _implementation, held_out, **kwargs: (
+            validation_calls.append((held_out, kwargs)) or ("a" * 64, {"fixture": True})
+        ),
+    )
+
+    def fake_overfit_attempt(
+        _question: str,
+        _answer: str,
+        learning_rate: float,
+        *,
+        device: str,
+        trainer_factory: object,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        trainer_factory(learning_rate, device)  # type: ignore[operator]
+        return {
+            "learning_rate": learning_rate,
+            "status": "failed",
+            "baseline_loss": 1.0,
+            "checkpoints": [],
+            "failed_reason": "fixture objective did not pass",
+        }
+
+    monkeypatch.setattr(run_stage0_trainability, "run_overfit_attempt", fake_overfit_attempt)
+
+    stability_report = tmp_path / "stability.json"
+    stability_report.write_text('{"status": "failed"}', encoding="utf-8")
+    progress_path = tmp_path / "progress.jsonl"
+    output_path = tmp_path / "report.json"
+    args = SimpleNamespace(
+        stability_report=stability_report,
+        final_output=output_path,
+        progress_output=progress_path,
+        device="cpu",
+        max_decode_tokens=4,
+        implementation=implementation,
+    )
+
+    with run_stage0_trainability.TrainabilityProgressWriter(progress_path) as writer:
+        status, failed_conditions = run_stage0_trainability._run_investigation(args, writer)
+        report = writer.final_report
+
+    assert status == "objective_untrainable"
+    assert failed_conditions == ["objective_untrainable"]
+    assert report is not None
+    assert report.configuration.asset_identity.stability_report_digest == "a" * 64
+    assert report.initial_state_digest != "0" * 64
+    assert len(validation_calls) == 2
+    assert [record_id for record_id, _content_hash in validation_calls[0][0]] == list(
+        run_stage0_trainability.STAGE0_HELD_OUT_ITEM_IDS
+    )
+    assert validation_calls[0][1]["require_complete"] is True
+    run_stage0_trainability._write_final_report(args, status, failed_conditions, 0.1, report)
+    report_data = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report_data["configuration"]["asset_identity"]["held_out_record_count"] == 64
+    assert report_data["overfit_probe"]["attempt_count"] == 3
+    assert "investigation_incomplete" not in report_data.get("failed_conditions", [])
+    assert len(progress_path.read_text(encoding="utf-8").strip().splitlines()) == 8

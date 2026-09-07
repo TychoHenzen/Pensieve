@@ -184,7 +184,7 @@ def render_event(event: Event) -> str:
     answer either, because the event holds no answer at all. An answer
     lives only on the truth side channel.
 
-    Raises `TypeError` for an `Idle`, which carries no text. Call
+    Raises `ValueError` for an `Idle`, which carries no text. Call
     `carries_text` first when the caller may hold one.
     """
     if isinstance(event, Observe):
@@ -194,7 +194,7 @@ def render_event(event: Event) -> str:
     if isinstance(event, Boundary):
         return f"[boundary] {event.kind.value}"
     if isinstance(event, Idle):
-        raise TypeError(
+        raise ValueError(  # noqa: TRY004 - Idle is a valid event but has no renderable text
             "an Idle carries no subject text; it reaches the subject through "
             "idle(budget). Filter on render.carries_text before rendering."
         )
