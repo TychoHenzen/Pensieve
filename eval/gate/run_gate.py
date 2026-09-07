@@ -1,39 +1,51 @@
-"""Run the full Stage 0 gate: baseline, latent eval, and pass/fail verdict.
-
-Runs token_cot_baseline, latent_eval, and gate_report in sequence with
-timestamped logging. Produces gate_results/*.json and prints a final
-PASS/FAIL determination.
-"""
+"""Run the strict Stage 0 Calc-ASDiv_A/Qwen gate."""
 
 from __future__ import annotations
 
 import argparse
-import json
-import statistics
+import copy
 import sys
 import time
+from collections.abc import Mapping, Sequence
 from pathlib import Path
+from typing import Any
 
 import torch
 
+from eval.gate.answer_scoring import MIN_MEANINGFUL_ACCURACY
 from eval.gate.gate_report import build_report
-from eval.gate.latent_eval import load_subject, run_seed
-from eval.gate.token_cot_baseline import run_baseline
+from eval.gate.latent_eval import LatentProgress, run_eval
+from eval.gate.result_cache import (
+    checkpoint_sha256,
+    read_latent_result,
+    read_token_result,
+    write_gate_result,
+    write_json_atomic,
+)
+from eval.gate.token_cot_baseline import (
+    PreparedBaselineRequest,
+    prepare_baseline_request,
+    run_baseline,
+)
+from eval.stage0_identity import LATENT_TAP_LAYER
+from eval.stream.generators.asdiv_a import AsdivRecord, load_asdiv_a_record_split
 from eval.subjects.latent_core import DEFAULT_NUM_STEPS
+from train.standalone_checkpoint import configure_deterministic_runtime
 from workspace.concept_slots import DEFAULT_SLOT_COUNT
 
-DEFAULT_RESULTS_DIR = Path("gate_results")
+DEFAULT_RESULTS_DIR = Path("gate_results/asdiv_a_qwen")
 DEFAULT_SEEDS = [0, 1, 2, 3, 4]
 LOG_EVERY = 50
+LATENT_LOG_EVERY = 10
 
 
 def _ts() -> str:
-    t = time.localtime()
-    return f"[{t.tm_hour:02d}:{t.tm_min:02d}:{t.tm_sec:02d}]"
+    now = time.localtime()
+    return f"[{now.tm_hour:02d}:{now.tm_min:02d}:{now.tm_sec:02d}]"
 
 
-def _log(msg: str) -> None:
-    print(f"{_ts()} {msg}", flush=True)
+def _log(message: str) -> None:
+    print(f"{_ts()} {message}", flush=True)
 
 
 def _format_duration(seconds: float) -> str:
@@ -41,221 +53,257 @@ def _format_duration(seconds: float) -> str:
         return f"{seconds:.0f}s"
     if seconds < 3600:
         return f"{seconds / 60:.1f}min"
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    return f"{h}h{m:02d}m"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    return f"{hours}h{minutes:02d}m"
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run the full Stage 0 gate evaluation."
-    )
+    parser = argparse.ArgumentParser(description="Run the strict Stage 0 Calc-ASDiv_A/Qwen gate evaluation.")
     parser.add_argument(
         "--checkpoint",
         type=Path,
         required=True,
-        help="Path to a trained checkpoint from train.run_training.",
+        help="Safe version-2 .ckpt checkpoint under evaluation.",
     )
     parser.add_argument("--slot-count", type=int, default=DEFAULT_SLOT_COUNT)
     parser.add_argument("--num-steps", type=int, default=DEFAULT_NUM_STEPS)
+    parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument(
-        "--device",
-        type=str,
-        default="cuda" if torch.cuda.is_available() else "cpu",
-    )
-    parser.add_argument(
+        "--development-limit",
         "--problem-count",
+        dest="development_limit",
         type=int,
         default=None,
-        help="Limit GSM8K test problems (for quick checks). Default uses the full split.",
+        help="Development-only prefix length. The default uses all 520 test items.",
     )
     parser.add_argument(
         "--seeds",
-        default=",".join(str(s) for s in DEFAULT_SEEDS),
-        help="Comma-separated seeds for latent eval.",
+        default=",".join(str(seed) for seed in DEFAULT_SEEDS),
+        help="Comma-separated seeds. The gate requires exactly 0,1,2,3,4.",
     )
     parser.add_argument("--results-dir", type=Path, default=DEFAULT_RESULTS_DIR)
     return parser.parse_args()
 
 
-def _run_baseline(args: argparse.Namespace) -> dict:
-    _log(f"{'=' * 60}")
-    _log("  PHASE 1: Token chain-of-thought baseline")
-    _log(f"{'=' * 60}")
+def _records() -> tuple[AsdivRecord, ...]:
+    return tuple(load_asdiv_a_record_split("test"))
 
+
+def _accuracy(result: Mapping[str, Any]) -> float:
+    total = result["total"]
+    return result["correct"] / total if total else 0.0
+
+
+def _run_baseline(
+    args: argparse.Namespace,
+    records: Sequence[AsdivRecord] | None = None,
+    prepared_request: PreparedBaselineRequest | None = None,
+) -> dict[str, Any]:
+    _log("=" * 60)
+    _log("  PHASE 1: Frozen-Qwen token chain-of-thought baseline")
+    _log("=" * 60)
+    source = tuple(records) if records is not None else _records()
+    prepared = prepared_request or prepare_baseline_request(
+        device=args.device,
+        development_limit=args.development_limit,
+        records=source,
+    )
+    selection = prepared.selection
     results_path = args.results_dir / "token_cot.json"
     if results_path.exists():
-        _log(f"found existing baseline at {results_path}, loading it")
-        result = json.loads(results_path.read_text(encoding="utf-8"))
-        _log(f"baseline accuracy: {result['accuracy']:.4f} "
-             f"({result['correct']}/{result['total']})")
+        result = read_token_result(
+            results_path,
+            expected_identity=prepared.identity,
+            records=selection.records,
+        )
+        _log(f"reused validated token cache: {_accuracy(result):.4f} ({result['correct']}/{result['total']})")
         return result
 
-    _log(f"running Pythia-160M token-CoT on GSM8K test split, device={args.device}")
     phase_start = time.monotonic()
 
-    def _on_baseline_problem(
-        _idx: int, total: int, _is_correct: bool, correct: int, done: int
-    ) -> None:
+    def on_problem(_index: int, total: int, _correct: bool, correct: int, done: int) -> None:
         if done % LOG_EVERY == 0 or done == total:
             elapsed = time.monotonic() - phase_start
             remaining = (elapsed / done) * (total - done)
-            acc = correct / done
-            _log(f"  baseline [{done}/{total}] "
-                 f"acc={acc:.4f} ({correct}/{done}) "
-                 f"ETA {_format_duration(remaining)}")
+            _log(
+                f"  baseline [{done}/{total}] acc={correct / done:.4f} "
+                f"({correct}/{done}) ETA {_format_duration(remaining)}"
+            )
 
     result = run_baseline(
-        args.problem_count, args.device, on_problem=_on_baseline_problem
+        device=args.device,
+        development_limit=args.development_limit,
+        records=source,
+        on_problem=on_problem,
+        runtime_configurer=lambda: None,
+        prepared_request=prepared,
     )
-
-    dt = time.monotonic() - phase_start
-    _log(f"baseline done ({_format_duration(dt)})")
-    _log(f"baseline accuracy: {result['accuracy']:.4f} "
-         f"({result['correct']}/{result['total']})")
-
-    args.results_dir.mkdir(parents=True, exist_ok=True)
-    results_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    _log(f"saved: {results_path}")
-
+    write_gate_result(results_path, result)
+    _log(
+        f"baseline done ({_format_duration(time.monotonic() - phase_start)}): "
+        f"{_accuracy(result):.4f} ({result['correct']}/{result['total']})"
+    )
     return result
 
 
-def _run_latent_eval(args: argparse.Namespace, seeds: list[int]) -> dict:
-    _log(f"{'=' * 60}")
+def _expected_latent_identity(
+    token_request_identity: Mapping[str, Any],
+    args: argparse.Namespace,
+    seeds: list[int],
+) -> dict[str, Any]:
+    identity = copy.deepcopy(dict(token_request_identity))
+    identity.update(
+        {
+            "checkpoint_sha256": checkpoint_sha256(args.checkpoint),
+            "seeds": list(seeds),
+            "slot_count": args.slot_count,
+            "latent_step_count": args.num_steps,
+            "tap_tuple_index": LATENT_TAP_LAYER,
+        }
+    )
+    return identity
+
+
+def _run_latent_eval(
+    args: argparse.Namespace,
+    seeds: list[int],
+    token_result: Mapping[str, Any] | None = None,
+    records: Sequence[AsdivRecord] | None = None,
+    prepared_request: PreparedBaselineRequest | None = None,
+) -> dict[str, Any]:
+    _log("=" * 60)
     _log("  PHASE 2: Latent reasoning evaluation")
-    _log(f"{'=' * 60}")
-    _log(f"checkpoint: {args.checkpoint}")
-    _log(f"slots={args.slot_count} steps={args.num_steps} seeds={seeds}")
+    _log("=" * 60)
+    source = tuple(records) if records is not None else _records()
+    prepared = prepared_request or prepare_baseline_request(
+        device=args.device,
+        development_limit=args.development_limit,
+        records=source,
+    )
+    if token_result is None:
+        token_result = _run_baseline(args, source, prepared)
+    results_path = args.results_dir / "latent_eval.json"
+    expected_identity = _expected_latent_identity(prepared.identity, args, seeds)
+    selected_ids = expected_identity["selection"]["ordered_item_ids"]
+    by_id = {record.id: record for record in source}
+    selected = tuple(by_id[item_id] for item_id in selected_ids)
+    digest = expected_identity["checkpoint_sha256"]
+    if results_path.exists():
+        result = read_latent_result(
+            results_path,
+            expected_identity=expected_identity,
+            expected_checkpoint_sha256=digest,
+            expected_seeds=seeds,
+            records=selected,
+        )
+        _log("reused validated latent cache")
+        return result
 
     phase_start = time.monotonic()
-    accuracies: list[float] = []
 
-    for i, seed in enumerate(seeds):
-        seed_start = time.monotonic()
-        _log(f"  seed {seed} ({i + 1}/{len(seeds)})...")
-
-        subject = load_subject(
-            args.checkpoint, args.slot_count, args.num_steps, args.device
-        )
-
-        def _on_latent_problem(
-            _idx: int, _is_correct: bool, correct: int, done: int
-        ) -> None:
-            if done % LOG_EVERY == 0:
-                elapsed = time.monotonic() - seed_start
-                acc = correct / done
-                _log(f"    seed {seed} [{done}] "
-                     f"acc={acc:.4f} ({correct}/{done}) "
-                     f"{_format_duration(elapsed)}")
-
-        accuracy = run_seed(
-            subject, seed, args.problem_count, on_problem=_on_latent_problem
-        )
-        accuracies.append(accuracy)
-
-        seed_dt = time.monotonic() - seed_start
+    def on_item(progress: LatentProgress) -> None:
+        if progress.item_index % LATENT_LOG_EVERY != 0 and progress.item_index != progress.item_count:
+            return
         elapsed = time.monotonic() - phase_start
-        if i > 0:
-            per_seed = elapsed / (i + 1)
-            remaining = per_seed * (len(seeds) - i - 1)
-            eta = f"ETA {_format_duration(remaining)}"
-        else:
-            eta = ""
-        _log(f"  seed {seed}: accuracy={accuracy:.4f} "
-             f"({_format_duration(seed_dt)}) {eta}")
+        remaining = (elapsed / progress.global_done) * (progress.global_count - progress.global_done)
+        _log(
+            f"  latent seed {progress.seed_index}/{progress.seed_count} "
+            f"({progress.seed}) [{progress.item_index}/{progress.item_count}] "
+            f"seed_acc={progress.seed_correct / progress.item_index:.4f} "
+            f"({progress.seed_correct}/{progress.item_index}) "
+            f"global=[{progress.global_done}/{progress.global_count}] "
+            f"acc={progress.global_correct / progress.global_done:.4f} "
+            f"({progress.global_correct}/{progress.global_done}) "
+            f"elapsed {_format_duration(elapsed)} ETA {_format_duration(remaining)}"
+        )
 
-    mean = statistics.mean(accuracies)
-    std = statistics.stdev(accuracies) if len(accuracies) > 1 else 0.0
-
-    dt = time.monotonic() - phase_start
-    _log(f"latent eval done ({_format_duration(dt)})")
-    _log(f"latent mean accuracy: {mean:.4f} (std={std:.4f})")
-
-    result = {
-        "checkpoint": str(args.checkpoint),
-        "slot_count": args.slot_count,
-        "num_steps": args.num_steps,
-        "split": "test",
-        "seeds": seeds,
-        "accuracies": accuracies,
-        "mean": mean,
-        "std": std,
-    }
-
-    results_path = args.results_dir / "latent_eval.json"
-    results_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
-    _log(f"saved: {results_path}")
-
+    result = run_eval(
+        checkpoint_path=args.checkpoint,
+        seeds=seeds,
+        development_limit=None,
+        slot_count=args.slot_count,
+        num_steps=args.num_steps,
+        device=args.device,
+        token_result=token_result,
+        records=source,
+        runtime_configurer=lambda: None,
+        backbone_loader=lambda **_kwargs: prepared.backbone,
+        on_item=on_item,
+    )
+    write_gate_result(results_path, result)
+    _log(f"latent eval done ({_format_duration(time.monotonic() - phase_start)})")
     return result
 
 
 def _run_verdict(
     args: argparse.Namespace,
-    baseline: dict,
-    latent: dict,
+    baseline: dict[str, Any],
+    latent: dict[str, Any],
+    records: Sequence[AsdivRecord],
+    prepared_request: PreparedBaselineRequest,
+    seeds: Sequence[int],
 ) -> bool:
-    _log(f"{'=' * 60}")
+    del baseline, latent
+    _log("=" * 60)
     _log("  PHASE 3: Gate verdict")
-    _log(f"{'=' * 60}")
-
-    report = build_report(args.results_dir)
-
+    _log("=" * 60)
+    report = build_report(
+        args.results_dir,
+        records=tuple(records),
+        expected_token_identity=prepared_request.identity,
+        expected_checkpoint_sha256=checkpoint_sha256(args.checkpoint),
+        expected_seeds=seeds,
+    )
     report_path = args.results_dir / "gate_report.json"
-    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
-
-    baseline_acc = baseline["accuracy"]
-    latent_mean = latent["mean"]
-    latent_std = latent["std"]
-    delta = latent_mean - baseline_acc
-
-    _log(f"  token-CoT baseline:    {baseline_acc:.4f}")
-    _log(f"  latent mean (5 seeds): {latent_mean:.4f} (std={latent_std:.4f})")
-    sign = "+" if delta >= 0 else ""
-    _log(f"  delta: {sign}{delta:.4f}")
-
+    write_json_atomic(report_path, report)
+    token = report["results"]["token_cot"]
+    latent_result = report["results"]["latent_eval"]
+    _log(f"  token-CoT baseline:    {token['accuracy']:.4f}")
+    _log(f"  latent mean (5 seeds): {latent_result['mean']:.4f} (std={latent_result['std']:.4f})")
     for name, passed in report["criteria"].items():
-        tag = "PASS" if passed else "FAIL"
-        _log(f"  {name}: {tag}")
-
-    passed = report["pass"]
-
-    _log(f"{'=' * 60}")
-    if passed:
-        _log("  GATE: PASS")
-        _log("  Latent reasoning meets or exceeds token chain-of-thought.")
-    else:
-        _log("  GATE: FAIL")
-        _log("  Latent reasoning does not meet token chain-of-thought baseline.")
-    _log(f"{'=' * 60}")
-    _log(f"saved: {report_path}")
-
-    return passed
+        _log(f"  {name}: {'PASS' if passed else 'FAIL'}")
+    _log(f"  GATE: {'PASS' if report['pass'] else 'FAIL'}")
+    return bool(report["pass"])
 
 
 def main() -> None:
+    configure_deterministic_runtime()
     args = _parse_args()
-    seeds = [int(s) for s in args.seeds.split(",") if s.strip()]
-
-    if not args.checkpoint.exists():
+    seeds = [int(token) for token in args.seeds.split(",") if token.strip()]
+    if not args.checkpoint.is_file():
         _log(f"checkpoint not found: {args.checkpoint}")
         sys.exit(1)
-
-    if len(seeds) < 5:
-        _log(f"WARNING: {len(seeds)} seeds given, gate requires at least 5")
-
-    _log(f"device={args.device}")
-    _log(f"Stage 0 gate: latent reasoning vs token chain-of-thought on GSM8K")
-
+    if seeds != DEFAULT_SEEDS:
+        _log("gate seeds must be exactly 0,1,2,3,4 in that order")
+        sys.exit(1)
+    if args.slot_count != DEFAULT_SLOT_COUNT or args.num_steps != DEFAULT_NUM_STEPS:
+        _log(f"official gate geometry requires slots={DEFAULT_SLOT_COUNT} and latent steps={DEFAULT_NUM_STEPS}")
+        sys.exit(1)
+    source = _records()
+    args.results_dir.mkdir(parents=True, exist_ok=True)
     gate_start = time.monotonic()
-
-    baseline = _run_baseline(args)
-    latent = _run_latent_eval(args, seeds)
-    passed = _run_verdict(args, baseline, latent)
-
-    gate_dt = time.monotonic() - gate_start
-    _log(f"total gate time: {_format_duration(gate_dt)}")
-
+    prepared = prepare_baseline_request(
+        device=args.device,
+        development_limit=args.development_limit,
+        records=source,
+        runtime_configurer=lambda: None,
+    )
+    baseline = _run_baseline(args, source, prepared)
+    if _accuracy(baseline) < MIN_MEANINGFUL_ACCURACY:
+        _log(f"baseline accuracy {_accuracy(baseline):.4f} is below the documented {MIN_MEANINGFUL_ACCURACY:.0%} floor")
+        _log("GATE: INVALID - select a simpler dataset before latent evaluation")
+        sys.exit(1)
+    latent = _run_latent_eval(args, seeds, baseline, source, prepared)
+    passed = _run_verdict(
+        args,
+        baseline,
+        latent,
+        prepared.selection.records,
+        prepared,
+        seeds,
+    )
+    _log(f"total gate time: {_format_duration(time.monotonic() - gate_start)}")
     sys.exit(0 if passed else 1)
 
 

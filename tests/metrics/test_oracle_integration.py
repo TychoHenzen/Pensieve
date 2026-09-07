@@ -79,7 +79,7 @@ def test_perfect_memory_scores_full_accuracy_and_positive_compute():
     result = time_to_first_use(log, cutoff=100)
     assert result.cutoff_share == 0.0
     for teaching_pos, (probe_pos, (key, _value)) in enumerate(
-        zip(range(len(facts), len(facts) * 2), facts)
+        zip(range(len(facts), len(facts) * 2), facts, strict=True)
     ):
         expected_distance = probe_pos - teaching_pos
         assert result.per_fact[f"p-{key}"] == expected_distance

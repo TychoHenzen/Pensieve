@@ -92,8 +92,7 @@ EXAMPLES: dict[str, Example] = {
             "difficulty_levels": [1, 2, 3, 5],
             "probe_rate": 0.5,
         },
-        teaches="Nothing. Each probe is self-contained, so this measures "
-        "compute rather than memory.",
+        teaches="Nothing. Each probe is self-contained, so this measures compute rather than memory.",
         asks="An arithmetic chain, stated in full, answered modulo 1000. Chain "
         "length is the difficulty and it lives on the truth channel alone.",
         wrong_means="The subject did not do the arithmetic. Pair the answers "
@@ -151,6 +150,8 @@ def _truncate(text: str, width: int) -> str:
 def _truth_line(item: StreamItem) -> str:
     """Describe a probe's harness-only truth: answer, distances, difficulty."""
     event = item.event
+    if not isinstance(event, Probe) or item.truth is None:
+        raise ValueError("truth line requires a probe with harness truth")
     parts = [f"answer={item.truth.answer!r}"]
     if event.teaching_position is not None:
         parts.append(f"taught_at={event.teaching_position}")
@@ -185,7 +186,10 @@ def _print_identity(config: StreamConfig, seed: int, items: list[StreamItem], id
     probes = sum(1 for item in items if isinstance(item.event, Probe))
     print(f"  seed {seed}   params {json.dumps(dict(config.params), sort_keys=True)}")
     print(f"  render v{RENDER_VERSION}   corpus {ids['corpus_id'][:12]}   hash {digest[:12]}")
-    print(f"  {len(items)} events, {probes} probes, chance {generator.chance_rate(config):.4f}")
+    chance_rate = getattr(generator, "chance_rate", None)
+    if not callable(chance_rate):
+        raise TypeError(f"generator {config.generator!r} does not expose chance_rate")
+    print(f"  {len(items)} events, {probes} probes, chance {chance_rate(config):.4f}")
     if ids["note"]:
         print(_WRAP.fill(ids["note"]))
     print()
@@ -195,7 +199,7 @@ def _event_line(item: StreamItem, width: int) -> list[str]:
     """Format one event as its subject line plus any harness-only truth line."""
     event = item.event
     if not carries_text(event):
-        return [f"{event.position:>4}  (idle, budget={event.budget}, no text)"]
+        return [f"{event.position:>4}  (idle, budget={getattr(event, 'budget', 0)}, no text)"]
     hidden = isinstance(event, Boundary) and event.hidden_from_subject
     marker = "   [hidden from subject]" if hidden else ""
     lines = [f"{event.position:>4}  {_truncate(render_event(event), width)}{marker}"]
@@ -215,9 +219,7 @@ def _print_events(items: list[StreamItem], limit: int, width: int) -> None:
 
 
 def _show(name: str, args: argparse.Namespace) -> None:
-    corpus_name, corpus_id, note = (
-        _select_corpus(args.corpus) if name == "assoc" else (args.corpus, NO_CORPUS_ID, "")
-    )
+    corpus_name, corpus_id, note = _select_corpus(args.corpus) if name == "assoc" else (args.corpus, NO_CORPUS_ID, "")
     config = _build_config(name, corpus_name)
     items = list(registry.build(config, seed=args.seed))
     generator = registry.REGISTRY[name]()

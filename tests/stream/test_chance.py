@@ -145,12 +145,8 @@ def test_split_classify_random_answerer_matches_chance_rate(classes_per_task):
 
 def test_split_classify_chance_rate_changes_with_classes_per_task():
     generator = SplitClassifyGenerator()
-    low = generator.chance_rate(
-        StreamConfig(generator="split-classify", params={"classes_per_task": 2})
-    )
-    high = generator.chance_rate(
-        StreamConfig(generator="split-classify", params={"classes_per_task": 5})
-    )
+    low = generator.chance_rate(StreamConfig(generator="split-classify", params={"classes_per_task": 2}))
+    high = generator.chance_rate(StreamConfig(generator="split-classify", params={"classes_per_task": 5}))
     assert low != high
     assert low == pytest.approx(0.5)
     assert high == pytest.approx(0.2)

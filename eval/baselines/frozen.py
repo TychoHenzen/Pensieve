@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import re
+from typing import Any, cast
 
 import torch
 
@@ -117,7 +118,7 @@ class FrozenBaseline(Subject):
         }
 
     def restore(self, state: object) -> None:
-        data = state  # type: ignore[assignment]
+        data = cast(dict[str, Any], state)
         self._model.load_state_dict(data["model_state"])
         self._label_by_index = dict(data["label_by_index"])
         self._index_by_label = dict(data["index_by_label"])

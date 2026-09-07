@@ -33,9 +33,11 @@ class NarrationDecoder:
     def narrate(self, workspace: Workspace) -> str:
         """Decode `workspace`'s slots into a short text, without mutating it."""
         slots = workspace.read_slots().to(self.device)
-        input_embeds = slots.unsqueeze(0)  # (1, N, hidden_dim)
-
         embedding_layer = self.model.get_input_embeddings()
+        actual_width = _embedding_width(embedding_layer)
+        if slots.shape[-1] != actual_width:
+            raise ValueError(f"expected slot width {actual_width}, actual slot width {slots.shape[-1]}")
+        input_embeds = slots.unsqueeze(0)  # (1, N, hidden_dim)
         eos_token_id = self.tokenizer.eos_token_id
 
         generated_ids: list[int] = []
@@ -51,10 +53,19 @@ class NarrationDecoder:
 
                 generated_ids.append(next_token_id)
 
-                next_token_tensor = torch.tensor(
-                    [[next_token_id]], device=self.device
-                )
+                next_token_tensor = torch.tensor([[next_token_id]], device=self.device)
                 next_token_embed = embedding_layer(next_token_tensor)  # (1, 1, hidden_dim)
                 input_embeds = torch.cat([input_embeds, next_token_embed], dim=1)
 
         return self.tokenizer.decode(generated_ids, skip_special_tokens=True)
+
+
+def _embedding_width(embedding_layer: torch.nn.Module) -> int:
+    """Read the width exposed by a model's public input embedding module."""
+    embedding_dim = getattr(embedding_layer, "embedding_dim", None)
+    if isinstance(embedding_dim, int):
+        return embedding_dim
+    for parameter in embedding_layer.parameters():
+        if parameter.ndim >= 2:
+            return parameter.shape[-1]
+    raise ValueError("could not determine model input embedding width")

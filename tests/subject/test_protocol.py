@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import abc
+
 import pytest
 
 from eval.stream.events import Observe, Probe
@@ -49,8 +51,6 @@ def test_full_implementation_instantiable():
 
 # covers: eval/subject::Subject is an abstract base class::Subject is an ABC
 def test_subject_is_an_abc():
-    import abc
-
     assert issubclass(Subject, abc.ABC) or isinstance(Subject, abc.ABCMeta)
 
 

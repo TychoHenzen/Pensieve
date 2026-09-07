@@ -22,7 +22,6 @@ _MODULUS_RE = re.compile(r"modulo (\d+)\?")
 
 
 class VariableComputeOracle(Subject):
-
     def __init__(self) -> None:
         self._steps: int = 0
 

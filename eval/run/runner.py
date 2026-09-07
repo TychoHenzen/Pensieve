@@ -23,6 +23,7 @@ import time
 from collections.abc import Iterable
 from pathlib import Path
 
+from eval.metrics import ProbeLogEntry
 from eval.run import CHECKPOINT_DIRNAME, PROBE_LOG_FILENAME
 from eval.run.checkpoint import (
     capture_rng_state,
@@ -31,7 +32,6 @@ from eval.run.checkpoint import (
     save_checkpoint,
 )
 from eval.run.config import RunConfig, config_hash
-from eval.metrics import ProbeLogEntry
 from eval.stream.events import Boundary, Idle, Observe, Probe
 from eval.stream.truth import StreamItem
 from eval.subject import Subject
@@ -105,12 +105,8 @@ def run(
             elif isinstance(event, Boundary):
                 subject.observe(event)
 
-            checkpoint_due = (
-                position > 0 and position % config.checkpoint_interval_events == 0
-            )
-            time_due = (
-                time.time() - last_checkpoint_time >= config.checkpoint_interval_seconds
-            )
+            checkpoint_due = position > 0 and position % config.checkpoint_interval_events == 0
+            time_due = time.time() - last_checkpoint_time >= config.checkpoint_interval_seconds
             if checkpoint_due or time_due:
                 save_checkpoint(
                     checkpoint_dir,

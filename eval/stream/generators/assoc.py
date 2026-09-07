@@ -89,9 +89,7 @@ def _schedule(num_pairs: int, distances: list[int], total_length: int, order_sou
     return teaching_positions
 
 
-def _fill_token_distances(
-    events_by_position: dict[int, StreamItem], token_counter
-) -> None:
+def _fill_token_distances(events_by_position: dict[int, StreamItem], token_counter) -> None:
     """Replace each probe in place with one carrying its measured token distance.
 
     The distance covers the rendered text of every position strictly
@@ -102,16 +100,13 @@ def _fill_token_distances(
     for position, item in list(events_by_position.items()):
         if not isinstance(item.event, Probe):
             continue
-        span = range(item.event.teaching_position + 1, item.event.position)
-        texts = [
-            render_event(events_by_position[p].event)
-            for p in span
-            if carries_text(events_by_position[p].event)
-        ]
+        teaching_position = item.event.teaching_position
+        if teaching_position is None:
+            raise ValueError("association probes must have a teaching position")
+        span = range(teaching_position + 1, item.event.position)
+        texts = [render_event(events_by_position[p].event) for p in span if carries_text(events_by_position[p].event)]
         events_by_position[position] = StreamItem(
-            event=dataclasses.replace(
-                item.event, token_distance=token_counter("\n".join(texts)) if texts else 0
-            ),
+            event=dataclasses.replace(item.event, token_distance=token_counter("\n".join(texts)) if texts else 0),
             truth=item.truth,
         )
 
@@ -147,11 +142,7 @@ class AssocGenerator:
         # `config.params` must stay JSON-serializable so `stream_hash` can
         # hash it, so a config names its counter rather than carrying the
         # callable itself; resolve the name to a counter here.
-        token_counter = (
-            resolve_token_counter(token_counter_name)
-            if token_counter_name is not None
-            else None
-        )
+        token_counter = resolve_token_counter(token_counter_name) if token_counter_name is not None else None
 
         total_length = _validate(num_pairs, distances, max_distance, filler_density)
 

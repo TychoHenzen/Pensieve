@@ -115,7 +115,10 @@ class VAE(nn.Module):
 
 
 def _vae_loss(
-    recon: torch.Tensor, x: torch.Tensor, mu: torch.Tensor, logvar: torch.Tensor,
+    recon: torch.Tensor,
+    x: torch.Tensor,
+    mu: torch.Tensor,
+    logvar: torch.Tensor,
     pixel_mode: bool = False,
 ) -> torch.Tensor:
     """Reconstruction plus KL divergence to a standard normal prior.

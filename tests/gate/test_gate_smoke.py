@@ -50,9 +50,7 @@ _STREAM_CONFIG = StreamConfig(
 )
 
 BASELINE_FACTORIES: dict[str, Callable[[], Subject]] = {
-    "naive": lambda: NaiveBaseline(
-        input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, hidden_units=HIDDEN_UNITS
-    ),
+    "naive": lambda: NaiveBaseline(input_dim=INPUT_DIM, output_dim=OUTPUT_DIM, hidden_units=HIDDEN_UNITS),
     "ewc": lambda: EWCBaseline(
         input_dim=INPUT_DIM,
         output_dim=OUTPUT_DIM,
@@ -125,9 +123,7 @@ def test_gate_probe_log_parses_into_entries(tmp_path: Path, name: str) -> None:
     entries = _load_probe_log(run_dir)
 
     expected_probe_count = sum(
-        1
-        for item in SplitClassifyGenerator().generate(_STREAM_CONFIG, seed=SEED)
-        if item.truth is not None
+        1 for item in SplitClassifyGenerator().generate(_STREAM_CONFIG, seed=SEED) if item.truth is not None
     )
     assert len(entries) == expected_probe_count
     assert len(entries) > 0

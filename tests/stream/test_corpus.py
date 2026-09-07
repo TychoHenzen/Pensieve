@@ -1,5 +1,6 @@
 import hashlib
 import random
+import re
 from pathlib import Path
 
 import pytest
@@ -20,7 +21,7 @@ def test_resolve_finds_fixture_under_pensive_corpus_dir(monkeypatch):
 # covers: eval/corpus::resolve raises FileNotFoundError naming the fetch script::missing snapshot
 def test_resolve_raises_and_names_fetch_script_when_snapshot_absent(monkeypatch, tmp_path):
     monkeypatch.setenv("PENSIVE_CORPUS_DIR", str(tmp_path))
-    with pytest.raises(FileNotFoundError, match="fetch_corpus.py"):
+    with pytest.raises(FileNotFoundError, match=re.escape("fetch_corpus.py")):
         resolve("missing-corpus")
 
 

@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-SUBJECT_PROTOCOL_VERSION = "1"
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
 from eval.stream.events import Event, Probe
+
+SUBJECT_PROTOCOL_VERSION = "1"
 
 
 @dataclass(frozen=True)
@@ -16,27 +16,20 @@ class CostCounters:
 
 
 class Subject(ABC):
+    @abstractmethod
+    def observe(self, event: Event) -> object | None: ...
 
     @abstractmethod
-    def observe(self, event: Event) -> object | None:
-        ...
+    def answer(self, probe: Probe) -> str: ...
 
     @abstractmethod
-    def answer(self, probe: Probe) -> str:
-        ...
+    def idle(self, budget: int) -> None: ...
 
     @abstractmethod
-    def idle(self, budget: int) -> None:
-        ...
+    def snapshot(self) -> object: ...
 
     @abstractmethod
-    def snapshot(self) -> object:
-        ...
+    def restore(self, state: object) -> None: ...
 
     @abstractmethod
-    def restore(self, state: object) -> None:
-        ...
-
-    @abstractmethod
-    def cost(self) -> CostCounters:
-        ...
+    def cost(self) -> CostCounters: ...

@@ -20,9 +20,7 @@ SLOT_COUNT = 4
 NUM_STEPS = 1
 
 _INITIAL_OBSERVE = Observe(position=0, payload={"text": "The sky is blue."})
-_NOISE_OBSERVE = Observe(
-    position=1, payload={"text": "Purple elephants juggle flaming kettles."}
-)
+_NOISE_OBSERVE = Observe(position=1, payload={"text": "Purple elephants juggle flaming kettles."})
 _PROBE = Probe(
     position=2,
     probe_id="p0",
