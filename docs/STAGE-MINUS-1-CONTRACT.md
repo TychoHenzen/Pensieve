@@ -1,6 +1,23 @@
 # Stage -1 Contract (v1)
 
 What Stage 0 must implement, and what it will be measured by. Contracts only.
+
+This contract is frozen at v1. A passing contract test proves interface and
+isolation behavior. It does not prove trainability, reproduction of the
+Stage -1 reference, or the Stage 0 gate. Those claims require the evidence
+ladder in `docs/PLAN.md`.
+
+## Evidence boundary
+
+- **Code-complete:** the subject and its contract checks exist.
+- **Trainability-demonstrated:** a bounded training probe produces the required
+  behavior on the declared task and held-out data.
+- **Gate-passed:** the subject meets the matched baseline on the required
+  multi-seed report.
+
+The Stage -1 reproduction report remains a prerequisite for accepting a Stage 0
+result. A Stage 0 implementation may be tested before that report exists, but
+its output remains provisional.
 Read this instead of the harness internals.
 
 ## Versions

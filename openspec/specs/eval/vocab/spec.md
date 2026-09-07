@@ -108,7 +108,7 @@ Provides a fixed pool of common English words for generating unambiguous key-val
 
 ### Requirement: VOCAB_VERSION tracks vocabulary changes
 
-`VOCAB_VERSION` SHOULD change whenever `VOCAB` changes, so a stored run can identify which word set produced it. No importer of `VOCAB_VERSION` was found in the codebase. [OBSERVED]
+`VOCAB_VERSION` MUST change whenever `VOCAB` changes, so a stored run can identify which word set produced it. No importer of `VOCAB_VERSION` was found in the codebase. [OBSERVED]
 
 #### Scenario: vocabulary content changes
 

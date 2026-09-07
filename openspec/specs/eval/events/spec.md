@@ -282,7 +282,7 @@ Every event type (Observe, Probe, Idle, Boundary) MUST be frozen: assigning to a
 
 ### Requirement: narration and hostile flags exist for future stages
 
-`narration` and `hostile` SHOULD exist on every event as forward-looking hooks for a Stage 0 narration decoder and Stage 2 attack streams. No current generator or caller sets either to a non-default value. [OBSERVED]
+`narration` and `hostile` MUST exist on every event as forward-looking hooks for a Stage 0 narration decoder and Stage 2 attack streams. No current generator or caller sets either to a non-default value. [OBSERVED]
 
 #### Scenario: no current consumer
 

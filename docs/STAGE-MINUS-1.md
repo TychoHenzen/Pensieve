@@ -1,21 +1,25 @@
 # Stage -1 Implementation Plan: Harness Before Model
 
-> **Status.** Phases 1 through 7 are complete. The subject protocol, stream
-> schema, and metric definitions are frozen at v1 (`SUBJECT_PROTOCOL_VERSION`,
-> `STREAM_SCHEMA_VERSION`, `METRICS_VERSION`, each `"1"`). The contract
-> Stage 0 reads is `docs/STAGE-MINUS-1-CONTRACT.md`. The reproduction gate
-> (phase 8) has its pass condition locked and its runner built
-> (`scripts/run_gate.py`); the full five-seed Split-MNIST run itself is the
-> one remaining step before this stage closes. See the `stage-minus-1-remainder`
-> change under `openspec/changes/` for the tasks that extended this plan and
-> the investigation note behind the numbers below.
+> **Status.** The implementation phases are complete and the subject protocol,
+> stream schema, and metric definitions are frozen at v1
+> (`SUBJECT_PROTOCOL_VERSION`, `STREAM_SCHEMA_VERSION`, `METRICS_VERSION`,
+> each `"1"`). The contract Stage 0 reads is
+> `docs/STAGE-MINUS-1-CONTRACT.md`. The reproduction gate (phase 8) has its
+> pass condition locked and its runner built (`scripts/run_gate.py`), but the
+> full five-seed Split-MNIST report is still pending. Code-complete and
+> contract-frozen do not mean gate-passed. See the archived
+> `stage-minus-1-remainder` change under
+> `openspec/changes/archive/2026-08-17-stage-minus-1-remainder/` for the task
+> and evidence definitions.
 
 Scope: everything in `PLAN.md` Stage -1, start to finish. No model research happens
 here. The deliverable is a measurement instrument plus the proof that the
 instrument works.
 
-The gate for the whole stage: the harness reproduces a known continual-learning
-result on a toy model. Until that passes, no Stage 0 code gets written.
+The gate for the whole stage is reproduction of a known continual-learning
+result on a toy model. Until that passes, no Stage 0 result or later-stage
+advancement is accepted. Stage 0 code may exist as a controlled implementation
+artifact, but it cannot count as Stage 0 completion without the gate evidence.
 
 ## What Stage -1 must produce
 
@@ -247,7 +251,8 @@ most. In the class-incremental setting, naive and EWC sit near chance (both arou
 20%, chance is 10%) while replay stays high (around 91%). The exact numbers used and
 the architecture that reproduces them (2x400 ReLU MLP, Adam lr=0.001, 2000
 iterations/task) are recorded in `investigation-phase7.md` and locked into
-`pass_condition.md`, both under `openspec/changes/stage-minus-1-remainder/`.
+`pass_condition.md`, both under
+`openspec/changes/archive/2026-08-17-stage-minus-1-remainder/`.
 
 Why this target. It is cheap enough to run many times on one consumer GPU. The paper
 spells the protocol out in full. It exercises the same machinery Stage 3 depends on.
@@ -292,18 +297,18 @@ Each phase ends in something runnable. Nothing is built two phases ahead of its 
 7. **Baselines.** [Done] The five baselines, the `split-classify` generator, and
    parameter matching. Ends with all five running on one stream and producing a
    comparison table.
-8. **Gate.** [In progress] The reproduction, the seed sweep, and the written pass
-   condition. The pass condition is locked
-   (`openspec/changes/stage-minus-1-remainder/pass_condition.md`) and the gate runner
+8. **Gate.** [Evidence pending] The reproduction, the seed sweep, and the written
+   pass condition. The pass condition is locked
+   (`openspec/changes/archive/2026-08-17-stage-minus-1-remainder/pass_condition.md`)
+   and the gate runner
    is built (`scripts/run_gate.py`, `tests/gate/test_gate_smoke.py`). The full
    five-seed Split-MNIST run and its report are the remaining step.
-9. **Freeze.** [In progress] Version the subject interface, the stream schema, and
+9. **Freeze.** [Done] Version the subject interface, the stream schema, and
    the metric definitions as v1. Done: `SUBJECT_PROTOCOL_VERSION`,
    `STREAM_SCHEMA_VERSION`, and `METRICS_VERSION` are all set to `"1"`, and the short
-   document Stage 0 reads is written (`docs/STAGE-MINUS-1-CONTRACT.md`). This
-   document's own update is the last item in this phase. A later stage may extend
-   these. Any breaking change bumps the version, which voids old run comparisons on
-   purpose.
+   document Stage 0 reads is written (`docs/STAGE-MINUS-1-CONTRACT.md`). A later
+   stage may extend these. Any breaking change bumps the version, which voids old
+   run comparisons on purpose.
 
 Phases 2 through 5 are the risky ones, because that is where a wrong definition
 becomes load-bearing. Phases 6 and 7 are ordinary engineering.
