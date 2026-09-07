@@ -20,8 +20,6 @@ from typing import cast
 
 from datasets import load_dataset
 
-from datasets import load_dataset
-
 from eval.stream.config import StreamConfig
 from eval.stream.events import Observe, Probe
 from eval.stream.generator import derive
