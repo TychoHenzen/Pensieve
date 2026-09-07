@@ -90,6 +90,10 @@ _MINIMAL_CONFIGS = {
         "problem_count": 3,
         "split": "test",
     },
+    "calc-mawps": {
+        "problem_count": 3,
+        "split": "test",
+    },
 }
 
 

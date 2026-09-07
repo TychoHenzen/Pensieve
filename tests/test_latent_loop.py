@@ -39,7 +39,7 @@ class _FakeModel(nn.Module):
         self.calls.append(kwargs)
         inputs_embeds = kwargs["inputs_embeds"]
         hidden = self.linear(inputs_embeds)
-        return _FakeOutputs(hidden_states=(hidden, hidden))
+        return _FakeOutputs(hidden_states=tuple(hidden for _ in range(13)))
 
     def __call__(self, **kwargs: Any) -> _FakeOutputs:
         return self.forward(**kwargs)

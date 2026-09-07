@@ -34,7 +34,11 @@ class _FakeModel(nn.Module):
 
 @pytest.fixture(scope="module")
 def encoder() -> SlotEncoder:
-    return SlotEncoder(slot_count=4, device="cpu")
+    return SlotEncoder(
+        slot_count=4,
+        device="cpu",
+        manifest_verifier=lambda *_: None,
+    )
 
 
 @pytest.fixture
