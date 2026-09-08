@@ -186,13 +186,42 @@ class TestStabilityReportLoader:
             temp_path = Path(handle.name)
 
         try:
-            with pytest.raises(TrainabilityReportValidationError, match="missing required field"):
+            with pytest.raises(TrainabilityReportValidationError, match=r"missing (required )?field"):
                 load_and_validate_stability_report(
                     temp_path,
                     implementation,
                     (),
                     require_complete=True,
                 )
+        finally:
+            temp_path.unlink()
+
+    def test_strict_loader_rejects_missing_canonical_failed_evidence(self) -> None:
+        """Strict loading requires the canonical failed-run envelope and evidence."""
+        repo_root = Path(__file__).resolve().parents[1]
+        implementation = canonical_trainability_implementation_identity(repo_root)
+        report_data = {
+            "schema_version": 1,
+            "status": "failed",
+            "configuration": {},
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+            json.dump(report_data, handle)
+            temp_path = Path(handle.name)
+
+        try:
+            with pytest.raises(TrainabilityReportValidationError) as exc_info:
+                load_and_validate_stability_report(
+                    temp_path,
+                    implementation,
+                    (),
+                    require_complete=True,
+                )
+            error_message = str(exc_info.value)
+            assert "outcome_code" in error_message
+            assert "checkpoints" in error_message
+            assert "failed_thresholds" in error_message
         finally:
             temp_path.unlink()
 

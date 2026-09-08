@@ -39,6 +39,10 @@ from train.eggroll_stability import (
     StabilityMetrics,
     _is_sha256,
     _require_finite,
+    read_stability_report,
+)
+from train.eggroll_stability import (
+    StabilityReportValidationError as CanonicalStabilityReportValidationError,
 )
 from train.eggroll_stability_evaluation import evaluate_stability_metrics
 from train.eggroll_trainer import (
@@ -54,6 +58,7 @@ from train.eggroll_trainer import (
 from train.stage0_data import FitnessBatch
 from train.standalone_checkpoint import configure_deterministic_runtime, runtime_identity
 from train.trainer import LatentCoreTrainer
+from train.vicreg import slot_variance_penalty
 
 TRAINABILITY_SCHEMA_VERSION = 1
 TRAINABILITY_IMPLEMENTATION_PATHS = STABILITY_IMPLEMENTATION_PATHS
@@ -136,7 +141,7 @@ class OverfitAttempt:
     """One complete memorization attempt at a declared learning rate."""
 
     learning_rate: float
-    status: Literal["passed", "failed", "non_finite"]
+    status: Literal["passed", "failed", "non_finite", "inconclusive"]
     baseline_metrics: StabilityMetrics | None
     checkpoints: tuple[tuple[int, StabilityMetrics | None], ...] = ()
     failed_reason: str = ""
@@ -149,8 +154,8 @@ class OverfitAttempt:
                 raise ValueError("passed overfit attempt must have baseline metrics")
             if not self.checkpoints:
                 raise ValueError("passed overfit attempt must have checkpoints")
-        if self.status == "non_finite" and not self.failed_reason:
-            raise ValueError("non_finite overfit attempt must specify the failed field")
+        if self.status in ("non_finite", "inconclusive") and not self.failed_reason:
+            raise ValueError(f"{self.status} overfit attempt must specify the failed field")
 
     def to_dict(self) -> dict[str, Any]:
         result = {
@@ -209,6 +214,8 @@ class CausalProbeResult:
     failed_conditions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.status not in ("passed", "direction_mismatch", "unsafe_update", "inconclusive"):
+            raise ValueError(f"invalid causal probe status: {self.status}")
         if self.status == "passed":
             if not all(
                 v is not None
@@ -301,12 +308,14 @@ class ArmResult:
         "non_finite",
         "inconclusive",
     ]
-    baseline_checkpoint: ArmCheckpoint
+    baseline_checkpoint: ArmCheckpoint | None
     checkpoints: tuple[ArmCheckpoint, ...]
     recalibration_eligible: bool
     failed_conditions: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
+        if self.baseline_checkpoint is None and self.status != "inconclusive":
+            raise ValueError("non-inconclusive arm must have a baseline checkpoint")
         if self.arm == "no_update":
             if self.method is not None:
                 raise ValueError("no-update arm must not specify a method")
@@ -325,7 +334,7 @@ class ArmResult:
             "arm": self.arm,
             "method": self.method,
             "status": self.status,
-            "baseline": self.baseline_checkpoint.to_dict(),
+            "baseline": self.baseline_checkpoint.to_dict() if self.baseline_checkpoint else None,
             "checkpoint_count": len(self.checkpoints),
             "checkpoints": [cp.to_dict() for cp in self.checkpoints],
             "recalibration_eligible": self.recalibration_eligible,
@@ -539,6 +548,23 @@ def load_and_validate_stability_report(
         issues.append(f"stability report must have status=failed, got {status!r}")
     if require_complete and report_data.get("schema_version") != 1:
         issues.append("stability report requires schema_version=1")
+
+    if require_complete:
+        try:
+            canonical_report = read_stability_report(report_path).report
+        except CanonicalStabilityReportValidationError as error:
+            issues.extend(f"canonical stability report: {issue}" for issue in error.issues)
+        else:
+            if canonical_report.status != "failed":
+                issues.append("canonical stability report must have status=failed")
+            if canonical_report.outcome_code == 0:
+                issues.append("canonical stability report failed runs require a nonzero outcome_code")
+            if not canonical_report.checkpoints:
+                issues.append("canonical stability report requires completed checkpoints")
+            elif canonical_report.checkpoints[-1].failed_thresholds != canonical_report.failed_thresholds:
+                issues.append("canonical stability report final checkpoint failures must equal report failures")
+            if not canonical_report.failed_thresholds:
+                issues.append("canonical stability report failed runs require failed_thresholds")
 
     if issues:
         raise TrainabilityReportValidationError(issues)
@@ -762,40 +788,39 @@ def evaluate_single_record_loss(
     Returns:
         Tuple of (language_model_loss, total_objective)
     """
-    try:
-        trainer.optimizer.zero_grad()
-        latent_loop = trainer.latent_loop
-        tokenizer = trainer.tokenizer
-        encoder = trainer.encoder
-        workspace = trainer.workspace
-        language_model = latent_loop.model
+    trainer.optimizer.zero_grad()
+    latent_loop = trainer.latent_loop
+    tokenizer = trainer.tokenizer
+    encoder = trainer.encoder
+    workspace = trainer.workspace
+    language_model = latent_loop.model
 
-        prepared = prepare_training_example(tokenizer, question, answer)
-        teacher_state = prompt_teacher_state(
-            language_model,
-            prepared.context_input_ids.to(device),
-        )
-        context_embeds = latent_loop.embed_tokens(prepared.context_input_ids)
+    prepared = prepare_training_example(tokenizer, question, answer)
+    teacher_state = prompt_teacher_state(
+        language_model,
+        prepared.context_input_ids.to(device),
+    )
+    context_embeds = latent_loop.embed_tokens(prepared.context_input_ids)
 
-        slots = encoder.encode(question)
-        workspace.write_slots(slots)
-        for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
-            latent_loop.run(workspace, context_embeds=context_embeds)
-        loop_slots = workspace.read_slots()
+    slots = encoder.encode(question)
+    workspace.write_slots(slots)
+    for _ in range(SUBJECT_LATENT_RUNS_PER_ANSWER):
+        latent_loop.run(workspace, context_embeds=context_embeds)
+    loop_slots = workspace.read_slots()
 
-        answer_objective = prompt_aligned_answer_objective(
-            language_model,
-            loop_slots,
-            prepared.answer_ids.to(device),
-            getattr(tokenizer, "eos_token_id", None),
-            teacher_state=teacher_state,
-        )
-        lm_loss = answer_objective.language_model_loss.mean()
-        total_objective = lm_loss + (trainer.prompt_alignment_weight * answer_objective.prompt_alignment_loss.mean())
+    answer_objective = prompt_aligned_answer_objective(
+        language_model,
+        loop_slots,
+        prepared.answer_ids.to(device),
+        getattr(tokenizer, "eos_token_id", None),
+        teacher_state=teacher_state,
+    )
+    lm_loss = answer_objective.language_model_loss.mean()
+    prompt_alignment_penalty = trainer.prompt_alignment_weight * answer_objective.prompt_alignment_loss.mean()
+    collapse_penalty = trainer.variance_weight * slot_variance_penalty(loop_slots).mean()
+    total_objective = lm_loss + prompt_alignment_penalty + collapse_penalty
 
-        return lm_loss.item(), total_objective.item()
-    except Exception:  # noqa: BLE001 - diagnostic failures become non-finite evidence
-        return float("nan"), float("nan")
+    return lm_loss.item(), total_objective.item()
 
 
 def _trainer_state_is_finite(trainer: Any) -> bool:
@@ -886,7 +911,7 @@ def run_overfit_attempt(
             except Exception as error:  # noqa: BLE001 - preserve diagnostic evidence
                 return {
                     "learning_rate": learning_rate,
-                    "status": "non_finite",
+                    "status": "inconclusive",
                     "baseline_loss": baseline_loss,
                     "checkpoints": [],
                     "failed_reason": f"Initial metric evaluation failed: {error!s}",
@@ -926,7 +951,7 @@ def run_overfit_attempt(
                 except Exception as e:  # noqa: BLE001 - retain failed attempt evidence
                     return {
                         "learning_rate": learning_rate,
-                        "status": "non_finite",
+                        "status": "inconclusive",
                         "baseline_loss": baseline_loss,
                         "checkpoints": checkpoints,
                         "failed_reason": f"Exception at step {current_step + 1}: {e!s}",
@@ -960,7 +985,7 @@ def run_overfit_attempt(
                 except Exception as error:  # noqa: BLE001 - preserve diagnostic evidence
                     return {
                         "learning_rate": learning_rate,
-                        "status": "non_finite",
+                        "status": "inconclusive",
                         "baseline_loss": baseline_loss,
                         "baseline_metrics": baseline_metrics,
                         "checkpoints": checkpoints,
@@ -990,7 +1015,7 @@ def run_overfit_attempt(
     except Exception as e:  # noqa: BLE001 - retain fatal attempt evidence
         return {
             "learning_rate": learning_rate,
-            "status": "non_finite",
+            "status": "inconclusive",
             "baseline_loss": None,
             "checkpoints": [],
             "failed_reason": f"Fatal exception: {e!s}",
@@ -1059,6 +1084,18 @@ def classify_overfit_probe(
                     attempts=tuple(attempts),
                 )
 
+    inconclusive_conditions = tuple(
+        f"learning_rate_{attempt.learning_rate}: {attempt.failed_reason or 'inconclusive evidence'}"
+        for attempt in attempts
+        if attempt.status == "inconclusive"
+    )
+    if inconclusive_conditions:
+        return OverfitProbeResult(
+            status="inconclusive",
+            attempts=tuple(attempts),
+            failed_conditions=inconclusive_conditions,
+        )
+
     return OverfitProbeResult(
         status="objective_untrainable",
         attempts=tuple(attempts),
@@ -1095,17 +1132,19 @@ def evaluate_objective_on_training_records(
     trainer: Any,
     training_records: Sequence[tuple[str, str]],
     max_records: int = 8,
-) -> tuple[StabilityMetrics, tuple[tuple[str, str], ...]]:
+    *,
+    device: str = "cpu",
+) -> tuple[float, tuple[tuple[str, str], ...]]:
     """Evaluate the complete objective on a set of training records.
 
     Args:
         trainer: LatentCoreTrainer instance
         training_records: Sequence of (question, answer) tuples
         max_records: Maximum number of records to evaluate (default 8)
+        device: Device to use for computation
 
     Returns:
-        Tuple of (metrics, record_ids) where metrics is the aggregated result
-        and record_ids are the canonical identifiers for evaluated records
+        Tuple of (mean_total_objective, record_ids) for the evaluated support records
 
     Raises:
         ValueError: If training records list is empty or too short
@@ -1132,37 +1171,16 @@ def evaluate_objective_on_training_records(
 
     record_ids = tuple(record_to_identifier(record) for record in selected_records)
 
-    metric_components: list[tuple[float, float]] = []
+    objective_values: list[float] = []
     for question, answer in selected_records:
-        lm_loss, total_obj = evaluate_single_record_loss(trainer, question, answer)
-        if math.isfinite(lm_loss) and math.isfinite(total_obj):
-            metric_components.append((lm_loss, total_obj))
+        lm_loss, total_objective = evaluate_single_record_loss(trainer, question, answer, device=device)
+        if math.isfinite(lm_loss) and math.isfinite(total_objective):
+            objective_values.append(total_objective)
 
-    if len(metric_components) != len(selected_records):
+    if len(objective_values) != len(selected_records):
         raise ValueError("causal evaluation produced a non-finite value for one or more support records")
 
-    avg_lm_loss = sum(loss for loss, _ in metric_components) / len(metric_components)
-
-    metrics = StabilityMetrics(
-        # StabilityMetrics is the shared 64-record report shape. The support
-        # objective remains explicitly identified as the first eight records
-        # by CausalProbeEvaluation and is not used as held-out evidence.
-        problem_count=64,
-        parameter_rms=(),
-        language_model_loss=avg_lm_loss,
-        exact_accuracy=0.0,
-        first_token_accuracy=0.0,
-        valid_answer_rate=1.0,
-        output_diversity=0.5,
-        output_dominance=0.5,
-        shared_slot_variance=0.5,
-        student_teacher_mse=avg_lm_loss,
-        student_cross_problem_cosine=0.5,
-        teacher_cross_problem_cosine=0.5,
-        separation_retention=0.95,
-    )
-
-    return metrics, record_ids
+    return sum(objective_values) / len(objective_values), record_ids
 
 
 def evaluate_held_out_metrics(
@@ -1503,6 +1521,9 @@ def classify_overall_trainability(
                         if arm is None:
                             shared_conflict_proven = False
                             break
+                        if arm.baseline_checkpoint is None:
+                            shared_conflict_proven = False
+                            break
                         baseline = arm.baseline_checkpoint.metrics
                         final = (arm.checkpoints[-1] if arm.checkpoints else arm.baseline_checkpoint).metrics
                         lower_loss = (
@@ -1741,8 +1762,8 @@ class NoUpdateControl:
     baseline_metrics: StabilityMetrics
     final_metrics: StabilityMetrics
     metrics_drift: dict[str, float]
-    state_hash_baseline: str = ""
-    state_hash_final: str = ""
+    state_hash_baseline: str | None = None
+    state_hash_final: str | None = None
 
     def __post_init__(self) -> None:
         if not self.metrics_drift:
@@ -1900,6 +1921,7 @@ def _run_arm_with_updates(
     device: str = "cpu",
     use_eggroll_batches: bool = False,
     progress_observer: Callable[[int, int, dict[str, Any]], None] | None = None,
+    max_decode_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> MethodArm:
     """Run an arm with consistent example counting and optional EGGROLL batching.
 
@@ -1915,36 +1937,31 @@ def _run_arm_with_updates(
     """
     if len(manifest.training_records) < 32:
         raise ValueError(f"{arm_kind} arm requires at least 32 records, got {len(manifest.training_records)}")
+    if not manifest.held_out_records:
+        return MethodArm(
+            arm_kind=arm_kind,
+            training_records=manifest.training_records,
+            held_out_records=manifest.held_out_records,
+            evaluations=(),
+            final_status="stopped",
+            final_stop_reason="arm evaluation requires exactly 64 held-out records",
+            training_record_identifiers=manifest.training_record_identifiers,
+            held_out_record_identifiers=manifest.held_out_record_identifiers,
+        )
 
     configure_deterministic_runtime()
     if arm_kind == "eggroll_only" or use_eggroll_batches:
-        trainer: Any = (
-            EggrollTrainer(device=device)
-            if manifest.held_out_records
-            else EggrollTrainer(
-                pop_size=2,
-                rank=1,
-                eval_batch_size=2,
-                device=device,
-            )
-        )
+        trainer: Any = EggrollTrainer(device=device)
     else:
         trainer = LatentCoreTrainer(lr=learning_rate, device=device)
 
     def evaluate() -> StabilityMetrics:
-        if manifest.held_out_records:
-            return evaluate_held_out_metrics(
-                trainer,
-                manifest.held_out_records,
-                device=device,
-                max_decode_tokens=DEFAULT_MAX_TOKENS,
-            )
-        metrics, _ = evaluate_objective_on_training_records(
+        return evaluate_held_out_metrics(
             trainer,
-            manifest.training_records[:8],
-            max_records=8,
+            manifest.held_out_records,
+            device=device,
+            max_decode_tokens=max_decode_tokens,
         )
-        return metrics
 
     def capture_matrix_parameters() -> tuple[torch.Tensor, ...]:
         state = getattr(trainer, "state", None)
@@ -2004,7 +2021,15 @@ def _run_arm_with_updates(
                 workspace_snapshot = None
             rms = relative_matrix_rms(baseline_parameters)
             metrics_drift = _compute_metrics_drift(baseline_metrics, metrics)
-            control_state_drifted = arm_kind == "no_update" and _compute_state_hash(trainer) != baseline_state_hash
+            current_state_hash = _compute_state_hash(trainer) if arm_kind == "no_update" else None
+            control_state_unavailable = arm_kind == "no_update" and (
+                baseline_state_hash is None or current_state_hash is None
+            )
+            control_state_drifted = (
+                arm_kind == "no_update"
+                and not control_state_unavailable
+                and (current_state_hash != baseline_state_hash)
+            )
             control_metrics_drifted = arm_kind == "no_update" and (
                 metrics.to_dict() != baseline_metrics.to_dict()
                 or not all(math.isfinite(value) for value in metrics_drift.values())
@@ -2023,6 +2048,8 @@ def _run_arm_with_updates(
                 final_status = "stopped"
                 final_stop_reason = stop_reason
             control_drift_reasons = []
+            if control_state_unavailable:
+                control_drift_reasons.append("state hash unavailable")
             if control_state_drifted:
                 control_drift_reasons.append("state")
             if control_metrics_drifted:
@@ -2160,12 +2187,12 @@ def _run_arm_with_updates(
     )
 
 
-def _compute_state_hash(trainer: Any) -> str:
+def _compute_state_hash(trainer: Any) -> str | None:
     """Compute a hash of the trainer's current parameter state."""
     try:
         state = getattr(trainer, "state", None)
         if state is None or not hasattr(state, "trainable_params"):
-            return hashlib.sha256(b"missing-state").hexdigest()
+            return None
         digest = hashlib.sha256()
         for name, parameter in state.trainable_params.items():
             digest.update(name.encode("utf-8"))
@@ -2188,7 +2215,7 @@ def _compute_state_hash(trainer: Any) -> str:
             digest.update(workspace.read_slots().detach().cpu().numpy().tobytes())
         return digest.hexdigest()
     except Exception:  # noqa: BLE001 - a missing digest invalidates the control arm
-        return ""
+        return None
 
 
 def _serialize_optimizer_state(value: Any) -> Any:
@@ -2229,6 +2256,7 @@ def run_no_update_arm(
     device: str = "cpu",
     *,
     progress_observer: Callable[[int, int, dict[str, Any]], None] | None = None,
+    max_decode_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> MethodArm:
     """Run the no-update control arm over 32 records with baseline comparison.
 
@@ -2247,6 +2275,7 @@ def run_no_update_arm(
         device=device,
         use_eggroll_batches=False,
         progress_observer=progress_observer,
+        max_decode_tokens=max_decode_tokens,
     )
 
 
@@ -2255,6 +2284,7 @@ def run_gradient_only_arm(
     device: str = "cpu",
     *,
     progress_observer: Callable[[int, int, dict[str, Any]], None] | None = None,
+    max_decode_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> MethodArm:
     """Run the gradient-only method arm over 32 records.
 
@@ -2272,6 +2302,7 @@ def run_gradient_only_arm(
         device=device,
         use_eggroll_batches=False,
         progress_observer=progress_observer,
+        max_decode_tokens=max_decode_tokens,
     )
 
 
@@ -2280,6 +2311,7 @@ def run_eggroll_only_arm(
     device: str = "cpu",
     *,
     progress_observer: Callable[[int, int, dict[str, Any]], None] | None = None,
+    max_decode_tokens: int = DEFAULT_MAX_TOKENS,
 ) -> MethodArm:
     """Run the EGGROLL-only method arm over 32 records with batch capping.
 
@@ -2298,4 +2330,5 @@ def run_eggroll_only_arm(
         device=device,
         use_eggroll_batches=True,
         progress_observer=progress_observer,
+        max_decode_tokens=max_decode_tokens,
     )

@@ -193,7 +193,7 @@ def _overfit_metrics(
 
 def _typed_overfit_attempt(raw: dict[str, Any]) -> OverfitAttempt:
     status = raw.get("status")
-    if status not in {"passed", "failed", "non_finite"}:
+    if status not in {"passed", "failed", "non_finite", "inconclusive"}:
         status = "non_finite"
     baseline_metrics = raw.get("baseline_metrics")
     checkpoint_metrics = {
@@ -211,6 +211,8 @@ def _typed_overfit_attempt(raw: dict[str, Any]) -> OverfitAttempt:
         failed_reason = str(raw.get("failed_reason", ""))
     if status == "non_finite" and not failed_reason:
         failed_reason = "attempt produced non-finite evidence"
+    if status == "inconclusive" and not failed_reason:
+        failed_reason = "attempt produced incomplete evidence"
     return OverfitAttempt(
         learning_rate=float(raw["learning_rate"]),
         status=status,
@@ -237,10 +239,10 @@ def _relative_matrix_rms(before: tuple[torch.Tensor, ...], trainer: Any) -> floa
     return max(values, default=0.0)
 
 
-def _support_objective(trainer: Any, records: Sequence[tuple[str, str]]) -> float:
+def _support_objective(trainer: Any, records: Sequence[tuple[str, str]], *, device: str = "cpu") -> float:
     if len(records) != 8:
         raise ValueError(f"causal probe requires exactly 8 support records, got {len(records)}")
-    values = [evaluate_single_record_loss(trainer, question, answer)[1] for question, answer in records]
+    values = [evaluate_single_record_loss(trainer, question, answer, device=device)[1] for question, answer in records]
     if not values or not all(torch.isfinite(torch.tensor(value)) for value in values):
         raise ValueError("support objective contains a non-finite value")
     return sum(values) / len(values)
@@ -263,7 +265,7 @@ def _run_causal_probe(
             trainer: Any = LatentCoreTrainer(lr=0.001, device=device)
         else:
             trainer = EggrollTrainer(device=device)
-        baseline_objective = _support_objective(trainer, support_records)
+        baseline_objective = _support_objective(trainer, support_records, device=device)
         baseline_held_out = evaluate_held_out_metrics(
             trainer,
             held_out_records,
@@ -294,7 +296,7 @@ def _run_causal_probe(
         predicted_delta = getattr(trainer, "last_predicted_objective_delta", None)
         if predicted_delta is None:
             raise ValueError("trainer did not expose the signed first-order prediction")  # noqa: TRY301
-        post_objective = _support_objective(trainer, support_records)
+        post_objective = _support_objective(trainer, support_records, device=device)
         observed_delta = post_objective - baseline_objective
         post_held_out = evaluate_held_out_metrics(
             trainer,
@@ -314,7 +316,10 @@ def _run_causal_probe(
             post_held_out.separation_retention,
             max_rms,
         )
-        if direction_status != "passed":
+        if direction_status == "non_finite" or safety_status == "non_finite":
+            status = "inconclusive"
+            direction_conditions = (*direction_conditions, *safety_conditions, "causal_non_finite")
+        elif direction_status != "passed":
             status = direction_status
         elif safety_status != "passed":
             status = safety_status
@@ -351,8 +356,19 @@ def _arm_result(
     overfit_status: str,
     causal_status: str | None,
 ) -> ArmResult:
+    method: MethodName | None = (
+        None if arm.arm_kind == "no_update" else ("gradient" if arm.arm_kind == "gradient_only" else "eggroll")
+    )
     if not arm.evaluations:
-        raise ValueError(f"{arm.arm_kind} arm produced no evaluation checkpoints")
+        return ArmResult(
+            arm=arm.arm_kind,
+            method=method,
+            status="inconclusive",
+            baseline_checkpoint=None,
+            checkpoints=(),
+            recalibration_eligible=False,
+            failed_conditions=(arm.final_stop_reason or "arm produced no evaluation checkpoints",),
+        )
     baseline_evaluation = arm.evaluations[0]
     final_evaluation = arm.evaluations[-1]
     baseline = ArmCheckpoint(
@@ -390,7 +406,7 @@ def _arm_result(
             failed_conditions=failed_conditions,
         )
 
-    method: MethodName = "gradient" if arm.arm_kind == "gradient_only" else "eggroll"
+    assert method is not None
     if arm.final_status == "stopped":
         status = "inconclusive"
         conditions = (f"arm_stopped: {arm.final_stop_reason or 'unknown'}",)
@@ -555,7 +571,7 @@ def _run_investigation(
         )
         typed_attempt = _typed_overfit_attempt(raw)
         attempts.append(typed_attempt)
-        if typed_attempt.status in ("passed", "non_finite"):
+        if typed_attempt.status in ("passed", "non_finite", "inconclusive"):
             _emit(
                 progress_writer,
                 "overfit_stop",
@@ -621,6 +637,7 @@ def _run_investigation(
             arm = runner(
                 manifest,
                 device=args.device,
+                max_decode_tokens=args.max_decode_tokens,
                 progress_observer=lambda consumed, calls, payload, arm_label=arm_name: _emit(
                     progress_writer,
                     "arm_checkpoint",
@@ -749,7 +766,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         with TrainabilityProgressWriter(progress_path) as progress:
             status, failed_conditions = _run_investigation(args, progress)
             report = progress.final_report
-    except (OSError, ValueError, TypeError) as error:
+    except (OSError, RuntimeError, ValueError, TypeError) as error:
         print(f"investigation error: {error}", file=sys.stderr, flush=True)
         return _write_final_report(
             args,
