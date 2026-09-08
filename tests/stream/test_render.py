@@ -187,7 +187,7 @@ def test_probe_rendering_is_idempotent():
 def test_idle_carries_no_text_and_refuses_to_render():
     event = _idle()
     assert carries_text(event) is False
-    with pytest.raises(TypeError, match="idle"):
+    with pytest.raises(ValueError, match="idle"):
         render_event(event)
 
 
@@ -198,7 +198,7 @@ def test_carries_text_returns_false_for_idle():
 
 # covers: eval/render::Idle carries no text and render_event refuses it::render_event raises on Idle
 def test_render_event_raises_on_idle():
-    with pytest.raises(TypeError, match="idle"):
+    with pytest.raises(ValueError, match="idle"):
         render_event(_idle())
 
 

@@ -5,9 +5,12 @@ from __future__ import annotations
 import inspect
 import json
 import math
+from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import torch
 
 from train.eggroll_stability import ImplementationIdentity, ParameterRms, StabilityMetrics, StabilityReport
 from train.stage0_data import load_stage0_dataset
@@ -40,6 +43,8 @@ from train.stage0_trainability import (
     classify_overfit_probe,
     compute_first_order_prediction,
     compute_recalibration_eligibility,
+    evaluate_objective_on_training_records,
+    evaluate_single_record_loss,
     run_eggroll_only_arm,
     run_gradient_only_arm,
     run_no_update_arm,
@@ -190,6 +195,16 @@ class TestOverfitAttempt:
             failed_reason="NaN in gradient",
         )
         assert attempt.failed_reason == "NaN in gradient"
+
+    def test_inconclusive_attempt(self) -> None:
+        """Test creating an overfit attempt with incomplete evidence."""
+        attempt = OverfitAttempt(
+            learning_rate=0.001,
+            status="inconclusive",
+            baseline_metrics=None,
+            failed_reason="model cache unavailable",
+        )
+        assert attempt.status == "inconclusive"
 
     def test_invalid_learning_rate(self, sample_metrics: StabilityMetrics) -> None:
         """Test that invalid learning rate raises ValueError."""
@@ -717,6 +732,20 @@ class TestOverfitProbeClassification:
         assert result.attempts[1].learning_rate == 0.001
         assert result.attempts[2].learning_rate == 0.01
 
+    def test_classify_incomplete_attempts_as_inconclusive(self) -> None:
+        """Incomplete overfit evidence must not be classified as objective failure."""
+        attempt = OverfitAttempt(
+            learning_rate=0.001,
+            status="inconclusive",
+            baseline_metrics=None,
+            failed_reason="metric evaluator unavailable",
+        )
+
+        result = classify_overfit_probe((attempt,))
+
+        assert result.status == "inconclusive"
+        assert "metric evaluator unavailable" in result.failed_conditions[0]
+
     def test_classify_requires_exact_accuracy_1_0(self, sample_metrics: StabilityMetrics) -> None:
         """Test that classification requires exact_accuracy = 1.0."""
 
@@ -790,6 +819,7 @@ class TestOverfitAttemptDeterminism:
             "passed": {"status", "learning_rate", "baseline_loss", "checkpoints"},
             "failed": {"status", "learning_rate", "baseline_loss", "checkpoints"},
             "non_finite": {"status", "learning_rate", "failed_reason"},
+            "inconclusive": {"status", "learning_rate", "failed_reason"},
         }
 
         for status, expected in expected_keys_by_status.items():
@@ -1311,8 +1341,141 @@ class TestCausalProbeEvaluation:
         assert result_dict["post_update_metrics"] is not None
 
 
+class TestSupportObjective:
+    """Test the scalar support objective used by causal probes."""
+
+    def test_support_objective_is_not_a_64_record_metric(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Eight support records produce a scalar objective and preserve the selected device."""
+        records = tuple((f"Q{i}", f"A{i}") for i in range(8))
+        observed_devices: list[str] = []
+
+        def fake_evaluate(
+            _trainer: object,
+            _question: str,
+            _answer: str,
+            *,
+            device: str,
+        ) -> tuple[float, float]:
+            observed_devices.append(device)
+            return 1.0, 3.0
+
+        monkeypatch.setattr("train.stage0_trainability.evaluate_single_record_loss", fake_evaluate)
+
+        objective, record_ids = evaluate_objective_on_training_records(
+            object(),
+            records,
+            device="cuda",
+        )
+
+        assert objective == 3.0
+        assert len(record_ids) == 8
+        assert observed_devices == ["cuda"] * 8
+
+    def test_single_record_objective_includes_collapse_penalty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Support loss uses the same language-model, alignment, and collapse terms as training."""
+        prepared = SimpleNamespace(
+            context_input_ids=torch.tensor([1]),
+            answer_ids=torch.tensor([2]),
+        )
+        trainer = SimpleNamespace(
+            optimizer=SimpleNamespace(zero_grad=lambda: None),
+            latent_loop=SimpleNamespace(
+                model=object(),
+                embed_tokens=lambda _tokens: torch.zeros(1),
+                run=lambda _workspace, *, context_embeds: None,
+            ),
+            tokenizer=SimpleNamespace(eos_token_id=0),
+            encoder=SimpleNamespace(encode=lambda _question: torch.zeros(2, 3)),
+            workspace=SimpleNamespace(
+                write_slots=lambda _slots: None,
+                read_slots=lambda: torch.ones(2, 3),
+            ),
+            prompt_alignment_weight=3.0,
+            variance_weight=2.0,
+        )
+        monkeypatch.setattr("train.stage0_trainability.prepare_training_example", lambda *_args: prepared)
+        monkeypatch.setattr("train.stage0_trainability.prompt_teacher_state", lambda *_args: object())
+        monkeypatch.setattr(
+            "train.stage0_trainability.prompt_aligned_answer_objective",
+            lambda *_args, **_kwargs: SimpleNamespace(
+                language_model_loss=torch.tensor([4.0]),
+                prompt_alignment_loss=torch.tensor([5.0]),
+            ),
+        )
+        monkeypatch.setattr(
+            "train.stage0_trainability.slot_variance_penalty",
+            lambda _slots: torch.tensor([6.0]),
+        )
+
+        language_model_loss, total_objective = evaluate_single_record_loss(trainer, "Q", "A")
+
+        assert language_model_loss == 4.0
+        assert total_objective == 31.0
+
+
 class TestOverfitProbeFixtures:
     """Integration tests for one-record probe with lightweight fixtures."""
+
+    def test_metric_evaluator_failure_is_inconclusive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An evaluator failure is incomplete evidence, not an objective failure."""
+        trainer = SimpleNamespace(state=SimpleNamespace(trainable_params={}))
+        monkeypatch.setattr(
+            "train.stage0_trainability.evaluate_single_record_loss",
+            lambda *_args, **_kwargs: (1.0, 1.0),
+        )
+
+        def failing_metrics(_trainer: object) -> StabilityMetrics:
+            raise RuntimeError("decoder unavailable")
+
+        result = run_overfit_attempt(
+            "Q",
+            "A",
+            learning_rate=0.001,
+            checkpoint_steps=(1,),
+            trainer_factory=lambda _learning_rate, _device: trainer,
+            metrics_evaluator=failing_metrics,
+        )
+
+        assert result["status"] == "inconclusive"
+        assert "decoder unavailable" in result["failed_reason"]
+
+    def test_single_record_evaluator_failure_is_inconclusive(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An operational single-record evaluation failure is not numeric evidence."""
+        trainer = SimpleNamespace(state=SimpleNamespace(trainable_params={}))
+
+        def failing_evaluation(*_args: object, **_kwargs: object) -> tuple[float, float]:
+            raise RuntimeError("model cache unavailable")
+
+        monkeypatch.setattr("train.stage0_trainability.evaluate_single_record_loss", failing_evaluation)
+
+        result = run_overfit_attempt(
+            "Q",
+            "A",
+            learning_rate=0.001,
+            checkpoint_steps=(1,),
+            trainer_factory=lambda _learning_rate, _device: trainer,
+        )
+
+        assert result["status"] == "inconclusive"
+        assert "model cache unavailable" in result["failed_reason"]
+
+    def test_observed_non_finite_loss_remains_non_finite(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A measured non-finite loss remains distinct from an evaluator exception."""
+        trainer = SimpleNamespace(state=SimpleNamespace(trainable_params={}))
+        monkeypatch.setattr(
+            "train.stage0_trainability.evaluate_single_record_loss",
+            lambda *_args, **_kwargs: (float("nan"), float("nan")),
+        )
+
+        result = run_overfit_attempt(
+            "Q",
+            "A",
+            learning_rate=0.001,
+            checkpoint_steps=(1,),
+            trainer_factory=lambda _learning_rate, _device: trainer,
+        )
+
+        assert result["status"] == "non_finite"
 
     def test_overfit_probe_runs_with_simple_question(self) -> None:
         """Test that one-record probe runs successfully with simple fixture."""
@@ -1328,7 +1491,7 @@ class TestOverfitProbeFixtures:
         )
 
         assert isinstance(result, dict)
-        assert result["status"] in ("passed", "failed", "non_finite")
+        assert result["status"] in ("passed", "failed", "non_finite", "inconclusive")
         assert result["learning_rate"] == 0.001
 
     def test_overfit_probe_fixture_returns_consistent_structure(self) -> None:
@@ -1377,7 +1540,9 @@ class TestOverfitProbeFixtures:
         assert len(results) == len(questions), "probe must run for each question"
 
         for i, result in enumerate(results):
-            assert result["status"] in ("passed", "failed", "non_finite"), f"probe {i} returned invalid status"
+            assert result["status"] in ("passed", "failed", "non_finite", "inconclusive"), (
+                f"probe {i} returned invalid status"
+            )
             assert result["learning_rate"] == 0.001, f"probe {i} did not preserve learning_rate"
 
 
@@ -1759,6 +1924,96 @@ class TestNoUpdateControl:
         assert "separation_retention_ratio" in drift
         assert drift["separation_retention_ratio"] == 1.0
 
+    def test_no_update_arm_stops_when_metrics_drift(
+        self, monkeypatch: pytest.MonkeyPatch, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Test that a no-update arm stops when evaluation metrics change."""
+
+        class FakeTrainer:
+            def __init__(self, **_kwargs: object) -> None:
+                self.state = type("State", (), {"trainable_params": {}})()
+
+        evaluations = iter(
+            (
+                sample_metrics,
+                replace(sample_metrics, language_model_loss=2.0),
+            )
+        )
+
+        monkeypatch.setattr("train.stage0_trainability.LatentCoreTrainer", FakeTrainer)
+        monkeypatch.setattr(
+            "train.stage0_trainability.evaluate_held_out_metrics",
+            lambda *_args, **_kwargs: next(evaluations),
+        )
+
+        manifest = FreshStateManifest(
+            training_records=tuple((f"Q{i}", f"A{i}") for i in range(32)),
+            held_out_records=tuple((f"V{i}", f"B{i}") for i in range(64)),
+        )
+        arm = run_no_update_arm(manifest)
+
+        assert arm.final_status == "stopped"
+        assert "metrics drifted" in arm.final_stop_reason
+
+    def test_no_update_arm_stops_when_state_hash_is_unavailable(
+        self, monkeypatch: pytest.MonkeyPatch, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Unavailable state hashing must make the no-update control inconclusive."""
+
+        class FakeTrainer:
+            def __init__(self, **_kwargs: object) -> None:
+                self.state = type("State", (), {"trainable_params": {}})()
+
+        monkeypatch.setattr("train.stage0_trainability.LatentCoreTrainer", FakeTrainer)
+        monkeypatch.setattr("train.stage0_trainability._compute_state_hash", lambda _trainer: None)
+        monkeypatch.setattr(
+            "train.stage0_trainability.evaluate_held_out_metrics",
+            lambda *_args, **_kwargs: sample_metrics,
+        )
+
+        manifest = FreshStateManifest(
+            training_records=tuple((f"Q{i}", f"A{i}") for i in range(32)),
+            held_out_records=tuple((f"V{i}", f"B{i}") for i in range(64)),
+        )
+        arm = run_no_update_arm(manifest)
+
+        assert arm.final_status == "stopped"
+        assert "state hash unavailable" in arm.final_stop_reason
+
+    def test_arm_forwards_decode_token_limit(
+        self, monkeypatch: pytest.MonkeyPatch, sample_metrics: StabilityMetrics
+    ) -> None:
+        """Arm held-out evaluation uses the caller's decode-token limit."""
+
+        class FakeTrainer:
+            def __init__(self, **_kwargs: object) -> None:
+                self.state = type("State", (), {"trainable_params": {}})()
+
+        observed: list[tuple[str, int]] = []
+
+        def fake_evaluate(
+            _trainer: object,
+            _records: object,
+            *,
+            device: str,
+            max_decode_tokens: int,
+        ) -> StabilityMetrics:
+            observed.append((device, max_decode_tokens))
+            return sample_metrics
+
+        monkeypatch.setattr("train.stage0_trainability.LatentCoreTrainer", FakeTrainer)
+        monkeypatch.setattr("train.stage0_trainability.evaluate_held_out_metrics", fake_evaluate)
+
+        manifest = FreshStateManifest(
+            training_records=tuple((f"Q{i}", f"A{i}") for i in range(32)),
+            held_out_records=tuple((f"V{i}", f"B{i}") for i in range(64)),
+            checkpoint_example_counts=(0,),
+        )
+        arm = run_no_update_arm(manifest, device="cpu", max_decode_tokens=7)
+
+        assert arm.final_status == "active"
+        assert observed == [("cpu", 7)]
+
 
 class TestArmSafetyChecks:
     """Test independent safety checks for arm evaluations."""
@@ -1991,7 +2246,7 @@ class TestTableDrivenClassification:
         "overfit,method_status,causal,expected_eligible",
         [
             ("passed", "viable", "passed", True),
-            ("passed", "viable", "direction_mismatch", True),
+            ("passed", "viable", "direction_mismatch", False),
             ("objective_untrainable", "viable", "passed", False),
             ("passed", "no_improvement", "passed", False),
             ("passed", "viable", "unsafe_update", False),
@@ -2158,8 +2413,8 @@ class TestRecalibrationEligibility:
         assert eligible is True
         assert len(missing) == 0
 
-    def test_eligible_direction_mismatch_with_causal(self) -> None:
-        """Test eligible when method is direction_mismatch (can retry)."""
+    def test_ineligible_direction_mismatch_with_causal(self) -> None:
+        """Test direction mismatch blocks recalibration eligibility."""
 
         eligible, missing = compute_recalibration_eligibility(
             "eggroll",
@@ -2168,8 +2423,9 @@ class TestRecalibrationEligibility:
             causal_status="direction_mismatch",
         )
 
-        assert eligible is True
-        assert len(missing) == 0
+        assert eligible is False
+        assert "causal_unsupported" in missing
+        assert "method_not_viable" in missing
 
     def test_ineligible_objective_untrainable(self) -> None:
         """Test ineligible when objective failed."""
@@ -2273,6 +2529,52 @@ class TestOverallClassification:
 
         assert overall == "shared_loss_behavior_conflict"
         assert "shared_direction_mismatch" in conditions
+
+    def test_overall_shared_loss_behavior_conflict_with_evidence(self) -> None:
+        """Test shared conflict when both methods lower loss but regress decoded metrics."""
+        baseline_metrics = StabilityMetrics(
+            problem_count=64,
+            parameter_rms=(),
+            language_model_loss=1.0,
+            exact_accuracy=0.5,
+            first_token_accuracy=0.5,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        )
+        final_metrics = replace(
+            baseline_metrics,
+            language_model_loss=0.8,
+            exact_accuracy=0.4,
+            first_token_accuracy=0.4,
+        )
+        baseline = ArmCheckpoint(consumed_examples=0, optimizer_call_count=0, metrics=baseline_metrics)
+        final = ArmCheckpoint(consumed_examples=32, optimizer_call_count=32, metrics=final_metrics)
+        evidence = {
+            method: ArmResult(
+                arm="gradient_only" if method == "gradient" else "eggroll_only",
+                method=method,
+                status="loss_behavior_conflict",
+                baseline_checkpoint=baseline,
+                checkpoints=(final,),
+                recalibration_eligible=False,
+            )
+            for method in ("gradient", "eggroll")
+        }
+
+        overall, conditions = classify_overall_trainability(
+            "passed",
+            {"gradient": "loss_behavior_conflict", "eggroll": "loss_behavior_conflict"},
+            method_evidence=evidence,
+        )
+
+        assert overall == "shared_loss_behavior_conflict"
+        assert "shared_loss_behavior_conflict" in conditions
 
     def test_overall_method_specific_failure(self) -> None:
         """Test method_specific_failure when methods conflict."""

@@ -41,7 +41,7 @@ class _Subject:
         self.latent_loop = _LatentLoop()
 
 
-def test_load_subject_uses_safe_v2_checkpoint_loader(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_subject_rejects_checkpoint_slot_count_mismatch(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
     source_encoder = _Encoder()
     source_latent = _LatentLoop()
     tensors = {
@@ -58,20 +58,15 @@ def test_load_subject_uses_safe_v2_checkpoint_loader(tmp_path, monkeypatch: pyte
 
     monkeypatch.setattr(latent_eval, "load_alternating_checkpoint", safe_loader)
     monkeypatch.setattr(latent_eval, "LatentCoreSubject", _Subject)
-    loaded = latent_eval.load_subject(
-        checkpoint_path,
-        slot_count=16,
-        num_steps=2,
-        device="cpu",
-        backbone=object(),
-    )
-
+    with pytest.raises(ValueError, match="slot count"):
+        latent_eval.load_subject(
+            checkpoint_path,
+            slot_count=16,
+            num_steps=2,
+            device="cpu",
+            backbone=object(),
+        )
     assert calls == [checkpoint_path]
-    assert loaded.arguments["slot_count"] == 4
-    for name, tensor in source_encoder.state_dict().items():
-        assert torch.equal(loaded.encoder.state_dict()[name], tensor), name
-    for name, tensor in source_latent.state_dict().items():
-        assert torch.equal(loaded.latent_loop.state_dict()[name], tensor), name
 
 
 def test_load_subject_rejects_legacy_pickle_suffix_before_loading(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:

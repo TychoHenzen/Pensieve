@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+import torch
 
+from eval.stream.generators.asdiv_a import AsdivRecord
 from train import run_stage0_trainability
 from train.stage0_trainability import (
     ImplementationIdentity,
+    MethodArm,
     OverfitProbeResult,
+    StabilityMetrics,
     TrainabilityAssetIdentity,
     TrainabilityConfiguration,
     TrainabilityProgressRecord,
@@ -242,6 +247,82 @@ def test_exit_code_non_viable_outcomes(status: str) -> None:
     assert run_stage0_trainability._compute_exit_code(status) == 1
 
 
+def test_support_objective_forwards_device(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The causal support objective evaluates every record on the selected device."""
+    records = tuple((f"Q{i}", f"A{i}") for i in range(8))
+    observed_devices: list[str] = []
+
+    def fake_evaluate(
+        _trainer: object,
+        _question: str,
+        _answer: str,
+        *,
+        device: str,
+    ) -> tuple[float, float]:
+        observed_devices.append(device)
+        return 1.0, 2.0
+
+    monkeypatch.setattr(run_stage0_trainability, "evaluate_single_record_loss", fake_evaluate)
+
+    objective = run_stage0_trainability._support_objective(object(), records, device="cuda")
+
+    assert objective == 2.0
+    assert observed_devices == ["cuda"] * 8
+
+
+def test_causal_probe_normalizes_non_finite_classifier_status(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unsupported non-finite classifier output becomes typed inconclusive evidence."""
+    records = tuple((f"Q{i}", f"A{i}") for i in range(8))
+    held_out = tuple((f"V{i}", f"B{i}") for i in range(64))
+    metrics = StabilityMetrics(
+        problem_count=64,
+        parameter_rms=(),
+        language_model_loss=1.0,
+        exact_accuracy=0.0,
+        first_token_accuracy=0.0,
+        valid_answer_rate=1.0,
+        output_diversity=0.5,
+        output_dominance=0.5,
+        shared_slot_variance=0.5,
+        student_teacher_mse=1.0,
+        student_cross_problem_cosine=0.5,
+        teacher_cross_problem_cosine=0.5,
+        separation_retention=1.0,
+    )
+
+    class FakeTrainer:
+        last_predicted_objective_delta = -0.1
+
+        def train_batch(self, _records: object) -> None:
+            return None
+
+    monkeypatch.setattr(run_stage0_trainability, "LatentCoreTrainer", lambda **_kwargs: FakeTrainer())
+    monkeypatch.setattr(run_stage0_trainability, "_support_objective", lambda *_args, **_kwargs: 1.0)
+    monkeypatch.setattr(run_stage0_trainability, "evaluate_held_out_metrics", lambda *_args, **_kwargs: metrics)
+    monkeypatch.setattr(run_stage0_trainability, "_capture_matrix_parameters", lambda _trainer: ())
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "classify_causal_result",
+        lambda *_args: ("non_finite", ["predicted_delta_non_finite"]),
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "validate_causal_safety_checks",
+        lambda *_args: ("passed", []),
+    )
+
+    result = run_stage0_trainability._run_causal_probe(
+        "gradient",
+        records,
+        held_out,
+        device="cpu",
+        max_decode_tokens=4,
+    )
+
+    assert result.status == "inconclusive"
+    assert "causal_non_finite" in result.failed_conditions
+
+
 def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     """Final report is written with exclusive-create semantics and temp file cleanup."""
     output_path = tmp_path / "report.json"
@@ -277,6 +358,9 @@ def test_write_final_report_uses_exclusive_create(tmp_path: Path) -> None:
     assert not output_path.with_name(f".{output_path.name}.tmp").exists()
     data = json.loads(output_path.read_text(encoding="utf-8"))
     assert data["overall_status"] == "inconclusive"
+    with pytest.raises(FileExistsError):
+        run_stage0_trainability._write_report_to_file(report, output_path)
+    assert json.loads(output_path.read_text(encoding="utf-8"))["overall_status"] == "inconclusive"
 
 
 def test_pre_existing_output_rejected_before_model_loading(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -482,3 +566,175 @@ def test_command_routes_investigation_result_through_main(tmp_path: Path, monkey
     progress_data = json.loads(progress_lines[0])
     assert progress_data["kind"] == "arm_checkpoint"
     assert progress_data["sequence_number"] == 0
+
+
+def test_main_writes_inconclusive_report_for_runtime_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Operational investigation errors produce the required fallback report."""
+    stability_report = tmp_path / "stability.json"
+    stability_report.write_text('{"status": "failed"}', encoding="utf-8")
+    output = tmp_path / "output.json"
+
+    monkeypatch.setattr(run_stage0_trainability, "configure_deterministic_runtime", lambda: None)
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "canonical_trainability_implementation_identity",
+        lambda _root: ImplementationIdentity(
+            sha256="b" * 64,
+            sources=(("test_source.py", "c" * 64),),
+        ),
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "_run_investigation",
+        lambda _args, _writer: (_ for _ in ()).throw(RuntimeError("cuda setup failed")),
+    )
+
+    code = run_stage0_trainability.main(
+        [
+            "--stability-report",
+            str(stability_report),
+            "--final-output",
+            str(output),
+        ]
+    )
+
+    assert code == 1
+    output_data = json.loads(output.read_text(encoding="utf-8"))
+    assert output_data["overall_status"] == "inconclusive"
+    assert output_data["failed_conditions"] == ["investigation_exception: cuda setup failed"]
+
+
+def test_arm_without_evaluation_becomes_typed_inconclusive_result() -> None:
+    """An arm that cannot produce a baseline remains serializable and identifiable."""
+    records = tuple((f"Q{index}", f"A{index}") for index in range(32))
+    arm = MethodArm(
+        arm_kind="gradient_only",
+        training_records=records,
+        final_status="stopped",
+        final_stop_reason="RuntimeError: evaluator failed",
+    )
+
+    result = run_stage0_trainability._arm_result(
+        arm,
+        overfit_status="passed",
+        causal_status="passed",
+    )
+
+    assert result.arm == "gradient_only"
+    assert result.method == "gradient"
+    assert result.status == "inconclusive"
+    assert result.baseline_checkpoint is None
+    assert result.to_dict()["baseline"] is None
+
+
+def test_real_runner_builds_typed_report_without_placeholder(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The real orchestration path writes typed identity and probe evidence."""
+    training_records = tuple(
+        AsdivRecord(id=f"train-{index}", split="train", question=f"Q{index}", target=f"A{index}") for index in range(32)
+    )
+    held_out_records = tuple(
+        AsdivRecord(id=f"validation-{index}", split="validation", question=f"V{index}", target=f"B{index}")
+        for index in range(64)
+    )
+
+    class FakeDataset:
+        def training_records(self, *, mode: str, epoch: int) -> tuple[AsdivRecord, ...]:
+            assert mode == "eggroll"
+            assert epoch == 1
+            return training_records
+
+        def held_out_records(self) -> tuple[AsdivRecord, ...]:
+            return held_out_records
+
+    validation_calls: list[tuple[tuple[tuple[str, str], ...], dict[str, object]]] = []
+
+    class FakeTrainer:
+        def __init__(self, **_kwargs: object) -> None:
+            self.state = SimpleNamespace(trainable_params={"fixture": torch.zeros(1)})
+            self.optimizer = None
+
+        def train_step(self, _question: str, _answer: str) -> SimpleNamespace:
+            return SimpleNamespace(language_model_loss=1.0, total_objective=1.0)
+
+    monkeypatch.setattr(run_stage0_trainability, "LatentCoreTrainer", FakeTrainer)
+    monkeypatch.setattr(run_stage0_trainability, "load_stage0_dataset", FakeDataset)
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "build_trainability_record_selections",
+        lambda _dataset: (
+            (("overfit", "d" * 64),),
+            tuple((f"train-{index}", "e" * 64) for index in range(32)),
+            tuple((f"validation-{index}", "f" * 64) for index in range(64)),
+        ),
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "load_and_validate_stability_report",
+        lambda _path, _implementation, held_out, **kwargs: (
+            validation_calls.append((held_out, kwargs)) or ("a" * 64, {"fixture": True})
+        ),
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "evaluate_single_record_loss",
+        lambda *_args, **_kwargs: (1.0, 1.0),
+    )
+    monkeypatch.setattr(
+        "train.stage0_trainability.evaluate_single_record_loss",
+        lambda *_args, **_kwargs: (1.0, 1.0),
+    )
+    monkeypatch.setattr(
+        run_stage0_trainability,
+        "evaluate_held_out_metrics",
+        lambda *_args, **_kwargs: StabilityMetrics(
+            problem_count=64,
+            parameter_rms=(),
+            language_model_loss=1.0,
+            exact_accuracy=0.0,
+            first_token_accuracy=0.0,
+            valid_answer_rate=1.0,
+            output_diversity=0.5,
+            output_dominance=0.5,
+            shared_slot_variance=0.5,
+            student_teacher_mse=1.0,
+            student_cross_problem_cosine=0.5,
+            teacher_cross_problem_cosine=0.5,
+            separation_retention=1.0,
+        ),
+    )
+
+    stability_report = tmp_path / "stability.json"
+    stability_report.write_text('{"status": "failed"}', encoding="utf-8")
+    progress_path = tmp_path / "progress.jsonl"
+    output_path = tmp_path / "report.json"
+    code = run_stage0_trainability.main(
+        [
+            "--stability-report",
+            str(stability_report),
+            "--final-output",
+            str(output_path),
+            "--progress-output",
+            str(progress_path),
+            "--max-decode-tokens",
+            "4",
+        ]
+    )
+
+    assert code == 1
+    assert len(validation_calls) == 2
+    assert [record_id for record_id, _content_hash in validation_calls[0][0]] == list(
+        run_stage0_trainability.STAGE0_HELD_OUT_ITEM_IDS
+    )
+    assert validation_calls[0][1]["require_complete"] is True
+    report_data = json.loads(output_path.read_text(encoding="utf-8"))
+    assert report_data["configuration"]["asset_identity"]["stability_report_digest"] == "a" * 64
+    assert report_data["initial_state_digest"] != "0" * 64
+    assert report_data["configuration"]["asset_identity"]["held_out_record_count"] == 64
+    assert report_data["overfit_probe"]["attempt_count"] == 3
+    assert "investigation_incomplete" not in report_data.get("failed_conditions", [])
+    progress_lines = progress_path.read_text(encoding="utf-8").strip().splitlines()
+    assert len(progress_lines) == 20
+    assert sum(json.loads(line)["kind"] == "overfit_checkpoint" for line in progress_lines) == 12

@@ -125,7 +125,7 @@ Training runs are long (hours to days). Stage 0 uses `train.standalone_checkpoin
 - Validate checkpoint compatibility before resume
 - Freeze randomness (`configure_deterministic_runtime`) to make resumed runs deterministic
 
-Resume is verified with paired tests (`test_*_resume_equivalence.py`). Always checkpoint; do not rely on "remember state." See `train.trainer.LatentCoreTrainer.step_from_checkpoint()`.
+Resume is verified with paired tests (`test_*_resume_equivalence.py`). Always checkpoint; do not rely on "remember state." The stream runner restores state through `eval/run/runner.py` and `eval/run/checkpoint.py`. Stage 0 trainer checkpoints use `train/standalone_checkpoint.py` and `train/alternating_checkpoint.py`.
 
 ### Streaming Evaluation (Stage -1)
 
@@ -135,7 +135,7 @@ The harness in `eval/` is built for **non-stationary streams**, not static test 
 - Generators are seeded and deterministic; order is part of the benchmark
 - Baseline runs put a matched conventional model on the same stream, same seed
 
-Key files: `eval/gate.py`, `eval/run/`, `eval/generators/`
+Key files: `eval/gate/`, `eval/run/`, and `eval/stream/generators/`
 
 ### Spec-Driven Development (Stage -1+)
 

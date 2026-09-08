@@ -79,7 +79,12 @@ def load_subject(
         slot_queries = checkpoint.tensors.get("model.encoder.slot_queries")
         if not isinstance(slot_queries, torch.Tensor) or slot_queries.ndim != 2:
             raise ValueError("checkpoint must contain model.encoder.slot_queries")
-        slot_count = int(slot_queries.shape[0])
+        checkpoint_slot_count = int(slot_queries.shape[0])
+        if checkpoint_slot_count != slot_count:
+            raise ValueError(
+                "checkpoint slot count does not match the requested slot count: "
+                f"checkpoint={checkpoint_slot_count}, requested={slot_count}"
+            )
 
     shared_backbone = backbone or load_frozen_qwen_backbone(device=device)
     subject = LatentCoreSubject(

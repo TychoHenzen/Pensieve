@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from train.eggroll_stability import STABILITY_IMPLEMENTATION_PATHS
 from train.stage0_trainability import (
     TrainabilityReportValidationError,
     canonical_trainability_implementation_identity,
@@ -45,13 +46,13 @@ class TestTrainabilityImplementationIdentity:
             assert len(digest) == 64, f"digest for {path} must be 64 hex chars"
             assert all(c in "0123456789abcdef" for c in digest), f"digest for {path} must be valid hex"
 
-    def test_implementation_identity_includes_trainability_module(self) -> None:
-        """Verify implementation identity includes stage0_trainability.py."""
+    def test_implementation_identity_matches_stability_contract(self) -> None:
+        """Verify stability and trainability consume one implementation identity contract."""
         repo_root = Path(__file__).resolve().parents[1]
         identity = canonical_trainability_implementation_identity(repo_root)
 
         source_paths = [path for path, _ in identity.sources]
-        assert "train/stage0_trainability.py" in source_paths
+        assert source_paths == list(STABILITY_IMPLEMENTATION_PATHS)
 
     def test_implementation_identity_deterministic(self) -> None:
         """Verify implementation identity is deterministic."""
@@ -164,6 +165,63 @@ class TestStabilityReportLoader:
             assert all(c in "0123456789abcdef" for c in digest)
             assert config is not None
             assert config["implementation"]["sha256"] == implementation.sha256
+        finally:
+            temp_path.unlink()
+
+    def test_strict_loader_rejects_minimal_failed_report(self) -> None:
+        """The command path must not accept a partial stability configuration."""
+        repo_root = Path(__file__).resolve().parents[1]
+        implementation = canonical_trainability_implementation_identity(repo_root)
+        report_data = {
+            "schema_version": 1,
+            "status": "failed",
+            "configuration": {
+                "implementation": {"sha256": implementation.sha256},
+                "asset_identity": {"held_out_problem_count": 64},
+            },
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+            json.dump(report_data, handle)
+            temp_path = Path(handle.name)
+
+        try:
+            with pytest.raises(TrainabilityReportValidationError, match=r"missing (required )?field"):
+                load_and_validate_stability_report(
+                    temp_path,
+                    implementation,
+                    (),
+                    require_complete=True,
+                )
+        finally:
+            temp_path.unlink()
+
+    def test_strict_loader_rejects_missing_canonical_failed_evidence(self) -> None:
+        """Strict loading requires the canonical failed-run envelope and evidence."""
+        repo_root = Path(__file__).resolve().parents[1]
+        implementation = canonical_trainability_implementation_identity(repo_root)
+        report_data = {
+            "schema_version": 1,
+            "status": "failed",
+            "configuration": {},
+        }
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as handle:
+            json.dump(report_data, handle)
+            temp_path = Path(handle.name)
+
+        try:
+            with pytest.raises(TrainabilityReportValidationError) as exc_info:
+                load_and_validate_stability_report(
+                    temp_path,
+                    implementation,
+                    (),
+                    require_complete=True,
+                )
+            error_message = str(exc_info.value)
+            assert "outcome_code" in error_message
+            assert "checkpoints" in error_message
+            assert "failed_thresholds" in error_message
         finally:
             temp_path.unlink()
 
